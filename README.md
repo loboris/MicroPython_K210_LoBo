@@ -3,7 +3,7 @@
 
 > This MicroPython port is now in **beta stage**. Some bugs and issues can be expected.<br>
 > All standard MicroPython functionality and modules are implemented, as well as advanced thread support, file system support and display module.<br>
-> *Modules providing support for K210 peripherals (Pin, UART, I2C, SPI, Cammera, PWM, etc) will be implemented soon*
+> *Modules providing support for K210 peripherals (Pin, UART, I2C, SPI, Camera, PWM, etc) will be implemented soon*
 > 
 
 <br>
@@ -111,7 +111,7 @@ Plus any modules on the filesystem
 ...     machine.initleds()
 ...     while 1:
 ...         machine.setled(machine.LEDR, False)
-...         machine.setled(machine.LEDR, False)
+...         machine.setled(machine.LEDB, False)
 ...         if (cnt % 2):
 ...             machine.setled(machine.LEDR, True)
 ...         else:
