@@ -1,18 +1,27 @@
 # MicroPython for Kendryte K210
 
+
+> This MicroPython port is now in **beta stage**. Some bugs and issues can be expected.<br>
+> All standard MicroPython functionality and modules are implemented, as well as advanced thread support, file system support and display module.<br>
+> *Modules providing support for K210 peripherals (Pin, UART, I2C, SPI, Cammera, PWM, etc) will be implemented soon*
+> 
+
 <br>
 
 This implementation is based on [**MaixPy**](https://github.com/sipeed/MaixPy)<br>
 Based on kendryte-freertos-sdk it brings many new features:
 
 * MicroPython core based on latest build from [main Micropython repository](https://github.com/micropython/micropython), unchanged except for the thread support.
-* Refactored **_thread** module with many new features, based on my [MicroPython for ESP32](https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/wiki/thread)
+* Refactored **_thread** module with many new features, based on my [MicroPython for ESP32](https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/wiki/thread) _thread module
 * Full support for SPIFFS file system on internal Flash(with directories support) and Fat32 file system on external SD Card
 * Full filesystem timestamp support for both SPIFFS and Fat32
-* Display module ported from my [MicroPython for ESP32](https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/wiki/display)
+* **ymodem** module for file transfer to/from K210 board using ymodem protocol is provided
+* **uhashlib** and **ucryptolib** using K210 hardware AES are implemented
+* Display module ported from my [MicroPython for ESP32](https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/wiki/display) display module
+* **pye**, full screen file editor (as python frozen module) is provided
 * **Eclipse** project files included. To include it into Eclipse goto File->Import->Existing Projects into Workspace->Select root directory->[select *MicroPython_K210_LoBo* directory]->Finish. **Rebuild index**.
-* Portimg most of the modules from my [MicroPython for ESP32](https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/wiki) is planned.
-* ...
+* Porting most of the modules from my [MicroPython for ESP32](https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/wiki) port is planned.
+* More to come soon ...
 
 <br>
 
@@ -90,6 +99,18 @@ MicroPython 76eeec7-dirty on 2019-01-24; Sipeed_board with Kendryte-K210
 Type "help()" for more information.
 >>> 
 >>> 
+>>> help('modules')
+__main__          gc                ucollections      urandom
+_thread           machine           ucryptolib        ure
+array             math              uctypes           ustruct
+binascii          micropython       uerrno            utime
+board             os                uhashlib          utimeq
+builtins          pye               uheapq            uzlib
+cmath             re                uio               websocket
+collections       sys               ujson             ymodem
+display           ubinascii         uos
+Plus any modules on the filesystem
+>>> 
 >>> import machine, uos, utime, _thread
 >>> def test():
 ...     cnt = 0
@@ -137,6 +158,20 @@ t', 'test_filesystem.txt']
 >>> 
 >>> uos.statvfs('/sd')
 (4096, 4096, 1936436, 1925131, 1925131, 0, 0, 0, 0, 255)
+>>> 
+>>> import display
+>>> tft = display.TFT()
+>>> tft.init(0)
+>>> tft.circle(160,120,80,tft.RED,tft.BLUE)
+>>> tft.image(0,0,'/flash/test1.jpg')
+>>> 
+>>> import micropython, gc
+>>> gc.collect()
+>>> micropython.mem_info()
+mem: total=37414, current=5122, peak=6688
+stack: 1004
+GC: total: 3121280, used: 1504, free: 3119776
+ No. of 1-blocks: 25, 2-blocks: 4, max blk sz: 6, max free sz: 97351
 >>> 
 
 ```
