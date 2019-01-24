@@ -1,0 +1,91 @@
+#include <stdio.h>
+#include <devices.h>
+#include <FreeRTOS.h>
+#include <task.h>
+
+
+#include <pin_cfg.h>
+
+handle_t gio;
+static QueueHandle_t mutex = NULL;
+
+const fpioa_cfg_t g_fpioa_cfg =
+{
+    .version = PIN_CFG_VERSION,
+    .functions_count = 4,
+    .functions =
+    {
+        {17, FUNC_GPIOHS2},
+        {12, FUNC_GPIOHS3},
+        {13, FUNC_GPIOHS4},
+        {14, FUNC_GPIOHS5}
+    }
+};
+
+void vTask1()
+{
+    int counter = 0;
+    while (1)
+    {
+        vTaskDelay(10000 / portTICK_RATE_MS);
+        int val = gpio_get_pin_value(gio, 2);
+        if (xSemaphoreTake(mutex, 2000 / portTICK_PERIOD_MS) == pdTRUE) {
+            printf("Task1 %d, proc: %d, INPUT=%d\n", ++counter, (int)uxPortGetProcessorId(), val);
+            xSemaphoreGive(mutex);
+        }
+    }
+}
+
+void vTask2()
+{
+    int counter = 0;
+    while (1)
+    {
+        static int val = 0;
+
+        gpio_set_pin_value(gio, 3, 1);
+        gpio_set_pin_value(gio, 4, 1);
+        gpio_set_pin_value(gio, 5, 1);
+        if (val < 3) gpio_set_pin_value(gio, val+3, 0);
+        else {
+            gpio_set_pin_value(gio, 3, 0);
+            gpio_set_pin_value(gio, 4, 0);
+            gpio_set_pin_value(gio, 5, 0);
+        }
+        val++;
+        if (val > 3) val = 0;
+
+        if (xSemaphoreTake(mutex, 2000 / portTICK_PERIOD_MS) == pdTRUE) {
+            //printf("Task2 %d, proc: %d, pin=%d\n", ++counter, (int)uxPortGetProcessorId(), val);
+            xSemaphoreGive(mutex);
+        }
+        vTaskDelay(1000 / portTICK_RATE_MS);
+    }
+}
+
+int32_t main(void)
+{
+    printf("START Main\n");
+    gio = io_open("/dev/gpio0");
+    configASSERT(gio);
+
+    gpio_set_drive_mode(gio, 2, GPIO_DM_INPUT);
+    gpio_set_drive_mode(gio, 3, GPIO_DM_OUTPUT);
+    gpio_set_pin_value(gio, 3, GPIO_PV_HIGH);
+    gpio_set_drive_mode(gio, 4, GPIO_DM_OUTPUT);
+    gpio_set_pin_value(gio, 4, GPIO_PV_HIGH);
+    gpio_set_drive_mode(gio, 5, GPIO_DM_OUTPUT);
+    gpio_set_pin_value(gio, 5, GPIO_PV_HIGH);
+
+    mutex = xSemaphoreCreateMutex();
+
+    //int counter = 0;
+    xTaskCreateAtProcessor(0, vTask2, "vTask2", 1024, NULL, 2, NULL);
+    //vTaskDelay(500 / portTICK_RATE_MS);
+    xTaskCreateAtProcessor(1, vTask1, "vTask1", 1024, NULL, 3, NULL);
+
+    while (1) {
+        vTaskDelay(5000 / portTICK_RATE_MS);
+        //printf("Main %d, proc: %d\n", ++counter, (int)uxPortGetProcessorId());
+    }
+}

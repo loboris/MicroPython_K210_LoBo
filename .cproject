@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<?fileVersion 4.0.0?><cproject storage_type_id="org.eclipse.cdt.core.XmlProjectDescriptionStorage">
+	<storageModule moduleId="org.eclipse.cdt.core.settings">
+		<cconfiguration id="cdt.managedbuild.toolchain.gnu.cross.base.1909992805">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="cdt.managedbuild.toolchain.gnu.cross.base.1909992805" moduleId="org.eclipse.cdt.core.settings" name="Default">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.ELF" point="org.eclipse.cdt.core.BinaryParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration artifactName="${ProjName}" buildProperties="" description="" id="cdt.managedbuild.toolchain.gnu.cross.base.1909992805" name="Default" optionalBuildProperties="org.eclipse.cdt.docker.launcher.containerbuild.property.selectedvolumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.volumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.connection=unix:///var/run/docker.sock" parent="org.eclipse.cdt.build.core.emptycfg">
+					<folderInfo id="cdt.managedbuild.toolchain.gnu.cross.base.1909992805.2050468440" name="/" resourcePath="">
+						<toolChain id="cdt.managedbuild.toolchain.gnu.cross.base.1132805502" name="Cross GCC" superClass="cdt.managedbuild.toolchain.gnu.cross.base">
+							<option id="cdt.managedbuild.option.gnu.cross.prefix.1242737626" name="Prefix" superClass="cdt.managedbuild.option.gnu.cross.prefix"/>
+							<option id="cdt.managedbuild.option.gnu.cross.path.1462635559" name="Path" superClass="cdt.managedbuild.option.gnu.cross.path"/>
+							<targetPlatform archList="all" binaryParser="org.eclipse.cdt.core.ELF" id="cdt.managedbuild.targetPlatform.gnu.cross.1139917291" isAbstract="false" osList="all" superClass="cdt.managedbuild.targetPlatform.gnu.cross"/>
+							<builder id="cdt.managedbuild.builder.gnu.cross.644184290" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="cdt.managedbuild.builder.gnu.cross"/>
+							<tool id="cdt.managedbuild.tool.gnu.cross.c.compiler.821318382" name="Cross GCC Compiler" superClass="cdt.managedbuild.tool.gnu.cross.c.compiler">
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="gnu.c.compiler.option.include.paths.1417419536" name="Include paths (-I)" superClass="gnu.c.compiler.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/platform/sdk/kendryte-freertos-sdk/lib/freertos/conf&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/platform/sdk/kendryte-freertos-sdk/lib/freertos/include&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/platform/sdk/kendryte-freertos-sdk/lib/drivers/include&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/platform/sdk/kendryte-freertos-sdk/third_party/fatfs/source&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/platform/sdk/kendryte-freertos-sdk/third_party/lwip/src/include&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/platform/drivers/include&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/third_party/spiffs/spiffs/src&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/mpy_support&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/mpy_support/build/genhdr&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/mpy_support/build&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/kendryte-toolchain/riscv64-unknown-elf/include&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/kendryte-toolchain/lib/gcc/riscv64-unknown-elf/8.2.0/include&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="gnu.c.compiler.option.preprocessor.def.symbols.1732859829" name="Defined symbols (-D)" superClass="gnu.c.compiler.option.preprocessor.def.symbols" useByScannerDiscovery="false" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="__riscv"/>
+									<listOptionValue builtIn="false" value="__riscv64"/>
+									<listOptionValue builtIn="false" value="__GNUC__=1"/>
+									<listOptionValue builtIn="false" value="___int8_t_defined"/>
+									<listOptionValue builtIn="false" value="___int16_t_defined"/>
+									<listOptionValue builtIn="false" value="___int32_t_defined"/>
+									<listOptionValue builtIn="false" value="___int64_t_defined"/>
+									<listOptionValue builtIn="false" value="CONFIG_LOG_COLORS=1"/>
+									<listOptionValue builtIn="false" value="CONFIG_LOG_ENABLE=1"/>
+									<listOptionValue builtIn="false" value="CONFIG_LOG_LEVEL=3"/>
+									<listOptionValue builtIn="false" value="LOG_KERNEL=1"/>
+								</option>
+								<inputType id="cdt.managedbuild.tool.gnu.c.compiler.input.210073363" superClass="cdt.managedbuild.tool.gnu.c.compiler.input"/>
+							</tool>
+							<tool id="cdt.managedbuild.tool.gnu.cross.cpp.compiler.456054394" name="Cross G++ Compiler" superClass="cdt.managedbuild.tool.gnu.cross.cpp.compiler">
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="gnu.cpp.compiler.option.include.paths.250937537" name="Include paths (-I)" superClass="gnu.cpp.compiler.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/platform/sdk/kendryte-freertos-sdk/lib/freertos/conf&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/platform/sdk/kendryte-freertos-sdk/lib/freertos/include&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/platform/sdk/kendryte-freertos-sdk/lib/drivers/include&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/mpy_support&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/mpy_support/build/genhdr&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/mpy_support/build&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/kendryte-toolchain/riscv64-unknown-elf/include&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${PWD}/kendryte-toolchain/lib/gcc/riscv64-unknown-elf/8.2.0/include&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="gnu.cpp.compiler.option.preprocessor.def.181684485" name="Defined symbols (-D)" superClass="gnu.cpp.compiler.option.preprocessor.def" useByScannerDiscovery="false" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="__riscv"/>
+									<listOptionValue builtIn="false" value="__riscv64"/>
+									<listOptionValue builtIn="false" value="__GNUC__=1"/>
+									<listOptionValue builtIn="false" value="___int8_t_defined"/>
+									<listOptionValue builtIn="false" value="___int16_t_defined"/>
+									<listOptionValue builtIn="false" value="___int32_t_defined"/>
+									<listOptionValue builtIn="false" value="___int64_t_defined"/>
+								</option>
+								<inputType id="cdt.managedbuild.tool.gnu.cpp.compiler.input.210179880" superClass="cdt.managedbuild.tool.gnu.cpp.compiler.input"/>
+							</tool>
+							<tool id="cdt.managedbuild.tool.gnu.cross.c.linker.1753549295" name="Cross GCC Linker" superClass="cdt.managedbuild.tool.gnu.cross.c.linker"/>
+							<tool id="cdt.managedbuild.tool.gnu.cross.cpp.linker.1741925571" name="Cross G++ Linker" superClass="cdt.managedbuild.tool.gnu.cross.cpp.linker">
+								<inputType id="cdt.managedbuild.tool.gnu.cpp.linker.input.437030320" superClass="cdt.managedbuild.tool.gnu.cpp.linker.input">
+									<additionalInput kind="additionalinputdependency" paths="$(USER_OBJS)"/>
+									<additionalInput kind="additionalinput" paths="$(LIBS)"/>
+								</inputType>
+							</tool>
+							<tool id="cdt.managedbuild.tool.gnu.cross.archiver.754125992" name="Cross GCC Archiver" superClass="cdt.managedbuild.tool.gnu.cross.archiver"/>
+							<tool id="cdt.managedbuild.tool.gnu.cross.assembler.1435382403" name="Cross GCC Assembler" superClass="cdt.managedbuild.tool.gnu.cross.assembler">
+								<inputType id="cdt.managedbuild.tool.gnu.assembler.input.1543123453" superClass="cdt.managedbuild.tool.gnu.assembler.input"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+		</cconfiguration>
+	</storageModule>
+	<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+		<project id="MaixPy-FreeRTOS.null.45624925" name="MaixPy-FreeRTOS"/>
+	</storageModule>
+	<storageModule moduleId="org.eclipse.cdt.core.LanguageSettingsProviders"/>
+	<storageModule moduleId="refreshScope" versionNumber="2">
+		<configuration configurationName="Default">
+			<resource resourceType="PROJECT" workspacePath="/MaixPy-FreeRTOS"/>
+		</configuration>
+	</storageModule>
+	<storageModule moduleId="scannerConfiguration">
+		<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		<scannerConfigBuildInfo instanceId="cdt.managedbuild.toolchain.gnu.cross.base.1909992805;cdt.managedbuild.toolchain.gnu.cross.base.1909992805.2050468440;cdt.managedbuild.tool.gnu.cross.c.compiler.821318382;cdt.managedbuild.tool.gnu.c.compiler.input.210073363">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		</scannerConfigBuildInfo>
+		<scannerConfigBuildInfo instanceId="cdt.managedbuild.toolchain.gnu.cross.base.1909992805;cdt.managedbuild.toolchain.gnu.cross.base.1909992805.2050468440;cdt.managedbuild.tool.gnu.cross.cpp.compiler.456054394;cdt.managedbuild.tool.gnu.cpp.compiler.input.210179880">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		</scannerConfigBuildInfo>
+	</storageModule>
+	<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>
+	<storageModule moduleId="org.eclipse.cdt.make.core.buildtargets">
+		<buildTargets>
+			<target name="BUILD" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
+				<buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
+				<stopOnError>true</stopOnError>
+				<useDefaultCommand>false</useDefaultCommand>
+				<runAllBuilders>true</runAllBuilders>
+			</target>
+			<target name="FLASH&amp;RUN" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
+				<buildCommand>${PWD}/k210-freertos/FLASH.sh</buildCommand>
+				<buildArguments/>
+				<buildTarget/>
+				<stopOnError>true</stopOnError>
+				<useDefaultCommand>false</useDefaultCommand>
+				<runAllBuilders>true</runAllBuilders>
+			</target>
+			<target name="CLEAN" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
+				<buildCommand>${PWD}/k210-freertos/CLEAN.sh</buildCommand>
+				<buildArguments/>
+				<buildTarget/>
+				<stopOnError>true</stopOnError>
+				<useDefaultCommand>false</useDefaultCommand>
+				<runAllBuilders>true</runAllBuilders>
+			</target>
+		</buildTargets>
+	</storageModule>
+</cproject>
