@@ -1,5 +1,0 @@
-INC += /home/LoBo2_Razno/MAIX/MAIXPY/MaixPy/k210-freertos/platform/drivers/.
- INC += /home/LoBo2_Razno/MAIX/MAIXPY/MaixPy/k210-freertos/platform/drivers/include
- liba-sipeed_drivers += /home/LoBo2_Razno/MAIX/MAIXPY/MaixPy/k210-freertos/platform/drivers/build/drivers.a
- output-file += $(liba-sipeed_drivers)
-

@@ -1,6 +1,0 @@
-INC += /home/LoBo2_Razno/MAIX/MAIXPY/MaixPy/k210-freertos/third_party/spiffs/
- INC += /home/LoBo2_Razno/MAIX/MAIXPY/MaixPy/k210-freertos/third_party/spiffs/spiffs/src
- INC += /home/LoBo2_Razno/MAIX/MAIXPY/MaixPy/k210-freertos/third_party/spiffs/include
- liba-spiffs += /home/LoBo2_Razno/MAIX/MAIXPY/MaixPy/k210-freertos/third_party/spiffs/build/spiffs.a
- output-file += $(liba-spiffs)
-

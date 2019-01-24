@@ -1,4 +1,0 @@
-INC += /home/LoBo2_Razno/MAIX/MAIXPY/MaixPy/k210-freertos/platform/include
- -include /home/LoBo2_Razno/MAIX/MAIXPY/MaixPy/k210-freertos/platform/drivers/mk
- -include /home/LoBo2_Razno/MAIX/MAIXPY/MaixPy/k210-freertos/platform/sdk/mk
-

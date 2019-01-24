@@ -1,7 +1,0 @@
-INC += /home/LoBo2_Razno/MAIX/MAIXPY/MaixPy/k210-freertos/mpy_support/
- INC += /home/LoBo2_Razno/MAIX/MAIXPY/MaixPy/k210-freertos/mpy_support/standard_lib/include/
- INC += /home/LoBo2_Razno/MAIX/MAIXPY/MaixPy/k210-freertos/mpy_support/../../micropython/
- INC += /home/LoBo2_Razno/MAIX/MAIXPY/MaixPy/k210-freertos/mpy_support/build/
- liba-mpy += /home/LoBo2_Razno/MAIX/MAIXPY/MaixPy/k210-freertos/mpy_support/build/mpy_support.a
- output-file += $(liba-mpy)
-
