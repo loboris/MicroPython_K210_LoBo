@@ -9,7 +9,7 @@
 <br>
 
 This implementation is based on [**MaixPy**](https://github.com/sipeed/MaixPy)<br>
-Based on kendryte-freertos-sdk it brings many new features:
+Based on *kendryte-freertos-sdk* (modified to include some needed features not yet implemented) it brings many new features:
 
 * MicroPython core based on latest build from [main Micropython repository](https://github.com/micropython/micropython), unchanged except for the thread support.
 * Refactored **_thread** module with many new features, based on my [MicroPython for ESP32](https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/wiki/thread) _thread module
@@ -39,12 +39,6 @@ Full Wiki pages with detailed instructions for build and usage will be available
 git clone https://github.com/loboris/MicroPython_K210_LoBo.git
 ```
 
-_You may want to use **--depth** clone option to limit the git history to only the latest commit._<br>
-_The download will be much smaller and faster._
-
-```bash
-git clone --depth 1 https://github.com/loboris/MicroPython_K210_LoBo.git
-```
 <br>
 
 You can also download the repository as a zip file (using `Clone or download` button on the first repository page) and unpack it to some directory.<br>
@@ -54,11 +48,11 @@ You will not be able to use `git pull` to update the repository, but otherwise t
 ## Build the MicroPython firmware
 <br>
 
-*Kendryte toolchain will be automatically downloaded and unpacked on* **first run** *of* **BUILD.sh** *script*
-*kendryte-freertos-sdk is included in the repository*
+> *Kendryte toolchain will be automatically downloaded and unpacked on* **first run** *of* **BUILD.sh** *script*<br>
+> *kendryte-freertos-sdk* is included in the repository
 
 
-**Change the working directory to MicroPython_K210_LoBo/k210-freertos**
+Change the working directory to **MicroPython_K210_LoBo/k210-freertos**.
 
 To build the MicroPython firmware, run:
 ```
