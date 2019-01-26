@@ -118,7 +118,7 @@ const char Banner[] = {"\n __  __              _____  __   __  _____   __     __
 |_|  |_| /_/    \\_\\ |_____| /_/ \\_\\ |_|         |_|\n\
 ------------------------------------------------------\n\n"};
 
-const char ver_info[] = {"\nMaixPy-FreeRTOS by LoBo v1.0.1\n\
+const char ver_info[] = {"\nMaixPy-FreeRTOS by LoBo v1.0.2\n\
 ------------------------------\n"};
 
 static const char* TAG = "[MAIN]";

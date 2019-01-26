@@ -1,11 +1,9 @@
 /*
- * This file is part of the MicroPython project, http://micropython.org/
- *
- * Development of the code in this file was sponsored by Microbric Pty Ltd
+ * This file is part of the MicroPython K210 project, https://github.com/loboris/MicroPython_K210_LoBo
  *
  * The MIT License (MIT)
  *
- * Copyright (c) 2016 Damien P. George
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -43,7 +41,7 @@
 #include "py/runtime.h"
 #include "extmod/utime_mphal.h"
 #include "lib/timeutils/timeutils.h"
-
+#include "mphalport.h"
 
 handle_t mp_rtc_rtc0;
 
@@ -199,7 +197,7 @@ STATIC mp_obj_t time_mktime(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t
         mp_raise_ValueError("expected at least 6-item time tuple");
     }
 
-    if (MP_OBJ_IS_STR(args[0].u_obj)) {
+    if (MP_OBJ_IS_STR(args[1].u_obj)) {
         tz = mp_obj_str_get_str(args[1].u_obj);
     }
     tm_inf.tm_year = mp_obj_get_int(time_items[0]) - 1900;
@@ -231,7 +229,41 @@ STATIC mp_obj_t time_mktime(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(time_mktime_obj, 1, time_mktime);
 
+//----------------------------------------------
+STATIC mp_obj_t time_sleep_r(mp_obj_t seconds_o)
+{
+    mp_int_t res = _mp_hal_delay_us((mp_uint_t)(1000000 * mp_obj_get_float(seconds_o)));
+    #if MICROPY_PY_BUILTINS_FLOAT
+    return mp_obj_new_float((double)res / 1000000.0);
+    #else
+    return mp_obj_new_int(res / 1000000);
+    #endif
+}
+MP_DEFINE_CONST_FUN_OBJ_1(mp_utime_sleep_r_obj, time_sleep_r);
 
+//-------------------------------------------
+STATIC mp_obj_t time_sleep_ms_r(mp_obj_t arg)
+{
+    mp_int_t ms = mp_obj_get_int(arg);
+    if (ms > 0) {
+        return mp_obj_new_int(_mp_hal_delay_us(ms * 1000) / 1000);
+    }
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(mp_utime_sleep_ms_r_obj, time_sleep_ms_r);
+
+//-------------------------------------------
+STATIC mp_obj_t time_sleep_us_r(mp_obj_t arg)
+{
+    mp_int_t us = mp_obj_get_int(arg);
+    if (us > 0) {
+        return mp_obj_new_int(_mp_hal_delay_us(us));
+    }
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(mp_utime_sleep_us_r_obj, time_sleep_us_r);
+
+//============================================================
 STATIC const mp_rom_map_elem_t time_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_utime) },
 
@@ -250,6 +282,11 @@ STATIC const mp_rom_map_elem_t time_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_sleep), MP_ROM_PTR(&mp_utime_sleep_obj) },
     { MP_ROM_QSTR(MP_QSTR_sleep_ms), MP_ROM_PTR(&mp_utime_sleep_ms_obj) },
     { MP_ROM_QSTR(MP_QSTR_sleep_us), MP_ROM_PTR(&mp_utime_sleep_us_obj) },
+
+    { MP_ROM_QSTR(MP_QSTR_rsleep), MP_ROM_PTR(&mp_utime_sleep_r_obj) },
+    { MP_ROM_QSTR(MP_QSTR_rsleep_ms), MP_ROM_PTR(&mp_utime_sleep_ms_r_obj) },
+    { MP_ROM_QSTR(MP_QSTR_rsleep_us), MP_ROM_PTR(&mp_utime_sleep_us_r_obj) },
+
     { MP_ROM_QSTR(MP_QSTR_ticks_ms), MP_ROM_PTR(&mp_utime_ticks_ms_obj) },
     { MP_ROM_QSTR(MP_QSTR_ticks_us), MP_ROM_PTR(&mp_utime_ticks_us_obj) },
     { MP_ROM_QSTR(MP_QSTR_ticks_cpu), MP_ROM_PTR(&mp_utime_ticks_cpu_obj) },
@@ -259,6 +296,7 @@ STATIC const mp_rom_map_elem_t time_module_globals_table[] = {
 
 STATIC MP_DEFINE_CONST_DICT(time_module_globals, time_module_globals_table);
 
+//====================================
 const mp_obj_module_t utime_module = {
     .base = { &mp_type_module },
     .globals = (mp_obj_dict_t*)&time_module_globals,

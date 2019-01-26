@@ -1,3 +1,16 @@
+...
+
+This is the clone of the main [MicroPython repository](https://github.com/micropython/micropython).<br>
+It is unchanged, except for two files related to threads `py/mpthread.h` and `py/modthread.c`.<br>
+*All files not needed for building the K210 Micropython port are removed.*
+
+Latest update: Jan 26. 2019<br>
+Release: 1.10
+SHA: 3e25d611ef3185b68558a20057d50b0d18dc67a0
+
+...
+
+
 [![Build Status](https://travis-ci.org/micropython/micropython.png?branch=master)](https://travis-ci.org/micropython/micropython) [![Coverage Status](https://coveralls.io/repos/micropython/micropython/badge.png?branch=master)](https://coveralls.io/r/micropython/micropython?branch=master)
 
 The MicroPython project

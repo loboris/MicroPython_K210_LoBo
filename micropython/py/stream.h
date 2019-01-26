@@ -26,7 +26,6 @@
 #ifndef MICROPY_INCLUDED_PY_STREAM_H
 #define MICROPY_INCLUDED_PY_STREAM_H
 
-#include <sys/types.h>
 #include "py/obj.h"
 #include "py/mperrno.h"
 

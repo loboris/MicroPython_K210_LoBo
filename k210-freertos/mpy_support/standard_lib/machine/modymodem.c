@@ -25,7 +25,7 @@
  */
 
 /*
- * MicroPython-ESP32 YModem driver/Module
+ * MicroPython-K210 YModem driver/Module
  *
  * Copyright (C) 2019 Boris Lovosevic (https://github.com/loboris)
  *

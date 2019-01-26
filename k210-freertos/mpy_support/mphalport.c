@@ -326,25 +326,33 @@ mp_uint_t mp_hal_ticks_ms(void)
  * Returns the actual delay time.
  *
  */
-//--------------------------------
-void mp_hal_delay_us(mp_uint_t us)
+//--------------------------------------
+mp_uint_t _mp_hal_delay_us(mp_uint_t us)
 {
-    if (us == 0) return;
-    mp_uint_t current_us = mp_hal_ticks_us();
-    mp_uint_t end_us = current_us + us;
+    if (us == 0) return 0;
+    mp_uint_t start_us = mp_hal_ticks_us();
+    mp_uint_t end_us = start_us + us;
     if (us <= (portTICK_PERIOD_MS*2000)) {
         // For delays up to 2000 us we use blocking delay
         while (mp_hal_ticks_us() < end_us) {}
     }
+    // Dont accept interrupt character while sleeping
+    int intr_c = mp_interrupt_char;
+    mp_interrupt_char = -1;
+
     // For longer sleeps, use FreeRTOS ticks to wait
     // While sleeping, allow other threads to run
     MP_THREAD_GIL_EXIT();
 
     mp_uint_t tend = end_us - 1000;
+    mp_uint_t tcurr = start_us;
+    mp_uint_t tellapsed = 0;
     bool notified = false;
     int ncheck = 0;
     while (!notified) {
-        if (mp_hal_ticks_us() >= tend) break;
+        tcurr = mp_hal_ticks_us();
+        tellapsed = tcurr - start_us;
+        if (tcurr >= tend) break;
         // wait 1 ms
         vTaskDelay(1 / portTICK_PERIOD_MS);
 
@@ -360,16 +368,35 @@ void mp_hal_delay_us(mp_uint_t us)
     }
     if (!notified) {
         // wait remaining us time
-        while (mp_hal_ticks_us() < end_us) {}
+        tcurr = mp_hal_ticks_us();
+        while (tcurr < end_us) {
+            tcurr = mp_hal_ticks_us();
+        }
+        tellapsed = tcurr - start_us;
     }
 
+    // Restore interrupt character
+    mp_interrupt_char = intr_c;
     MP_THREAD_GIL_ENTER();
+    return tellapsed;
 }
 
-//----------------------------------
-void mp_hal_delay_ms(mp_uint_t ms) {
-    mp_hal_delay_us(ms * 1000);
+//--------------------------------
+void mp_hal_delay_us(mp_uint_t us)
+{
+    _mp_hal_delay_us(us);
 }
 
+//--------------------------------
+void mp_hal_delay_ms(mp_uint_t ms)
+{
+    _mp_hal_delay_us(ms * 1000);
+}
+
+//--------------------------------------
+mp_uint_t _mp_hal_delay_ms(mp_uint_t ms)
+{
+    return _mp_hal_delay_us(ms * 1000);
+}
 
 
