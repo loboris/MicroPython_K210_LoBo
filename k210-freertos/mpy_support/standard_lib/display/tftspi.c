@@ -125,7 +125,7 @@ uint8_t tft_touch_type = TOUCH_TYPE_NONE;
 uint8_t bits_per_color = 16;
 uint8_t TFT_RGB_BGR = 0;
 uint8_t gamma_curve = 0;
-uint32_t spi_speed = 10000000;
+uint32_t spi_speed = 8000000;
 // ====================================================
 
 #if USE_DISPLAY_TASK
@@ -134,7 +134,7 @@ static QueueHandle_t dispQueue = NULL;
 static TaskHandle_t disp_task_handle = 0;
 #endif
 
-static const char TAG[] = "[TFTSPI]";
+//static const char TAG[] = "[TFTSPI]";
 static uint8_t invertrot = 1;
 
 uint8_t spibus_is_init = 0;
@@ -168,6 +168,15 @@ static void set_dcx_data()
     gpio_set_pin_value(gio, DCX_GPIONUM, GPIO_PV_HIGH);
 }
 
+//----------------------
+uint32_t tft_set_speed()
+{
+    uint32_t speed = (uint32_t)spi_dev_set_clock_rate(spi_dfs8, (spi_speed*2)/3);
+    speed = (uint32_t)spi_dev_set_clock_rate(spi_dfs16, spi_speed);
+    spi_dev_set_clock_rate(spi_dfs32, spi_speed);
+    return speed;
+}
+
 //----------------------------
 static void spi_control_init()
 {
@@ -182,11 +191,7 @@ static void spi_control_init()
     spi_dfs32 = spi_get_device(spi0, SPI_MODE_0, SPI_FF_OCTAL, 1 << DISP_SPI_SLAVE_SELECT, FRAME_LEN_32);
     spi_dev_config_non_standard(spi_dfs32, INSTRUCTION_LEN_0, ADDRESS_LEN_32, WAIT_CYCLE, SPI_AITM_AS_FRAME_FORMAT);
 
-    uint32_t speed = (uint32_t)spi_dev_set_clock_rate(spi_dfs8, (spi_speed*2)/3);
-    LOGD(TAG, "cmd speed=%u", speed);
-    speed = (uint32_t)spi_dev_set_clock_rate(spi_dfs16, spi_speed);
-    LOGD(TAG, "data speed=%u", speed);
-    spi_dev_set_clock_rate(spi_dfs32, spi_speed);
+    tft_set_speed();
 }
 
 //-----------------------------

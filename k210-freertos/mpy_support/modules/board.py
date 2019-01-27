@@ -1,3 +1,6 @@
+
+name = "K210_board"
+
 class board_info:
     def __init__(self):
         self.pin_num = 48;

@@ -176,9 +176,12 @@ void mp_hal_uarths_setirq_default()
     mp_hal_uarths_setirqhandle(on_irq_haluart_recv);
 }
 
+// This function is called only once, on system start
 //====================
 void mp_hal_init(void)
 {
+    system_set_cpu_frequency(MICRO_PY_DEFAULT_CPU_CLOCK/2);
+
     mp_hal_set_interrupt_char(-1);
 
     // Setup semaphores and mutexes
@@ -262,8 +265,8 @@ void mp_hal_debug_tx_strn_cooked(void *env, const char *str, size_t len);
 const mp_print_t mp_debug_print = {NULL, mp_hal_debug_tx_strn_cooked};
 
 // Send string of given length
-//--------------------------------------------------------
-void mp_hal_stdout_tx_strn(const char *str, mp_uint_t len)
+//-----------------------------------------------------
+void mp_hal_stdout_tx_strn(const char *str, size_t len)
 {
     // Only release the GIL if many characters are being sent
     bool release_gil = len > 20;

@@ -213,6 +213,8 @@ static inline bool MP_OBJ_IS_OBJ(mp_const_obj_t o)
 #define MP_OBJ_TO_PTR(o) ((void*)(uintptr_t)(o))
 #define MP_OBJ_FROM_PTR(p) ((mp_obj_t)((uintptr_t)(p)))
 
+// On RISC-V 64bit 64-bit pointers are used
+#ifndef __riscv64
 // rom object storage needs special handling to widen 32-bit pointer to 64-bits
 typedef union _mp_rom_obj_t { uint64_t u64; struct { const void *lo, *hi; } u32; } mp_rom_obj_t;
 #define MP_ROM_INT(i) {MP_OBJ_NEW_SMALL_INT(i)}
@@ -222,8 +224,14 @@ typedef union _mp_rom_obj_t { uint64_t u64; struct { const void *lo, *hi; } u32;
 #else
 #define MP_ROM_PTR(p) {.u32 = {.lo = NULL, .hi = (p)}}
 #endif
+#else
+typedef mp_const_obj_t mp_rom_obj_t;
+#define MP_ROM_INT(i) MP_OBJ_NEW_SMALL_INT(i)
+#define MP_ROM_QSTR(q) MP_OBJ_NEW_QSTR(q)
+#define MP_ROM_PTR(p) ((mp_obj_t)p)
+#endif // __riscv64
 
-#endif
+#endif // MICROPY_OBJ_REPR == MICROPY_OBJ_REPR_D
 
 // Macros to convert between mp_obj_t and concrete object types.
 // These are identity operations in MicroPython, but ability to override

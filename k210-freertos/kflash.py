@@ -733,6 +733,7 @@ if __name__ == '__main__':
     parser.add_argument("-v", "--verbose", help="increase output verbosity", default=False,
                         action="store_true")
     parser.add_argument("-t", "--terminal", help="Start a terminal after finish (Python miniterm)", default=False, action="store_true")
+    parser.add_argument("-T", "--term", help="Only run terminal (Python miniterm)", default=False, action="store_true")
     parser.add_argument("-B", "--Board", type=str, help="Select dev board, dan or kd233, default dan", default="dan")
     parser.add_argument("-n", "--noansi", help="Do not use ANSI colors, recommended in Windows CMD", default=False, action="store_true")
     parser.add_argument("firmware", help="firmware bin path")
@@ -759,6 +760,14 @@ if __name__ == '__main__':
     else:
         _port = args.port
         print(INFO_MSG,"COM Port Selected Manually: ",_port,BASH_TIPS['DEFAULT'])
+
+    if(args.term == True):
+        import serial.tools.miniterm
+        # For using the terminal with MaixPy the 'filter' option must be set to 'direct'
+        # because some control characters are emited
+        sys.argv = ['kflash.py', _port, str(args.baudrate), '--dtr=0', '--rts=0',  '--filter=direct']
+        serial.tools.miniterm.main(default_port=_port, default_baudrate=115200, default_dtr=False, default_rts=False)
+        sys.exit(0)
 
     loader = MAIXLoader(port=_port, baudrate=115200)
 

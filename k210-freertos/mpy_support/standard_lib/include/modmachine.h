@@ -74,6 +74,7 @@ const fpioa_cfg_t leds_pin_cfg =
 extern uint8_t mp_used_gpios[32];
 
 void fpioa_setup_pins(const fpioa_cfg_t *pin_cfg);
+uint64_t random_at_most(uint32_t max);
 
 //extern const mp_obj_type_t machine_uart_type;
 

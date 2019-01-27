@@ -59,17 +59,6 @@ STATIC void display_tft_printinfo(const mp_print_t *print, mp_obj_t self_in, mp_
     mp_printf(print, "TFT Display");
 }
 
-/*
- * Check active display device type
- * Reinitialize SPI, if the spi device changed
- * Set some global variables so that multiple displays can be used
- */
-//-------------------------------------------
-static int setupDevice( mp_obj_t disp_dev_in)
-{
-    return 0;
-}
-
 //--------------------------------------
 STATIC color_t intToColor(uint32_t cint)
 {
@@ -172,10 +161,6 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_KW(display_tft_init_obj, 0, display_tft_init);
 //--------------------------------------------------
 STATIC mp_obj_t display_tft_deinit(mp_obj_t self_in)
 {
-    display_tft_obj_t *self = self_in;
-    if (setupDevice(self_in) == 0) {
-        spi_deinit_internal(self);
-    }
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(display_tft_deinit_obj, display_tft_deinit);
@@ -188,7 +173,6 @@ STATIC mp_obj_t display_tft_drawPixel(size_t n_args, const mp_obj_t *pos_args, m
         { MP_QSTR_y, MP_ARG_REQUIRED | MP_ARG_INT, { .u_int = 0 } },
         { MP_QSTR_color,               MP_ARG_INT, { .u_int = -1 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -214,7 +198,6 @@ STATIC mp_obj_t display_tft_drawLine(size_t n_args, const mp_obj_t *pos_args, mp
         { MP_QSTR_y1,    MP_ARG_REQUIRED | MP_ARG_INT, { .u_int = 0 } },
         { MP_QSTR_color,                   MP_ARG_INT, { .u_int = -1 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -244,7 +227,6 @@ STATIC mp_obj_t display_tft_drawLineByAngle(size_t n_args, const mp_obj_t *pos_a
         { MP_QSTR_angle,  MP_ARG_REQUIRED | MP_ARG_INT, { .u_int = 0 } },
         { MP_QSTR_color,                    MP_ARG_INT, { .u_int = -1 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -277,7 +259,6 @@ STATIC mp_obj_t display_tft_drawTriangle(size_t n_args, const mp_obj_t *pos_args
         { MP_QSTR_color,                    MP_ARG_INT, { .u_int = -1 } },
         { MP_QSTR_fillcolor,                MP_ARG_INT, { .u_int = -1 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -311,7 +292,6 @@ STATIC mp_obj_t display_tft_drawCircle(size_t n_args, const mp_obj_t *pos_args, 
         { MP_QSTR_color,                    MP_ARG_INT, { .u_int = -1 } },
         { MP_QSTR_fillcolor,                MP_ARG_INT, { .u_int = -1 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -345,7 +325,6 @@ STATIC mp_obj_t display_tft_drawEllipse(size_t n_args, const mp_obj_t *pos_args,
         { MP_QSTR_color,                    MP_ARG_INT, { .u_int = -1 } },
         { MP_QSTR_fillcolor,                MP_ARG_INT, { .u_int = -1 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -381,7 +360,6 @@ STATIC mp_obj_t display_tft_drawArc(size_t n_args, const mp_obj_t *pos_args, mp_
         { MP_QSTR_color,                    MP_ARG_INT, { .u_int = -1 } },
         { MP_QSTR_fillcolor,                MP_ARG_INT, { .u_int = -1 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -419,7 +397,6 @@ STATIC mp_obj_t display_tft_drawPoly(size_t n_args, const mp_obj_t *pos_args, mp
         { MP_QSTR_fillcolor,                MP_ARG_INT, { .u_int = -1 } },
         { MP_QSTR_rotate,                   MP_ARG_INT, { .u_int = 0 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -454,7 +431,6 @@ STATIC mp_obj_t display_tft_drawRect(size_t n_args, const mp_obj_t *pos_args, mp
         { MP_QSTR_color,                    MP_ARG_INT, { .u_int = -1 } },
         { MP_QSTR_fillcolor,                MP_ARG_INT, { .u_int = -1 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -486,7 +462,6 @@ STATIC mp_obj_t display_tft_writeScreen(size_t n_args, const mp_obj_t *pos_args,
         { MP_QSTR_height, MP_ARG_REQUIRED | MP_ARG_INT, { .u_int = 0 } },
         { MP_QSTR_buffer, MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = mp_const_none } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -544,7 +519,6 @@ STATIC mp_obj_t display_tft_drawRoundRect(size_t n_args, const mp_obj_t *pos_arg
         { MP_QSTR_color,                    MP_ARG_INT, { .u_int = -1 } },
         { MP_QSTR_fillcolor,                MP_ARG_INT, { .u_int = -1 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -573,7 +547,6 @@ STATIC mp_obj_t display_tft_fillScreen(size_t n_args, const mp_obj_t *pos_args, 
     const mp_arg_t allowed_args[] = {
         { MP_QSTR_color,                    MP_ARG_INT, { .u_int = -1 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -594,7 +567,6 @@ STATIC mp_obj_t display_tft_fillWin(size_t n_args, const mp_obj_t *pos_args, mp_
     const mp_arg_t allowed_args[] = {
         { MP_QSTR_color,                    MP_ARG_INT, { .u_int = -1 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -618,7 +590,6 @@ STATIC mp_obj_t display_tft_7segAttrib(size_t n_args, const mp_obj_t *pos_args, 
         { MP_QSTR_outline, MP_ARG_REQUIRED | MP_ARG_BOOL, { .u_bool = false } },
         { MP_QSTR_color,   MP_ARG_REQUIRED | MP_ARG_INT, { .u_int = -1 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -643,7 +614,6 @@ STATIC mp_obj_t display_tft_setFont(size_t n_args, const mp_obj_t *pos_args, mp_
         { MP_QSTR_color,        MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = 0 } },
         { MP_QSTR_info,         MP_ARG_KW_ONLY  | MP_ARG_BOOL, { .u_bool = false } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -675,8 +645,6 @@ MP_DEFINE_CONST_FUN_OBJ_KW(display_tft_setFont_obj, 1, display_tft_setFont);
 //-------------------------------------------------------------------------------------------------
 STATIC mp_obj_t display_tft_getFontSize(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
-
     int width, height;
     TFT_getfontsize(&width, &height);
 
@@ -696,7 +664,6 @@ STATIC mp_obj_t display_tft_setRot(size_t n_args, const mp_obj_t *pos_args, mp_m
         { MP_QSTR_rot, MP_ARG_REQUIRED | MP_ARG_INT, { .u_int = PORTRAIT } },
     };
     display_tft_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -726,7 +693,6 @@ STATIC mp_obj_t display_tft_print(size_t n_args, const mp_obj_t *pos_args, mp_ma
         { MP_QSTR_wrap,         MP_ARG_KW_ONLY  | MP_ARG_INT, { .u_int = -1 } },
         { MP_QSTR_bgcolor,      MP_ARG_KW_ONLY  | MP_ARG_INT, { .u_int = -1 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -768,7 +734,6 @@ STATIC mp_obj_t display_tft_stringWidth(size_t n_args, const mp_obj_t *pos_args,
     const mp_arg_t allowed_args[] = {
         { MP_QSTR_text,  MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = mp_const_none } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -790,7 +755,6 @@ STATIC mp_obj_t display_tft_clearStringRect(size_t n_args, const mp_obj_t *pos_a
         { MP_QSTR_text,    MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = mp_const_none } },
         { MP_QSTR_color,                     MP_ARG_INT, { .u_int = -1 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -821,7 +785,6 @@ STATIC mp_obj_t display_tft_Image(size_t n_args, const mp_obj_t *pos_args, mp_ma
         { MP_QSTR_type,                    MP_ARG_INT, { .u_int = -1 } },
         { MP_QSTR_debug, MP_ARG_KW_ONLY  | MP_ARG_INT, { .u_int = 0 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -881,25 +844,6 @@ STATIC mp_obj_t display_tft_Image(size_t n_args, const mp_obj_t *pos_args, mp_ma
 MP_DEFINE_CONST_FUN_OBJ_KW(display_tft_Image_obj, 3, display_tft_Image);
 
 //-----------------------------------------------------------------------------------------------
-STATIC mp_obj_t display_tft_compileFont(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-
-    const mp_arg_t allowed_args[] = {
-        { MP_QSTR_file,  MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-        { MP_QSTR_debug, MP_ARG_KW_ONLY  | MP_ARG_BOOL, { .u_bool = false } },
-    };
-    //display_tft_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
-    //if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
-
-    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
-    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
-
-    //res = compile_font_file(fullname, debug);
-    //if (res) return mp_const_false;
-    return mp_const_true;
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_KW(display_tft_compileFont_obj, 1, display_tft_compileFont);
-
-//-----------------------------------------------------------------------------------------------
 STATIC mp_obj_t display_tft_HSBtoRGB(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
 
     const mp_arg_t allowed_args[] = {
@@ -907,7 +851,6 @@ STATIC mp_obj_t display_tft_HSBtoRGB(size_t n_args, const mp_obj_t *pos_args, mp
         { MP_QSTR_saturation,  MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = mp_const_none } },
         { MP_QSTR_brightness,  MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = mp_const_none } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -933,7 +876,6 @@ STATIC mp_obj_t display_tft_setclipwin(size_t n_args, const mp_obj_t *pos_args, 
         { MP_QSTR_y1, MP_ARG_REQUIRED | MP_ARG_INT, { .u_int = 0 } },
         { MP_QSTR_fillcolor,                MP_ARG_INT, { .u_int = -1 } },
     };
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -952,8 +894,6 @@ MP_DEFINE_CONST_FUN_OBJ_KW(display_tft_setclipwin_obj, 4, display_tft_setclipwin
 //----------------------------------------------------------------------------------------------------
 STATIC mp_obj_t display_tft_resetclipwin(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
 
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
-
     TFT_resetclipwin();
 
     return mp_const_none;
@@ -962,8 +902,6 @@ MP_DEFINE_CONST_FUN_OBJ_KW(display_tft_resetclipwin_obj, 0, display_tft_resetcli
 
 //---------------------------------------------------------------------------------------------------
 STATIC mp_obj_t display_tft_saveclipwin(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     TFT_saveClipWin();
 
@@ -974,8 +912,6 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_KW(display_tft_saveclipwin_obj, 0, display_tft_sa
 //------------------------------------------------------------------------------------------------------
 STATIC mp_obj_t display_tft_restoreclipwin(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
 
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
-
     TFT_restoreClipWin();
 
     return mp_const_none;
@@ -984,8 +920,6 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_KW(display_tft_restoreclipwin_obj, 0, display_tft
 
 //------------------------------------------------------------------------------------------------
 STATIC mp_obj_t display_tft_getSize(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_obj_t tuple[2];
     tuple[0] = mp_obj_new_int(_width);
@@ -997,8 +931,6 @@ MP_DEFINE_CONST_FUN_OBJ_KW(display_tft_getSize_obj, 0, display_tft_getSize);
 
 //--------------------------------------------------------------------------------------------------
 STATIC mp_obj_t display_tft_getWinSize(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-
-    if (setupDevice(MP_OBJ_TO_PTR(pos_args[0]))) return mp_const_none;
 
     mp_obj_t tuple[2];
     tuple[0] = mp_obj_new_int(dispWin.x2 - dispWin.x1 + 1);
@@ -1012,7 +944,6 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_KW(display_tft_getWinSize_obj, 0, display_tft_get
 STATIC mp_obj_t display_tft_backlight(mp_obj_t self_in, mp_obj_t onoff_in)
 {
     display_tft_obj_t *self = self_in;
-    if (setupDevice(self_in)) return mp_const_none;
 
     int onoff = mp_obj_get_int(onoff_in);
     if (onoff) bcklOn(&self->dconfig);
@@ -1132,6 +1063,23 @@ STATIC mp_obj_t display_tft_test(mp_obj_t self_in)
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(display_tft_test_obj, display_tft_test);
 
+//------------------------------------------------------------------------
+STATIC mp_obj_t display_tft_set_speed(mp_obj_t self_in, mp_obj_t speed_in)
+{
+    display_tft_obj_t *self = self_in;
+    uint32_t speed = mp_obj_get_int(speed_in);
+    if ((speed < 1000000) || (speed > 16000000)) {
+        mp_raise_ValueError("Unsupported tft speed (1000000 - 16000000)");
+    }
+
+    // Set SPI clock used for display operations
+    self->dconfig.speed = speed;
+    spi_speed = speed;
+    speed = tft_set_speed();
+    return mp_obj_new_int(speed);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(display_tft_set_speed_obj, display_tft_set_speed);
+
 
 //================================================================
 STATIC const mp_rom_map_elem_t display_tft_locals_dict_table[] = {
@@ -1160,7 +1108,6 @@ STATIC const mp_rom_map_elem_t display_tft_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_textClear),           MP_ROM_PTR(&display_tft_clearStringRect_obj) },
     { MP_ROM_QSTR(MP_QSTR_attrib7seg),          MP_ROM_PTR(&display_tft_7segAttrib_obj) },
     { MP_ROM_QSTR(MP_QSTR_image),               MP_ROM_PTR(&display_tft_Image_obj) },
-    { MP_ROM_QSTR(MP_QSTR_compileFont),         MP_ROM_PTR(&display_tft_compileFont_obj) },
     { MP_ROM_QSTR(MP_QSTR_hsb2rgb),             MP_ROM_PTR(&display_tft_HSBtoRGB_obj) },
     { MP_ROM_QSTR(MP_QSTR_setwin),              MP_ROM_PTR(&display_tft_setclipwin_obj) },
     { MP_ROM_QSTR(MP_QSTR_resetwin),            MP_ROM_PTR(&display_tft_resetclipwin_obj) },
@@ -1175,6 +1122,7 @@ STATIC const mp_rom_map_elem_t display_tft_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_set_bg),              MP_ROM_PTR(&display_tft_set_bg_obj) },
     { MP_ROM_QSTR(MP_QSTR_text_x),              MP_ROM_PTR(&display_tft_get_X_obj) },
     { MP_ROM_QSTR(MP_QSTR_text_y),              MP_ROM_PTR(&display_tft_get_Y_obj) },
+    { MP_ROM_QSTR(MP_QSTR_tft_setspeed),        MP_ROM_PTR(&display_tft_set_speed_obj) },
 
     // class constants
     { MP_ROM_QSTR(MP_QSTR_CENTER),              MP_ROM_INT(CENTER) },

@@ -232,7 +232,7 @@ MP_NOINLINE bool init_flash_spiffs()
     else {
         vfs_sys->next = vfs;
     }
-    LOGI(TAG, "Flash VFS registered.");
+    LOGD(TAG, "Flash VFS registered.");
     sprintf(spiffs_current_dir, "%s", "");
 
     check_boot_py(&vfs_spiffs->fs);

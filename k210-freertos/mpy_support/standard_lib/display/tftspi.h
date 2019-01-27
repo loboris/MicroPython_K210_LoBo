@@ -249,6 +249,7 @@ void TFT_display_setvars(display_config_t *dconfig);
 void _tft_setBitsPerColor(uint8_t bitsperc);
 
 int TFT_spiInit(display_config_t *dconfig);
+uint32_t tft_set_speed();
 
 // Change the screen rotation.
 // Input: m new rotation value (0 to 3)

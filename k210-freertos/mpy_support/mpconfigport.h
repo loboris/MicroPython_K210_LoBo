@@ -32,6 +32,7 @@
 #include <limits.h>
 // options to control how MicroPython is built
 
+#define MICRO_PY_DEFAULT_CPU_CLOCK              (400000000) // dafault cpu clock in Hz
 
 extern void vm_loop_hook();
 #define MICROPY_VM_HOOK_LOOP                    vm_loop_hook();
@@ -56,7 +57,7 @@ extern void vm_loop_hook();
 // will still be able to execute pre-compiled scripts, compiled with mpy-cross.
 
 // object representation and NLR handling
-#define MICROPY_OBJ_REPR                        (MICROPY_OBJ_REPR_A)
+#define MICROPY_OBJ_REPR                        (MICROPY_OBJ_REPR_D)
 
 #define MICROPY_NLR_SETJMP                      (1)
 #define MICROPY_READER_VFS                      (1)
@@ -239,7 +240,8 @@ extern const struct _mp_print_t mp_debug_print;
 #define MICROPY_PY_URE                          (1)
 #define MICROPY_PY_URE_SUB                      (1)
 #define MICROPY_PY_UHEAPQ                       (1)
-#define MICROPY_PY_UTIMEQ                       (1)
+#define MICROPY_PY_UTIMEQ                       (0)
+#define MICROPY_PY_UTIMEQ_K210                  (1)
 // MicroPython implementation of hash functions is not used!
 #define MICROPY_PY_UHASHLIB                     (0) // !do not change!
 #define MICROPY_PY_UHASHLIB_MD5                 (0) // !do not change!
@@ -289,10 +291,10 @@ extern const struct _mp_print_t mp_debug_print;
 // to print such value. So, we avoid int32_t and use int directly.
 #define UINT_FMT "%u"
 #define INT_FMT "%d"
+
 typedef int64_t mp_int_t;   // must be pointer size
 typedef uint64_t mp_uint_t; // must be pointer size
-
-typedef long mp_off_t;
+typedef int64_t mp_off_t;
 
 #define MP_PLAT_PRINT_STRN(str, len) mp_hal_stdout_tx_strn_cooked(str, len)
 
@@ -329,6 +331,13 @@ extern const struct _mp_obj_module_t mp_module_display;
 #define BUILTIN_MODULE_DISPLAY
 #endif
 
+#ifdef MICROPY_PY_UTIMEQ_K210
+extern const struct _mp_obj_module_t mp_module_utimeq;
+#define BUILTIN_MODULE_UTIMEQ_K210 { MP_OBJ_NEW_QSTR(MP_QSTR_utimeq), (mp_obj_t)&mp_module_utimeq },
+#else
+#define BUILTIN_MODULE_UTIMEQ_K210
+#endif
+
 #define MICROPY_PORT_BUILTIN_MODULES \
     { MP_OBJ_NEW_QSTR(MP_QSTR_uos), (mp_obj_t)&uos_module }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_utime), (mp_obj_t)&utime_module }, \
@@ -337,6 +346,7 @@ extern const struct _mp_obj_module_t mp_module_display;
     BUILTIN_MODULE_UHASHLIB_K210 \
     BUILTIN_MODULE_UCRYPTOLIB_K210 \
     BUILTIN_MODULE_DISPLAY \
+    BUILTIN_MODULE_UTIMEQ_K210 \
     // { MP_OBJ_NEW_QSTR(MP_QSTR_Maix), (mp_obj_t)&maix_module },\
     // { MP_OBJ_NEW_QSTR(MP_QSTR_usocket), (mp_obj_t)&socket_module }, \
     // { MP_OBJ_NEW_QSTR(MP_QSTR_socket), (mp_obj_t)&socket_module }, \
@@ -345,6 +355,7 @@ extern const struct _mp_obj_module_t mp_module_display;
 
 #define MICROPY_PORT_BUILTIN_MODULE_WEAK_LINKS \
     { MP_OBJ_NEW_QSTR(MP_QSTR_os), (mp_obj_t)&uos_module }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_time), (mp_obj_t)&utime_module }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_re), (mp_obj_t)&mp_module_ure }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_binascii), (mp_obj_t)&mp_module_ubinascii }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_collections), (mp_obj_t)&mp_module_collections }, \

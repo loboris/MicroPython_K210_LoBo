@@ -158,6 +158,8 @@ static void mp_task(void *pvParameter)
         mp_obj_list_init(mp_sys_path, 0);
         mp_obj_list_append(mp_sys_path, MP_OBJ_NEW_QSTR(MP_QSTR_));
         mp_obj_list_init(mp_sys_argv, 0) ;
+        // Set gc threshold to 4/5 of the heap size
+        MP_STATE_MEM(gc_alloc_threshold) = (MICROPY_HEAP_SIZE * 4 / 5) & 0xFFFFFFFFFFFFFFF8;
 
         // Initialize spiffs on internal Flash
         bool spiffs_ok = init_flash_spiffs();
@@ -199,9 +201,10 @@ static void mp_task(void *pvParameter)
 
         //ToDo: terminate all running threads ?!
         mp_deinit();
-        mp_printf(&mp_plat_print, "Soft reset\n");
+        mp_printf(&mp_plat_print, "PYB: soft reboot\n");
         mp_hal_delay_ms(10);
-        sysctl->soft_reset.soft_reset = 1;
+
+        //sysctl->soft_reset.soft_reset = 1;
     }
     vTaskDelete(NULL);
 }
@@ -255,11 +258,12 @@ int main()
 
     // Print some info
     mp_printf(&mp_plat_print, Banner);
-    LOGI("[MAIXPY]", "Stack:  min: %lu", uxTaskGetStackHighWaterMark(NULL));
-    LOGI("[MAIXPY]", " Pll0: freq: %d", sysctl_clock_get_freq(SYSCTL_CLOCK_PLL0));
-    LOGI("[MAIXPY]", " Pll1: freq: %d", sysctl_clock_get_freq(SYSCTL_CLOCK_PLL1));
-    LOGI("[MAIXPY]", "  Cpu: freq: %lu", uxPortGetCPUClock());
-    LOGI("[MAIXPY]", "Flash:   ID: [0x%02x:0x%02x]", manuf_id, device_id);
+    LOGD("[MAIXPY]", "Stack:  min: %lu", uxTaskGetStackHighWaterMark(NULL));
+    LOGD("[MAIXPY]", " Pll0: freq: %d", sysctl_clock_get_freq(SYSCTL_CLOCK_PLL0));
+    LOGD("[MAIXPY]", " Pll1: freq: %d", sysctl_clock_get_freq(SYSCTL_CLOCK_PLL1));
+    LOGD("[MAIXPY]", " Pll2: freq: %d", sysctl_clock_get_freq(SYSCTL_CLOCK_PLL2));
+    LOGD("[MAIXPY]", "  Cpu: freq: %lu", uxPortGetCPUClock());
+    LOGD("[MAIXPY]", "Flash:   ID: [0x%02x:0x%02x]", manuf_id, device_id);
 
     // Run Micropython as FreeRTOS task
     #if MICROPY_PY_THREAD_STATIC_TASK
