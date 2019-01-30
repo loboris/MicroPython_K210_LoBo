@@ -26,7 +26,7 @@
 
 #include "mpconfigport.h"
 
-#ifdef MICROPY_USE_DISPLAY
+#if MICROPY_USE_DISPLAY
 
 #include <stdint.h>
 
@@ -35,15 +35,15 @@
 uint8_t disp_used_spi_host = 0;
 
 
-#ifdef MICROPY_USE_TFT
+#if MICROPY_USE_TFT
 extern const mp_obj_type_t display_tft_type;
 #endif
 
-#ifdef MICROPY_USE_EPD
+#if MICROPY_USE_EPD
 extern const mp_obj_type_t display_epd_type;
 #endif
 
-#ifdef MICROPY_USE_EVE
+#if MICROPY_USE_EVE
 extern const mp_obj_type_t display_eve_type;
 #endif
 
@@ -51,13 +51,13 @@ extern const mp_obj_type_t display_eve_type;
 STATIC const mp_rom_map_elem_t display_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_display) },
 
-    #ifdef MICROPY_USE_TFT
+    #if MICROPY_USE_TFT
     { MP_OBJ_NEW_QSTR(MP_QSTR_TFT), MP_ROM_PTR(&display_tft_type) },
     #endif
-    #ifdef MICROPY_USE_EPD
+    #if MICROPY_USE_EPD
     { MP_OBJ_NEW_QSTR(MP_QSTR_EPD), MP_ROM_PTR(&display_epd_type) },
     #endif
-    #ifdef MICROPY_USE_EVE
+    #if MICROPY_USE_EVE
     { MP_OBJ_NEW_QSTR(MP_QSTR_EVE), MP_ROM_PTR(&display_eve_type) },
     #endif
 };

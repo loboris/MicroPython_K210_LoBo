@@ -47,6 +47,7 @@
 #include "syslog.h"
 #include "hal.h"
 #include "mpthreadport.h"
+#include "modmachine.h"
 
 extern int MainTaskProc;
 
@@ -181,6 +182,11 @@ void mp_hal_uarths_setirq_default()
 void mp_hal_init(void)
 {
     system_set_cpu_frequency(MICRO_PY_DEFAULT_CPU_CLOCK/2);
+
+    mp_fpioa_cfg_item_t functions[2];
+    functions[0] = (mp_fpioa_cfg_item_t){-1, 4, FUNC_UARTHS_RX};
+    functions[1] = (mp_fpioa_cfg_item_t){-1, 5, FUNC_UARTHS_TX};
+    fpioa_setused_pins(2, functions, GPIO_FUNC_ISP_UART);
 
     mp_hal_set_interrupt_char(-1);
 

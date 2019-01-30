@@ -34,7 +34,7 @@
 
 #include "mpconfigport.h"
 
-#ifdef MICROPY_USE_DISPLAY
+#if MICROPY_USE_DISPLAY
 
 #include <stdlib.h>
 #include "tftspi.h"
@@ -741,6 +741,6 @@ void TFT_jpg_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *buf, in
 //----------------------------------------------------------------------------------------
 int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, int size);
 
-#endif // CONFIG_MICROPY_USE_TFT
+#endif // CONFIG_MICROPY_USE_DISPLAY
 
 #endif

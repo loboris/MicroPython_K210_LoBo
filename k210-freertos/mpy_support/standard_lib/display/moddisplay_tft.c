@@ -26,7 +26,7 @@
 
 #include "mpconfigport.h"
 
-#ifdef MICROPY_USE_DISPLAY
+#if MICROPY_USE_DISPLAY
 
 #include <stdio.h>
 #include <string.h>
@@ -55,7 +55,7 @@ STATIC mp_obj_t display_tft_make_new(const mp_obj_type_t *type, size_t n_args, s
 //-----------------------------------------------------------------------------------------------
 STATIC void display_tft_printinfo(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind)
 {
-    display_tft_obj_t *self = self_in;
+    //display_tft_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_printf(print, "TFT Display");
 }
 
@@ -82,7 +82,7 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
         { MP_QSTR_type,      MP_ARG_REQUIRED                   | MP_ARG_INT,  { .u_int = DISP_TYPE_ST7789V } },
         { MP_QSTR_width,                       MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = DEFAULT_TFT_DISPLAY_WIDTH } },
         { MP_QSTR_height,                      MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = DEFAULT_TFT_DISPLAY_HEIGHT } },
-        { MP_QSTR_speed,                       MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = 10000000 } },
+        { MP_QSTR_speed,                       MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = 5000000 } },
         { MP_QSTR_backl_pin,                   MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = -1 } },
         { MP_QSTR_backl_on,                    MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = 0 } },
         { MP_QSTR_color_bits,                  MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = 16 } },
@@ -93,7 +93,7 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    display_tft_obj_t *self = pos_args[0];
+    display_tft_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
     int ret;
 
     if ((args[ARG_type].u_int < 0) || (args[ARG_type].u_int >= DISP_TYPE_MAX)) {
@@ -113,8 +113,8 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
     self->dconfig.height = args[ARG_height].u_int; // larger dimension
     self->dconfig.invrot = 1;
 
-    self->dconfig.bgr = args[ARG_speed].u_bool ? 0x08 : 0;
-    self->dconfig.speed = args[ARG_speed].u_int;
+    self->dconfig.bgr = args[ARG_bgr].u_bool ? 0x08 : 0;
+    self->dconfig.speed = 5000000;
 
     self->dconfig.bckl = args[ARG_bckl].u_int;
     self->dconfig.bckl_on = args[ARG_bcklon].u_int & 1;
@@ -139,9 +139,10 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
     self->dconfig.width = _width;
     self->dconfig.height = _height;
     TFT_setGammaCurve(0);
-    TFT_setFont(DEFAULT_FONT, NULL, false);
+    TFT_setFont(DEFAULT_FONT, 0, false);
     TFT_resetclipwin();
     if (args[ARG_splash].u_bool) {
+        TFT_drawRect(0, 0, _width, _height, intToColor(iTFT_CYAN));
         int fhight = TFT_getfontheight();
         _fg = intToColor(iTFT_RED);
         TFT_print("MicroPython", CENTER, (_height/2) - fhight - (fhight/2));
@@ -151,6 +152,15 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
         TFT_print("MicroPython", CENTER, (_height/2) + (fhight/2));
         _fg = intToColor(iTFT_GREEN);
     }
+
+    uint32_t speed = args[ARG_speed].u_int;
+    if (speed <= 16) speed *= 1000000;
+    if ((speed < 1000000) || (speed > 16000000)) speed = 5000000;
+    self->dconfig.speed = speed;
+    spi_speed = speed;
+    speed = tft_set_speed();
+    self->dconfig.speed = speed;
+    spi_speed = speed;
 
     bcklOn(&self->dconfig);
 
@@ -943,7 +953,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_KW(display_tft_getWinSize_obj, 0, display_tft_get
 //------------------------------------------------------------------------
 STATIC mp_obj_t display_tft_backlight(mp_obj_t self_in, mp_obj_t onoff_in)
 {
-    display_tft_obj_t *self = self_in;
+    display_tft_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
     int onoff = mp_obj_get_int(onoff_in);
     if (onoff) bcklOn(&self->dconfig);
@@ -1064,21 +1074,27 @@ STATIC mp_obj_t display_tft_test(mp_obj_t self_in)
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(display_tft_test_obj, display_tft_test);
 
 //------------------------------------------------------------------------
-STATIC mp_obj_t display_tft_set_speed(mp_obj_t self_in, mp_obj_t speed_in)
+STATIC mp_obj_t display_tft_set_speed(size_t n_args, const mp_obj_t *args)
 {
-    display_tft_obj_t *self = self_in;
-    uint32_t speed = mp_obj_get_int(speed_in);
-    if ((speed < 1000000) || (speed > 16000000)) {
-        mp_raise_ValueError("Unsupported tft speed (1000000 - 16000000)");
-    }
+    display_tft_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    uint32_t speed = spi_speed;
+    if (n_args > 1) {
+        speed = mp_obj_get_int(args[1]);
+        if (speed <= 16) speed *= 1000000;
+        if ((speed < 1000000) || (speed > 16000000)) {
+            mp_raise_ValueError("Unsupported tft speed (1 - 16 Mhz)");
+        }
 
-    // Set SPI clock used for display operations
-    self->dconfig.speed = speed;
-    spi_speed = speed;
-    speed = tft_set_speed();
+        // Set SPI clock used for display operations
+        self->dconfig.speed = speed;
+        spi_speed = speed;
+        speed = tft_set_speed();
+        self->dconfig.speed = speed;
+        spi_speed = speed;
+    }
     return mp_obj_new_int(speed);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_2(display_tft_set_speed_obj, display_tft_set_speed);
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(display_tft_set_speed_obj, 1, 2, display_tft_set_speed);
 
 
 //================================================================
@@ -1122,7 +1138,7 @@ STATIC const mp_rom_map_elem_t display_tft_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_set_bg),              MP_ROM_PTR(&display_tft_set_bg_obj) },
     { MP_ROM_QSTR(MP_QSTR_text_x),              MP_ROM_PTR(&display_tft_get_X_obj) },
     { MP_ROM_QSTR(MP_QSTR_text_y),              MP_ROM_PTR(&display_tft_get_Y_obj) },
-    { MP_ROM_QSTR(MP_QSTR_tft_setspeed),        MP_ROM_PTR(&display_tft_set_speed_obj) },
+    { MP_ROM_QSTR(MP_QSTR_setspeed),            MP_ROM_PTR(&display_tft_set_speed_obj) },
 
     // class constants
     { MP_ROM_QSTR(MP_QSTR_CENTER),              MP_ROM_INT(CENTER) },
@@ -1188,5 +1204,5 @@ const mp_obj_type_t display_tft_type = {
     .locals_dict = (mp_obj_t)&display_tft_locals_dict,
 };
 
-#endif // CONFIG_MICROPY_USE_TFT
+#endif // MICROPY_USE_DISPLAY
 

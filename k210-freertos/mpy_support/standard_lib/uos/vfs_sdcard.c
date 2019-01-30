@@ -48,8 +48,9 @@
 #include <storage/sdcard.h>
 #include "modmachine.h"
 
-
-#define TF_CS_GPIONUM   4
+static bool sdcard_pins_init = false;
+static int sdcard_cs_gpionum = 4;
+static mp_fpioa_cfg_item_t sdcard_pin_func[4];
 
 #if FF_MAX_SS == FF_MIN_SS
 #define SECSIZE(fs) (FF_MIN_SS)
@@ -61,18 +62,6 @@
 #define mp_obj_sdcard_vfs_t sdcard_user_mount_t
 
 #define FORMAT_FS_FORCE 1
-
-
-static const fpioa_cfg_t sdcard_pins_cfg =
-{
-    .version = PIN_CFG_VERSION,
-    .functions_count = 4,
-    // SDCard
-    .functions[0] = {29, FUNC_GPIOHS0 + TF_CS_GPIONUM},
-    .functions[1] = {27, FUNC_SPI1_SCLK},
-    .functions[2] = {28, FUNC_SPI1_D0},
-    .functions[3] = {26, FUNC_SPI1_D1},
-};
 
 typedef struct _mp_vfs_sdcard_ilistdir_it_t {
     mp_obj_base_t base;
@@ -127,13 +116,33 @@ STATIC mp_obj_t vfs_sdcard_mount(mp_obj_t self_in, mp_obj_t readonly, mp_obj_t m
     bool is_init = false;
     int res;
 
+
     // Initialize SDCard
-    fpioa_setup_pins(&sdcard_pins_cfg);
+    if (!sdcard_pins_init) {
+        sdcard_cs_gpionum = gpiohs_get_free();
+        if (sdcard_cs_gpionum < 0) {
+            mp_raise_msg(&mp_type_OSError, "Error preparing SDCard pins");
+        }
+
+        sdcard_pin_func[0] = (mp_fpioa_cfg_item_t){sdcard_cs_gpionum, 29, FUNC_GPIOHS0 + sdcard_cs_gpionum};
+        sdcard_pin_func[1] = (mp_fpioa_cfg_item_t){-1, 27, FUNC_SPI1_SCLK};
+        sdcard_pin_func[2] = (mp_fpioa_cfg_item_t){-1, 28, FUNC_SPI1_D0};
+        sdcard_pin_func[3] = (mp_fpioa_cfg_item_t){-1, 26, FUNC_SPI1_D1};
+
+        if (!fpioa_check_pins(4, sdcard_pin_func, GPIO_FUNC_SDCARD)) {
+            gpiohs_set_free(sdcard_cs_gpionum);
+            mp_raise_msg(&mp_type_OSError, "Error preparing SDCard pins");
+        }
+        fpioa_setup_pins(4, sdcard_pin_func);
+        fpioa_setused_pins(4, sdcard_pin_func, GPIO_FUNC_SDCARD);
+        sdcard_pins_init = true;
+    }
+
     sd_spi = io_open("/dev/spi1");
     if (sd_spi) {
         sd_gpio = io_open("/dev/gpio0");
         if (sd_gpio) {
-            sdcard = spi_sdcard_driver_install(sd_spi, sd_gpio, TF_CS_GPIONUM);
+            sdcard = spi_sdcard_driver_install(sd_spi, sd_gpio, sdcard_cs_gpionum);
             if (sdcard) {
                 res = filesystem_mount("/fs/0/", sdcard);
                 if (res == 0) is_init = true;

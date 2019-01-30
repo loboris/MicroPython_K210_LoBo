@@ -128,7 +128,6 @@ void check_boot_py(spiffs *fs)
 //----------------------------
 bool check_main_py(spiffs *fs)
 {
-    spiffs_file fd;
     spiffs_stat fno;
     int res = SPIFFS_stat(fs, "boot.py", &fno);
     if (res == SPIFFS_OK) {

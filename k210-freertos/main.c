@@ -118,7 +118,7 @@ const char Banner[] = {"\n __  __              _____  __   __  _____   __     __
 |_|  |_| /_/    \\_\\ |_____| /_/ \\_\\ |_|         |_|\n\
 ------------------------------------------------------\n\n"};
 
-const char ver_info[] = {"\nMaixPy-FreeRTOS by LoBo v1.0.3\n\
+const char ver_info[] = {"\nMaixPy-FreeRTOS by LoBo v1.0.4\n\
 ------------------------------\n"};
 
 static const char* TAG = "[MAIN]";
@@ -209,19 +209,6 @@ static void mp_task(void *pvParameter)
     vTaskDelete(NULL);
 }
 
-const fpioa_cfg_t flash_pins_cfg =
-{
-    .version = PIN_CFG_VERSION,
-    .functions_count = 6,
-    // SPI Flash pins
-    .functions[0] = {30, FUNC_SPI1_SS0},
-    .functions[1] = {32, FUNC_SPI1_SCLK},
-    .functions[2] = {34, FUNC_SPI1_D0},
-    .functions[3] = {43, FUNC_SPI1_D1},
-    .functions[4] = {42, FUNC_SPI1_D2},
-    .functions[5] = {41, FUNC_SPI1_D3},
-};
-
 //========
 int main()
 {
@@ -247,8 +234,26 @@ int main()
     filesystem_rtc = mp_rtc_rtc0;
     #endif
 
+    #if MICROPY_USE_DISPLAYxx
+    // Used for display SPI function FUNC_SPI0_SS3
+    gpiohs_set_used(3);
+    #endif
+
     // Initialize SPIFlash
-    fpioa_setup_pins(&flash_pins_cfg);
+    mp_fpioa_cfg_item_t flash_pin_func[6];
+    flash_pin_func[0] = (mp_fpioa_cfg_item_t){-1, 30, FUNC_SPI1_SS0};
+    flash_pin_func[1] = (mp_fpioa_cfg_item_t){-1, 32, FUNC_SPI1_SCLK};
+    flash_pin_func[2] = (mp_fpioa_cfg_item_t){-1, 34, FUNC_SPI1_D0};
+    flash_pin_func[3] = (mp_fpioa_cfg_item_t){-1, 43, FUNC_SPI1_D1};
+    flash_pin_func[4] = (mp_fpioa_cfg_item_t){-1, 42, FUNC_SPI1_D2};
+    flash_pin_func[5] = (mp_fpioa_cfg_item_t){-1, 41, FUNC_SPI1_D3};
+    if (!fpioa_check_pins(6, flash_pin_func, GPIO_FUNC_FLASH)) {
+        vTaskDelete(NULL);
+        return 1;
+    }
+    fpioa_setup_pins(6, flash_pin_func);
+    fpioa_setused_pins(6, flash_pin_func, GPIO_FUNC_FLASH);
+
     handle_t flash_spi;
     uint8_t manuf_id, device_id;
     flash_spi = io_open("/dev/spi3");

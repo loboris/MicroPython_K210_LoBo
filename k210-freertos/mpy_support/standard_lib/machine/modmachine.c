@@ -25,14 +25,16 @@
  */
 
 #include <stdlib.h>
-#include <fpioa.h>
-#include <devices.h>
+#include <stdio.h>
+#include <string.h>
 #include "sysctl.h"
+#include "syslog.h"
 
 #include "py/nlr.h"
 #include "py/obj.h"
 #include "py/runtime.h"
 #include "py/binary.h"
+#include "py/mpprint.h"
 #include <stdio.h>
 #include "hal.h"
 #include "modmachine.h"
@@ -40,72 +42,106 @@
 
 #if MICROPY_PY_MACHINE
 
-static handle_t gpiohs_handle = 0;
+handle_t gpiohs_handle = 0;
+uint32_t mp_used_gpiohs = 0;
+machine_pin_def_t mp_used_pins[FPIOA_NUM_IO] = {0};
 
-uint8_t mp_used_gpios[32] = {0};
-
-// RGB LEDs pins configuretion
-static const fpioa_cfg_t leds_pins_cfg =
-{
-    .version = PIN_CFG_VERSION,
-    .functions_count = 3,
-    // RGB LED
-    .functions[0] = {12, FUNC_GPIOHS0 + LED12_GPIONUM},
-    .functions[1] = {13, FUNC_GPIOHS0 + LED13_GPIONUM},
-    .functions[2] = {14, FUNC_GPIOHS0 + LED14_GPIONUM},
+const char *gpiohs_funcs[10] = {
+        "Not used",
+        "Flash",
+        "SD Card",
+        "Display",
+        "Pin",
+        "UART",
+        "I2C",
+        "SPI",
+        "PWM",
+        "ISP_UART",
 };
 
-//-----------------------------------------------
-void fpioa_setup_pins(const fpioa_cfg_t *pin_cfg)
+//------------------------
+bool machine_init_gpiohs()
 {
-    configASSERT(pin_cfg->version == PIN_CFG_VERSION);
-
-    uint32_t i;
-    for (i = 0; i < pin_cfg->functions_count; i++)
-    {
-        fpioa_cfg_item_t item = pin_cfg->functions[i];
-        fpioa_set_function(item.number, item.function);
-    }
-}
-
-//----------------------------------
-STATIC mp_obj_t machine_setup_leds()
-{
-    bool res = false;
-    fpioa_setup_pins(&leds_pins_cfg);   // Configure leds pins
+    bool res = true;
     if (gpiohs_handle == 0) {
         gpiohs_handle = io_open("/dev/gpio0");
-        if (gpiohs_handle) {
-            gpio_set_drive_mode(gpiohs_handle, LED12_GPIONUM, GPIO_DM_OUTPUT);
-            gpio_set_pin_value(gpiohs_handle, LED12_GPIONUM, GPIO_PV_HIGH);
-            gpio_set_drive_mode(gpiohs_handle, LED13_GPIONUM, GPIO_DM_OUTPUT);
-            gpio_set_pin_value(gpiohs_handle, LED13_GPIONUM, GPIO_PV_HIGH);
-            gpio_set_drive_mode(gpiohs_handle, LED14_GPIONUM, GPIO_DM_OUTPUT);
-            gpio_set_pin_value(gpiohs_handle, LED14_GPIONUM, GPIO_PV_HIGH);
-            mp_used_gpios[LED12_GPIONUM] = 1;
-            mp_used_gpios[LED13_GPIONUM] = 1;
-            mp_used_gpios[LED14_GPIONUM] = 1;
-            res = true;
+        if (gpiohs_handle == 0) res = false;
+    }
+    return res;
+}
+
+//--------------------------------
+void gpiohs_set_used(uint8_t gpio)
+{
+    mp_used_gpiohs |= (1 << gpio);
+}
+
+//--------------------------------
+void gpiohs_set_free(uint8_t gpio)
+{
+    mp_used_gpiohs &= ~(1 << gpio);
+}
+
+//-----------------------------------
+int gpiohs_get_free()
+{
+    int res = -1;
+    uint32_t used_gpiohs = mp_used_gpiohs;
+    for (int i=0; i<32; i++) {
+        if ((used_gpiohs & 1) == 0) {
+            mp_used_gpiohs |= (1 << i); // set pin used
+            res = i;
+            break;
+        }
+        used_gpiohs >>= 1;
+    }
+    return res;
+}
+
+//------------------------------------------------------------
+void fpioa_setup_pins(int n, mp_fpioa_cfg_item_t functions[n])
+{
+    for (int i = 0; i < n; i++) {
+        fpioa_set_function(functions[i].number, functions[i].function);
+        LOGD("[PINS]", "Set pin %d to function %d", functions[i].number, functions[i].function);
+    }
+}
+
+//----------------------------------------------------------------------
+bool fpioa_check_pins(int n, mp_fpioa_cfg_item_t functions[n], int func)
+{
+    bool res = true;
+    int pin;
+    for (int i = 0; i < n; i++) {
+        pin = functions[i].number;
+        if ((mp_used_pins[pin].func != GPIO_FUNC_NONE) && (func != mp_used_pins[pin].func)) {
+            res = false;
+            LOGE("PIN CHECK", "Pin %d used by %s", pin, gpiohs_funcs[mp_used_pins[pin].func]);
+            break;
         }
     }
-    return mp_obj_new_bool(res);
+    return res;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(machine_setup_leds_obj, machine_setup_leds);
+
+//------------------------------------------------------------------------
+void fpioa_setused_pins(int n, mp_fpioa_cfg_item_t functions[n], int func)
+{
+    for (int i = 0; i < n; i++) {
+        mp_used_pins[functions[i].number].func = func;
+        mp_used_pins[functions[i].number].fpioa_func = functions[i].function;
+        mp_used_pins[functions[i].number].gpio = functions[i].gpio;
+    }
+}
 
 //---------------------------------------------------------------
-STATIC mp_obj_t machine_set_led(mp_obj_t led_in, mp_obj_t val_in)
+void fpioa_freeused_pins(int n, mp_fpioa_cfg_item_t functions[n])
 {
-    if (gpiohs_handle) {
-        int led = mp_obj_get_int(led_in);
-        if ((led < LED12_GPIONUM) || (led > LED14_GPIONUM)) {
-            mp_raise_ValueError("Unsupported LED pin");
-        }
-        int val = (mp_obj_is_true(val_in) ? GPIO_PV_LOW : GPIO_PV_HIGH);
-        gpio_set_pin_value(gpiohs_handle, led, val);
+    for (int i = 0; i < n; i++) {
+        mp_used_pins[functions[i].number].func = GPIO_FUNC_NONE;
+        mp_used_pins[functions[i].number].fpioa_func = FUNC_DEBUG31;
+        mp_used_pins[functions[i].number].gpio = -1;
     }
-    return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_2(machine_set_led_obj, machine_set_led);
 
 //-----------------------------------------------------------------
 STATIC mp_obj_t machine_freq(size_t n_args, const mp_obj_t *args) {
@@ -168,6 +204,24 @@ STATIC mp_obj_t machine_reset(void)
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(machine_reset_obj, machine_reset);
 
+//-----------------------------------
+STATIC mp_obj_t machine_pinstat(void)
+{
+    int i;
+    char sgpio[8] = {'\0'};
+    printf(" Pin  GpioHS     Used by  Fpioa\n");
+    printf("-------------------------------\n");
+    for (i=0; i<FPIOA_NUM_IO; i++) {
+        if (mp_used_pins[i].func != GPIO_FUNC_NONE) {
+            if (mp_used_pins[i].gpio < 0) sprintf(sgpio, "%s", "-");
+            else sprintf(sgpio, "%d", mp_used_pins[i].gpio);
+            printf("%4d%8s%12s%7d\n", i, sgpio, gpiohs_funcs[mp_used_pins[i].func], mp_used_pins[i].fpioa_func);
+        }
+    }
+    printf("-------------------------------\n");
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(machine_pinstat_obj, machine_pinstat);
 
 
 //===========================================================
@@ -181,15 +235,10 @@ STATIC const mp_map_elem_t machine_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_freq),            MP_ROM_PTR(&machine_freq_obj) },
     { MP_ROM_QSTR(MP_QSTR_random),          MP_ROM_PTR(&machine_random_obj) },
     { MP_ROM_QSTR(MP_QSTR_reset),           MP_ROM_PTR(&machine_reset_obj) },
+    { MP_ROM_QSTR(MP_QSTR_pinstat),         MP_ROM_PTR(&machine_pinstat_obj) },
 
-    { MP_ROM_QSTR(MP_QSTR_initleds),        MP_ROM_PTR(&machine_setup_leds_obj) },
-    { MP_ROM_QSTR(MP_QSTR_setled),          MP_ROM_PTR(&machine_set_led_obj) },
+    { MP_ROM_QSTR(MP_QSTR_Pin),             MP_ROM_PTR(&machine_pin_type) },
     //{ MP_ROM_QSTR(MP_QSTR_UART),            MP_ROM_PTR(&machine_uart_type) },
-
-    // class constants
-    { MP_ROM_QSTR(MP_QSTR_LEDR),            MP_ROM_INT(LED14_GPIONUM) },
-    { MP_ROM_QSTR(MP_QSTR_LEDG),            MP_ROM_INT(LED13_GPIONUM) },
-    { MP_ROM_QSTR(MP_QSTR_LEDB),            MP_ROM_INT(LED12_GPIONUM) },
 };
 
 //===========================

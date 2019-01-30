@@ -34,7 +34,7 @@
 
 #include "mpconfigport.h"
 
-#ifdef MICROPY_USE_DISPLAY
+#if MICROPY_USE_DISPLAY
 
 #include <stdio.h>
 #include <errno.h>
@@ -2824,4 +2824,4 @@ exit:
 	return err;
 }
 
-#endif // CONFIG_MICROPY_USE_TFT
+#endif // CONFIG_MICROPY_USE_DISPLAY

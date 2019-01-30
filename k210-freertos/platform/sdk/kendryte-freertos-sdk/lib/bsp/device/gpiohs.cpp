@@ -181,14 +181,14 @@ private:
         {
             set_bit_idx(gpiohs.rise_ie.u32, pin, 0);
             set_bit_idx(gpiohs.rise_ip.u32, pin, 1);
-            set_bit_idx(gpiohs.rise_ie.u32, pin, 1);
+            if (pin_context.callback == NULL) set_bit_idx(gpiohs.rise_ie.u32, pin, 1);
         }
 
         if (fall)
         {
             set_bit_idx(gpiohs.fall_ie.u32, pin, 0);
             set_bit_idx(gpiohs.fall_ip.u32, pin, 1);
-            set_bit_idx(gpiohs.fall_ie.u32, pin, 1);
+            if (pin_context.callback == NULL) set_bit_idx(gpiohs.fall_ie.u32, pin, 1);
         }
 
         if (pin_context.callback)

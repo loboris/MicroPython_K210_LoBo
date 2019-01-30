@@ -34,7 +34,7 @@
 
 #include "mpconfigport.h"
 
-#ifdef MICROPY_USE_DISPLAY
+#if MICROPY_USE_DISPLAY
 
 const unsigned char userFont3[] =
 {

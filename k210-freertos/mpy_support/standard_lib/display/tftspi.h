@@ -35,27 +35,7 @@
 #include "mpconfigport.h"
 #include "modmachine.h"
 
-#ifdef MICROPY_USE_DISPLAY
-
-#define USE_DISPLAY_TASK    0
-
-#define SPI_CHANNEL 0
-#define DISP_SPI_SLAVE_SELECT 3
-#define __SPI_SYSCTL(x, y) SYSCTL_##x##_SPI##y
-#define _SPI_SYSCTL(x, y) __SPI_SYSCTL(x, y)
-#define SPI_SYSCTL(x) _SPI_SYSCTL(x, SPI_CHANNEL)
-#define __SPI_SS(x, y) FUNC_SPI##x##_SS##y
-#define _SPI_SS(x, y) __SPI_SS(x, y)
-#define SPI_SS _SPI_SS(SPI_CHANNEL, DISP_SPI_SLAVE_SELECT)
-#define __SPI(x, y) FUNC_SPI##x##_##y
-#define _SPI(x, y) __SPI(x, y)
-#define SPI(x) _SPI(SPI_CHANNEL, x)
-
-#define DCX_IO          (38)
-#define DCX_GPIONUM     (2)
-#define TFT_RST         (37)
-#define TFT_RST_GPIONUM (3)
-
+#if MICROPY_USE_DISPLAY
 
 typedef struct {
     uint32_t	speed;		// SPI clock in Hz
@@ -264,6 +244,6 @@ int  TFT_display_init(display_config_t *display_config);
 
 // ===============================================================================
 
-#endif // CONFIG_MICROPY_USE_TFT
+#endif // CONFIG_MICROPY_USE_DISPLAY
 
 #endif

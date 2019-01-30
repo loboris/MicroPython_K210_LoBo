@@ -35,7 +35,9 @@
 
 #include "mpconfigport.h"
 
-#ifdef MICROPY_USE_DISPLAY
+#if MICROPY_USE_DISPLAY
+
+#define USE_DISPLAY_TASK    0
 
 #include <string.h>
 #include <stdio.h>
@@ -49,8 +51,7 @@
 //#include "project_cfg.h"
 #include "mphalport.h"
 
-#define SPI_CLOCK_RATE_CMD  8000000U
-#define WAIT_CYCLE      0U
+#define WAIT_CYCLE      4U
 #define LCD_X_MAX   240
 #define LCD_Y_MAX   320
 #define TFT_BGR     8
@@ -60,6 +61,9 @@
 #define GS_FACT_G 0.4870
 #define GS_FACT_B 0.2140
 
+#define SPI_CHANNEL     (0)
+#define DCX_IO          (38)
+#define TFT_RST         (37)
 
 enum _instruction_length
 {
@@ -98,15 +102,13 @@ typedef struct {
     void *data;
 } disp_msg_t;
 
-static const fpioa_cfg_t display_pins_cfg =
-{
-    .version = PIN_CFG_VERSION,
-    .functions_count = 4,
-    .functions[0] = {DCX_IO, FUNC_GPIOHS0 + DCX_GPIONUM},
-    .functions[1] = {36, SPI_SS},
-    .functions[2] = {39, SPI(SCLK)},
-    .functions[3] = {TFT_RST, FUNC_GPIOHS0 + TFT_RST_GPIONUM},
-};
+#define DISP_NUM_FUNC           4
+#define DISP_SPI_SLAVE_SELECT   3  // FUNC_SPI0_SS3
+
+static bool display_pins_init = false;
+static int tft_rst_gpionum = 0;
+static int tft_dc_gpionum = 0;
+static mp_fpioa_cfg_item_t disp_pin_func[DISP_NUM_FUNC];
 
 // ====================================================
 // ==== Global variables, default values ==============
@@ -125,7 +127,7 @@ uint8_t tft_touch_type = TOUCH_TYPE_NONE;
 uint8_t bits_per_color = 16;
 uint8_t TFT_RGB_BGR = 0;
 uint8_t gamma_curve = 0;
-uint32_t spi_speed = 8000000;
+uint32_t spi_speed = 4000000;
 // ====================================================
 
 #if USE_DISPLAY_TASK
@@ -142,65 +144,89 @@ uint8_t spibus_is_init = 0;
 // ==== Functions =====================
 
 
-//--------------------------
-static void init_spi_gpios()
-{
-    gio = io_open("/dev/gpio0");
-    configASSERT(gio);
-    gpio_set_drive_mode(gio, DCX_GPIONUM, GPIO_DM_OUTPUT);
-    gpio_set_pin_value(gio, DCX_GPIONUM, GPIO_PV_HIGH);
-
-    gpio_set_drive_mode(gio, TFT_RST_GPIONUM, GPIO_DM_OUTPUT);
-    gpio_set_pin_value(gio, TFT_RST_GPIONUM, GPIO_PV_HIGH);
-    mp_used_gpios[DCX_GPIONUM] = 1;
-    mp_used_gpios[TFT_RST_GPIONUM] = 1;
-}
-
 //---------------------------
 static void set_dcx_control()
 {
-    gpio_set_pin_value(gio, DCX_GPIONUM, GPIO_PV_LOW);
+    gpio_set_pin_value(gio, tft_dc_gpionum, GPIO_PV_LOW);
 }
 
 //------------------------
 static void set_dcx_data()
 {
-    gpio_set_pin_value(gio, DCX_GPIONUM, GPIO_PV_HIGH);
+    gpio_set_pin_value(gio, tft_dc_gpionum, GPIO_PV_HIGH);
 }
 
 //----------------------
 uint32_t tft_set_speed()
 {
-    uint32_t speed = (uint32_t)spi_dev_set_clock_rate(spi_dfs8, (spi_speed*2)/3);
-    speed = (uint32_t)spi_dev_set_clock_rate(spi_dfs16, spi_speed);
+    spi_dev_set_clock_rate(spi_dfs8, 3000000);
+    uint32_t speed = (uint32_t)spi_dev_set_clock_rate(spi_dfs16, spi_speed);
     spi_dev_set_clock_rate(spi_dfs32, spi_speed);
     return speed;
 }
 
-//----------------------------
-static void spi_control_init()
+//-----------------------------
+static bool tft_hard_init(void)
 {
+    // Configure display pins
+    if (!display_pins_init) {
+        // FPIOA configuration
+        tft_dc_gpionum = gpiohs_get_free();
+        if (tft_dc_gpionum < 0) return false;
+        tft_rst_gpionum = gpiohs_get_free();
+        if (tft_rst_gpionum < 0) {
+            gpiohs_set_free(tft_dc_gpionum);
+            return false;
+        }
+
+        disp_pin_func[0] = (mp_fpioa_cfg_item_t){tft_dc_gpionum, DCX_IO, FUNC_GPIOHS0 + tft_dc_gpionum};
+        disp_pin_func[1] = (mp_fpioa_cfg_item_t){-1, 36, FUNC_SPI0_SS3};
+        disp_pin_func[2] = (mp_fpioa_cfg_item_t){-1, 39, FUNC_SPI0_SCLK};
+        disp_pin_func[3] = (mp_fpioa_cfg_item_t){tft_rst_gpionum, TFT_RST, FUNC_GPIOHS0 + tft_rst_gpionum};
+
+        if (!fpioa_check_pins(DISP_NUM_FUNC, disp_pin_func, GPIO_FUNC_DISP)) {
+            gpiohs_set_free(tft_dc_gpionum);
+            gpiohs_set_free(tft_rst_gpionum);
+            return false;
+        }
+        // Setup and mark used pins
+        fpioa_setup_pins(DISP_NUM_FUNC, disp_pin_func);
+        fpioa_setused_pins(DISP_NUM_FUNC, disp_pin_func, GPIO_FUNC_DISP);
+        display_pins_init = true;
+    }
+
+    // open gpiohs device
+    gio = io_open("/dev/gpio0");
+    if (gio == 0) return false;
+
+    gpio_set_drive_mode(gio, tft_dc_gpionum, GPIO_DM_OUTPUT);
+    gpio_set_pin_value(gio, tft_dc_gpionum, GPIO_PV_HIGH);
+
+    gpio_set_drive_mode(gio, tft_rst_gpionum, GPIO_DM_OUTPUT);
+    gpio_set_pin_value(gio, tft_rst_gpionum, GPIO_PV_HIGH);
+
+    // Set SPI0_D0-D7 DVP_D0-D7 as spi and dvp data pin
+    sysctl_set_spi0_dvp_data(1);
+
+    // openSPI device
     spi0 = io_open("/dev/spi0");
-    configASSERT(spi0);
+    if (spi0 == 0) return false;
+
     spi_dfs8 = spi_get_device(spi0, SPI_MODE_0, SPI_FF_OCTAL, 1 << DISP_SPI_SLAVE_SELECT, FRAME_LEN_8);
+    if (spi_dfs8 == 0) return false;
     spi_dev_config_non_standard(spi_dfs8, INSTRUCTION_LEN_8, ADDRESS_LEN_0, WAIT_CYCLE, SPI_AITM_AS_FRAME_FORMAT);
 
     spi_dfs16 = spi_get_device(spi0, SPI_MODE_0, SPI_FF_OCTAL, 1 << DISP_SPI_SLAVE_SELECT, FRAME_LEN_16);
+    if (spi_dfs16 == 0) return false;
     spi_dev_config_non_standard(spi_dfs16, INSTRUCTION_LEN_16, ADDRESS_LEN_0, WAIT_CYCLE, SPI_AITM_AS_FRAME_FORMAT);
 
     spi_dfs32 = spi_get_device(spi0, SPI_MODE_0, SPI_FF_OCTAL, 1 << DISP_SPI_SLAVE_SELECT, FRAME_LEN_32);
+    if (spi_dfs32 == 0) return false;
     spi_dev_config_non_standard(spi_dfs32, INSTRUCTION_LEN_0, ADDRESS_LEN_32, WAIT_CYCLE, SPI_AITM_AS_FRAME_FORMAT);
 
     tft_set_speed();
-}
 
-//-----------------------------
-static void tft_hard_init(void)
-{
-    fpioa_setup_pins(&display_pins_cfg);    // Configure display pins
-    sysctl_set_spi0_dvp_data(1);            // Set SPI0_D0-D7 DVP_D0-D7 as spi and dvp data pin
-    init_spi_gpios();
-    spi_control_init();
+    return true;
 }
 
 #if USE_DISPLAY_TASK
@@ -325,16 +351,17 @@ static void tft_fill_data(uint32_t data, uint32_t length)
 
 
 //---------------------------------
-static void tft_init(uint8_t hw_sw)
+static bool tft_init(uint8_t hw_sw)
 {
     uint8_t data;
 
-    tft_hard_init();
+    if (!tft_hard_init()) return false;
+
     if (hw_sw & 0x02) {
         // hard reset
-        gpio_set_pin_value(gio, TFT_RST_GPIONUM, GPIO_PV_LOW);
+        gpio_set_pin_value(gio, tft_rst_gpionum, GPIO_PV_LOW);
         mp_hal_delay_ms(120);
-        gpio_set_pin_value(gio, TFT_RST_GPIONUM, GPIO_PV_HIGH);
+        gpio_set_pin_value(gio, tft_rst_gpionum, GPIO_PV_HIGH);
     }
     if (hw_sw & 0x01) {
         // soft reset
@@ -349,6 +376,7 @@ static void tft_init(uint8_t hw_sw)
     data = 0x55;
     tft_write_byte(&data, 1);
     tft_write_command(DISPALY_ON);
+    return true;
 }
 
 // Send command with data to display, display must be selected
@@ -645,13 +673,9 @@ int TFT_display_init(display_config_t *dconfig)
     configASSERT(disp_task_handle);
 #endif
 
-    int ret;
-    ret = TFT_spiInit(dconfig);
-    if (ret != 0) return ret;
-
     TFT_display_setvars(dconfig);
 
-    tft_init(2);
+    if (!tft_init(2)) return -1;
     vTaskDelay(100);
 
     // Clear screen
@@ -662,5 +686,5 @@ int TFT_display_init(display_config_t *dconfig)
     return 0;
 }
 
-#endif // CONFIG_MICROPY_USE_TFT
+#endif // CONFIG_MICROPY_USE_DISPLAY
 

@@ -136,35 +136,89 @@ STATIC mp_obj_t os_sync(void)
 }
 MP_DEFINE_CONST_FUN_OBJ_0(mod_os_sync_obj, os_sync);
 
+#define PROXY_MAX_ARGS (2)
+
+//-----------------------------------------------------------------------------------------------------------
+STATIC mp_obj_t mp_vfs_proxy_call(mp_vfs_mount_t *vfs, qstr meth_name, size_t n_args, const mp_obj_t *args) {
+    assert(n_args <= PROXY_MAX_ARGS);
+    if (vfs == MP_VFS_NONE) {
+        // mount point not found
+        mp_raise_OSError(MP_ENODEV);
+    }
+    if (vfs == MP_VFS_ROOT) {
+        // can't do operation on root dir
+        mp_raise_OSError(MP_EPERM);
+    }
+    mp_obj_t meth[2 + PROXY_MAX_ARGS];
+    mp_load_method(vfs->obj, meth_name, meth);
+    if (args != NULL) {
+        memcpy(meth + 2, args, n_args * sizeof(*args));
+    }
+    return mp_call_method_n_kw(n_args, 0, meth);
+}
+
+/// Get the current drive.
+//-------------------------------------
+STATIC mp_obj_t os_getdrive() {
+
+    char drive[256] = {'\0'};
+
+    if (MP_STATE_VM(vfs_cur) == MP_VFS_ROOT) {
+        sprintf(drive, "/");
+    }
+    else {
+        mp_obj_t cwd_o = mp_vfs_proxy_call(MP_STATE_VM(vfs_cur), MP_QSTR_getcwd, 0, NULL);
+        const char *cwd = mp_obj_str_get_str(cwd_o);
+
+        if (MP_STATE_VM(vfs_cur)->len == 1) {
+            // don't prepend "/" for vfs mounted at root
+            sprintf(drive, "%s", cwd);
+        }
+        else {
+            sprintf(drive, "%s", MP_STATE_VM(vfs_cur)->str);
+            if (!(cwd[0] == '/' && cwd[1] == 0)) {
+                strcat(drive, cwd);
+            }
+            char *drvend = strchr(drive+1, '/');
+            if (drvend) *drvend = '\0';
+        }
+    }
+
+    return mp_obj_new_str(drive, strlen(drive));
+}
+MP_DEFINE_CONST_FUN_OBJ_0(os_getdrive_obj, os_getdrive);
+
+
 //==========================================================
 STATIC const mp_rom_map_elem_t os_module_globals_table[] = {
-    { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_uos) },
-    { MP_ROM_QSTR(MP_QSTR_uname), MP_ROM_PTR(&os_uname_obj) },
-    { MP_ROM_QSTR(MP_QSTR_urandom), MP_ROM_PTR(&os_urandom_obj) },
+    { MP_ROM_QSTR(MP_QSTR___name__),        MP_ROM_QSTR(MP_QSTR_uos) },
+    { MP_ROM_QSTR(MP_QSTR_uname),           MP_ROM_PTR(&os_uname_obj) },
+    { MP_ROM_QSTR(MP_QSTR_urandom),         MP_ROM_PTR(&os_urandom_obj) },
     #if MICROPY_PY_OS_DUPTERM
-    { MP_ROM_QSTR(MP_QSTR_dupterm), MP_ROM_PTR(&mp_uos_dupterm_obj) },
-    { MP_ROM_QSTR(MP_QSTR_dupterm_notify), MP_ROM_PTR(&os_dupterm_notify_obj) },
+    { MP_ROM_QSTR(MP_QSTR_dupterm),         MP_ROM_PTR(&mp_uos_dupterm_obj) },
+    { MP_ROM_QSTR(MP_QSTR_dupterm_notify),  MP_ROM_PTR(&os_dupterm_notify_obj) },
     #endif
     #if MICROPY_VFS
-    { MP_ROM_QSTR(MP_QSTR_ilistdir), MP_ROM_PTR(&mp_vfs_ilistdir_obj) },
-    { MP_ROM_QSTR(MP_QSTR_listdir), MP_ROM_PTR(&mp_vfs_listdir_obj) },
-    { MP_ROM_QSTR(MP_QSTR_mkdir), MP_ROM_PTR(&mp_vfs_mkdir_obj) },
-    { MP_ROM_QSTR(MP_QSTR_rmdir), MP_ROM_PTR(&mp_vfs_rmdir_obj) },
-    { MP_ROM_QSTR(MP_QSTR_chdir), MP_ROM_PTR(&mp_vfs_chdir_obj) },
-    { MP_ROM_QSTR(MP_QSTR_getcwd), MP_ROM_PTR(&mp_vfs_getcwd_obj) },
-    { MP_ROM_QSTR(MP_QSTR_remove), MP_ROM_PTR(&mp_vfs_remove_obj) },
-    { MP_ROM_QSTR(MP_QSTR_rename), MP_ROM_PTR(&mp_vfs_rename_obj) },
-    { MP_ROM_QSTR(MP_QSTR_stat), MP_ROM_PTR(&mp_vfs_stat_obj) },
-    { MP_ROM_QSTR(MP_QSTR_statvfs), MP_ROM_PTR(&mp_vfs_statvfs_obj) },
-    { MP_ROM_QSTR(MP_QSTR_mount), MP_ROM_PTR(&mp_vfs_mount_obj) },
-    { MP_ROM_QSTR(MP_QSTR_umount), MP_ROM_PTR(&mp_vfs_umount_obj) },
-    { MP_ROM_QSTR(MP_QSTR_sync), MP_ROM_PTR(&mod_os_sync_obj) },
+    { MP_ROM_QSTR(MP_QSTR_ilistdir),        MP_ROM_PTR(&mp_vfs_ilistdir_obj) },
+    { MP_ROM_QSTR(MP_QSTR_listdir),         MP_ROM_PTR(&mp_vfs_listdir_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mkdir),           MP_ROM_PTR(&mp_vfs_mkdir_obj) },
+    { MP_ROM_QSTR(MP_QSTR_rmdir),           MP_ROM_PTR(&mp_vfs_rmdir_obj) },
+    { MP_ROM_QSTR(MP_QSTR_chdir),           MP_ROM_PTR(&mp_vfs_chdir_obj) },
+    { MP_ROM_QSTR(MP_QSTR_getcwd),          MP_ROM_PTR(&mp_vfs_getcwd_obj) },
+    { MP_ROM_QSTR(MP_QSTR_getdrive),        MP_ROM_PTR(&os_getdrive_obj) },
+    { MP_ROM_QSTR(MP_QSTR_remove),          MP_ROM_PTR(&mp_vfs_remove_obj) },
+    { MP_ROM_QSTR(MP_QSTR_rename),          MP_ROM_PTR(&mp_vfs_rename_obj) },
+    { MP_ROM_QSTR(MP_QSTR_stat),            MP_ROM_PTR(&mp_vfs_stat_obj) },
+    { MP_ROM_QSTR(MP_QSTR_statvfs),         MP_ROM_PTR(&mp_vfs_statvfs_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mount),           MP_ROM_PTR(&mp_vfs_mount_obj) },
+    { MP_ROM_QSTR(MP_QSTR_umount),          MP_ROM_PTR(&mp_vfs_umount_obj) },
+    { MP_ROM_QSTR(MP_QSTR_sync),            MP_ROM_PTR(&mod_os_sync_obj) },
     #endif
 	#if MICROPY_VFS_SPIFFS
-	{ MP_ROM_QSTR(MP_QSTR_VfsSpiffs), MP_ROM_PTR(&mp_spiffs_vfs_type) },
+	{ MP_ROM_QSTR(MP_QSTR_VfsSpiffs),       MP_ROM_PTR(&mp_spiffs_vfs_type) },
 	#endif
     #if MICROPY_VFS_SDCARD
-    { MP_ROM_QSTR(MP_QSTR_VfsSDCard), MP_ROM_PTR(&mp_sdcard_vfs_type) },
+    { MP_ROM_QSTR(MP_QSTR_VfsSDCard),       MP_ROM_PTR(&mp_sdcard_vfs_type) },
     #endif
 };
 
