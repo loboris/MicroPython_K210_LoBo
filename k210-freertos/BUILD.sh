@@ -33,8 +33,6 @@ if [ ! -f "${PWD}/../kendryte-toolchain/${TOOLS_VER}" ]; then
     # Remove directories from previous version
     rm -rf ${PWD}/../kendryte-toolchain/ > /dev/null 2>&1
     rmdir ${PWD}/../kendryte-toolchain > /dev/null 2>&1
-    touch ${PWD}/../kendryte-toolchain/${TOOLS_VER}
-    echo "Kendryte toolchain version" > ${PWD}/../kendryte-toolchain/${TOOLS_VER}
 
     cd ..
     rm -f kendryte-toolchain.tar.xz > /dev/null 2>&1
