@@ -116,7 +116,7 @@ extern uint64_t vGetRunTimeCounterValue();
 
 /* Software timer definitions. */
 #define configUSE_TIMERS						0
-#define configTIMER_TASK_PRIORITY				( 2 )
+#define configTIMER_TASK_PRIORITY				( 0 )
 #define configTIMER_QUEUE_LENGTH				2
 #define configTIMER_TASK_STACK_DEPTH			( configMINIMAL_STACK_SIZE )
 
@@ -134,6 +134,8 @@ extern uint64_t vGetRunTimeCounterValue();
 #define INCLUDE_vTaskDelay						1
 #define INCLUDE_eTaskGetState					1
 #define INCLUDE_xTaskAbortDelay					1
+#define INCLUDE_xTaskGetSchedulerState          1
+#define INCLUDE_xTimerPendFunctionCall          0
 #define INCLUDE_uxTaskGetStackHighWaterMark     1
 #define INCLUDE_pxTaskGetStackStart             1
 

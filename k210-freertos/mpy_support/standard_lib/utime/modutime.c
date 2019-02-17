@@ -190,6 +190,70 @@ STATIC mp_obj_t time_mktime(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t
     struct tm tm_inf;
     mp_obj_t *time_items;
     size_t n_items = 0;
+    int tz = 0;
+    char tzs[16];
+
+    mp_obj_get_array(args[0].u_obj, &n_items, &time_items);
+    if (n_items < 6) {
+        mp_raise_ValueError("expected at least 6-item time tuple");
+    }
+
+    if (MP_OBJ_IS_INT(args[1].u_obj)) {
+        tz = mp_obj_get_int(args[1].u_obj);
+        if ((tz < -11) || (tz > 12)) {
+            mp_raise_ValueError("tz must be >= -11 and <= +12");
+        }
+        if (tz >= 0) sprintf(tzs, "UTC+%d", tz);
+        else sprintf(tzs, "UTC%d", tz);
+    }
+    else {
+        sprintf(tzs, "UTC+0");
+    }
+    tm_inf.tm_year = mp_obj_get_int(time_items[0]) - 1900;
+    tm_inf.tm_mon = mp_obj_get_int(time_items[1]) - 1;
+    tm_inf.tm_mday = mp_obj_get_int(time_items[2]);
+    tm_inf.tm_hour = mp_obj_get_int(time_items[3]);
+    tm_inf.tm_min = mp_obj_get_int(time_items[4]);
+    tm_inf.tm_sec = mp_obj_get_int(time_items[5]);
+    tm_inf.tm_wday = 0;
+    tm_inf.tm_yday = 0;
+
+    time_t seconds = mktime(&tm_inf);
+    seconds += (tz * 3600);
+    setenv("TZ", tzs, 1);
+    //tzset();
+
+    if (args[2].u_bool) {
+        // Set system time
+        rtc_set_datetime(mp_rtc_rtc0, &tm_inf); // set RTC time
+
+        time_t rtc_seconds;
+        time(&rtc_seconds);                 // get system time
+        time_base = seconds-rtc_seconds;    // set time correction variable
+    }
+
+    return mp_obj_new_int(seconds);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(time_mktime_obj, 1, time_mktime);
+
+/*
+//------------------------------------------------------------------------------------------
+STATIC mp_obj_t time_mktime(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    const mp_arg_t allowed_args[] = {
+        { MP_QSTR_time,   MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+        { MP_QSTR_tz,                       MP_ARG_OBJ, { .u_obj = mp_const_none } },
+        { MP_QSTR_setrtc,                   MP_ARG_BOOL, { .u_bool = false } },
+    };
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    if (!MP_OBJ_IS_TYPE(args[0].u_obj, &mp_type_tuple)) {
+        mp_raise_TypeError("expected time tuple");
+    }
+
+    struct tm tm_inf;
+    mp_obj_t *time_items;
+    size_t n_items = 0;
     const char *tz = NULL;
 
     mp_obj_get_array(args[0].u_obj, &n_items, &time_items);
@@ -228,7 +292,7 @@ STATIC mp_obj_t time_mktime(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t
     return mp_obj_new_int(seconds);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(time_mktime_obj, 1, time_mktime);
-
+*/
 //----------------------------------------------
 STATIC mp_obj_t time_sleep_r(mp_obj_t seconds_o)
 {
@@ -265,33 +329,27 @@ MP_DEFINE_CONST_FUN_OBJ_1(mp_utime_sleep_us_r_obj, time_sleep_us_r);
 
 //============================================================
 STATIC const mp_rom_map_elem_t time_module_globals_table[] = {
-    { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_utime) },
+    { MP_ROM_QSTR(MP_QSTR___name__),    MP_ROM_QSTR(MP_QSTR_utime) },
 
-    /*
-    { MP_ROM_QSTR(MP_QSTR_localtime), MP_ROM_PTR(&time_localtime_obj) },
-    { MP_ROM_QSTR(MP_QSTR_mktime), MP_ROM_PTR(&time_mktime_obj) },
-    { MP_ROM_QSTR(MP_QSTR_set_time), MP_ROM_PTR(&time_set_time_obj) },
-    { MP_ROM_QSTR(MP_QSTR_time), MP_ROM_PTR(&time_time_obj) },
-    */
     { MP_ROM_QSTR(MP_QSTR_time),        MP_ROM_PTR(&time_time_obj) },
     { MP_ROM_QSTR(MP_QSTR_mktime),      MP_ROM_PTR(&time_mktime_obj) },
     { MP_ROM_QSTR(MP_QSTR_localtime),   MP_ROM_PTR(&time_localtime_obj) },
     { MP_ROM_QSTR(MP_QSTR_gmtime),      MP_ROM_PTR(&time_gmtime_obj) },
     { MP_ROM_QSTR(MP_QSTR_strftime),    MP_ROM_PTR(&time_strftime_obj) },
 
-    { MP_ROM_QSTR(MP_QSTR_sleep), MP_ROM_PTR(&mp_utime_sleep_obj) },
-    { MP_ROM_QSTR(MP_QSTR_sleep_ms), MP_ROM_PTR(&mp_utime_sleep_ms_obj) },
-    { MP_ROM_QSTR(MP_QSTR_sleep_us), MP_ROM_PTR(&mp_utime_sleep_us_obj) },
+    { MP_ROM_QSTR(MP_QSTR_sleep),       MP_ROM_PTR(&mp_utime_sleep_obj) },
+    { MP_ROM_QSTR(MP_QSTR_sleep_ms),    MP_ROM_PTR(&mp_utime_sleep_ms_obj) },
+    { MP_ROM_QSTR(MP_QSTR_sleep_us),    MP_ROM_PTR(&mp_utime_sleep_us_obj) },
 
-    { MP_ROM_QSTR(MP_QSTR_rsleep), MP_ROM_PTR(&mp_utime_sleep_r_obj) },
-    { MP_ROM_QSTR(MP_QSTR_rsleep_ms), MP_ROM_PTR(&mp_utime_sleep_ms_r_obj) },
-    { MP_ROM_QSTR(MP_QSTR_rsleep_us), MP_ROM_PTR(&mp_utime_sleep_us_r_obj) },
+    { MP_ROM_QSTR(MP_QSTR_rsleep),      MP_ROM_PTR(&mp_utime_sleep_r_obj) },
+    { MP_ROM_QSTR(MP_QSTR_rsleep_ms),   MP_ROM_PTR(&mp_utime_sleep_ms_r_obj) },
+    { MP_ROM_QSTR(MP_QSTR_rsleep_us),   MP_ROM_PTR(&mp_utime_sleep_us_r_obj) },
 
-    { MP_ROM_QSTR(MP_QSTR_ticks_ms), MP_ROM_PTR(&mp_utime_ticks_ms_obj) },
-    { MP_ROM_QSTR(MP_QSTR_ticks_us), MP_ROM_PTR(&mp_utime_ticks_us_obj) },
-    { MP_ROM_QSTR(MP_QSTR_ticks_cpu), MP_ROM_PTR(&mp_utime_ticks_cpu_obj) },
-    { MP_ROM_QSTR(MP_QSTR_ticks_add), MP_ROM_PTR(&mp_utime_ticks_add_obj) },
-    { MP_ROM_QSTR(MP_QSTR_ticks_diff), MP_ROM_PTR(&mp_utime_ticks_diff_obj) },
+    { MP_ROM_QSTR(MP_QSTR_ticks_ms),    MP_ROM_PTR(&mp_utime_ticks_ms_obj) },
+    { MP_ROM_QSTR(MP_QSTR_ticks_us),    MP_ROM_PTR(&mp_utime_ticks_us_obj) },
+    { MP_ROM_QSTR(MP_QSTR_ticks_cpu),   MP_ROM_PTR(&mp_utime_ticks_cpu_obj) },
+    { MP_ROM_QSTR(MP_QSTR_ticks_add),   MP_ROM_PTR(&mp_utime_ticks_add_obj) },
+    { MP_ROM_QSTR(MP_QSTR_ticks_diff),  MP_ROM_PTR(&mp_utime_ticks_diff_obj) },
 };
 
 STATIC MP_DEFINE_CONST_DICT(time_module_globals, time_module_globals_table);

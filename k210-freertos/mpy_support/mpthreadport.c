@@ -30,6 +30,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
+#include "syslog.h"
 #include <projdefs.h>
 #include <portmacro.h>
 #include "py/mpconfig.h"
@@ -41,6 +42,7 @@
 #include "py/mpthread.h"
 #include "py/mphal.h"
 #include "mpthreadport.h"
+#include "mphalport.h"
 #include "modmachine.h"
 #include "gccollect.h"
 #if MICROPY_ENABLE_PYSTACK
@@ -50,12 +52,9 @@
 extern int MainTaskProc;
 
 TaskHandle_t MainTaskHandle = NULL;
-TaskHandle_t MPySysTaskHandle = NULL;
+TaskHandle_t MainTaskHandle2 = NULL;
 
 uint8_t main_accept_msg = 1;
-
-//static TaskHandle_t gil_enter_last_thread = 0;
-//static TaskHandle_t gil_exit_last_thread = 0;
 
 // the mutex controls access to the linked list
 STATIC mp_thread_mutex_t thread_mutex;
@@ -171,18 +170,36 @@ void mp_thread_start(void) {
     mp_thread_mutex_unlock(&thread_mutex);
 }
 
+//------------------------------------
+int mp_thread_started(TaskHandle_t id)
+{
+    int res = -1;
+    mp_thread_mutex_lock(&thread_mutex, 1);
+    for (thread_t *th = thread; th != NULL; th = th->next) {
+        if (th->id == xTaskGetCurrentTaskHandle()) {
+            res = 0;
+            if (th->ready != 0) {
+                res = 1;
+                break;
+            }
+        }
+    }
+    mp_thread_mutex_unlock(&thread_mutex);
+    return res;
+}
+
 STATIC void *(*ext_thread_entry)(void*) = NULL;
 
 
 extern void mp_thread_entry(void *args_in);
-
+/*
 //-----------------------------------
 STATIC void freertos_entry(void *arg)
 {
     mp_thread_entry(arg);
     vTaskDelete(NULL);
 }
-
+*/
 //----------------------------
 void mp_thread_remove_thread()
 {
@@ -291,8 +308,8 @@ static TaskHandle_t mp_thread_create_ex(void *entry, void *arg, size_t task_stac
     // adjust the task_stack_size to provide room to recover from hitting the limit
     //task_stack_size -= 1024;
 
-    int run_on_core = MainTaskProc;
-    if (!same_core) run_on_core = MainTaskProc ^ 1;
+    int run_on_core = MainTaskProc & 1;
+    if (!same_core) run_on_core ^= 1;
     // -----------------------------------------------
     // ** add thread to the linked list of all threads
     // -----------------------------------------------
@@ -318,15 +335,33 @@ static TaskHandle_t mp_thread_create_ex(void *entry, void *arg, size_t task_stac
     // === Create and start the thread task ===
     TaskHandle_t id = NULL;
 
-    int res = xTaskCreateAtProcessor(
-            run_on_core,            // processor
-            freertos_entry,         // function entry
-            th->name,               // task name
-            task_stack_size,        // stack_deepth
-            arg,                    // function argument
-            priority,               // task priority
-            (TaskHandle_t *)&id);   // task handle
-    if (res != pdPASS) id = NULL;
+    //if (run_on_core != MainTaskProc) {
+        /*
+        //ToDo: Workaround for issue with creating the task on different processor
+        create_task_params_t params;
+        params.uxProcessor = run_on_core;
+        params.pxTaskCode = mp_thread_entry;
+        snprintf(params.pcName, THREAD_NAME_MAX_SIZE, name);
+        params.usStackDepth = task_stack_size;
+        params.pvParameters = arg;
+        params.uxPriority = priority;
+        params.pxCreatedTask = (TaskHandle_t *)&id;
+        xTaskNotify(mp_hal_tick_handle, (uint64_t )&params, eSetValueWithOverwrite);
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+        */
+    //}
+    //else {
+        BaseType_t res = xTaskCreateAtProcessor(
+                    run_on_core,            // processor
+                    //freertos_entry,         // function entry
+                    mp_thread_entry,        // function entry
+                    th->name,               // task name
+                    task_stack_size,        // stack_deepth
+                    arg,                    // function argument
+                    priority,               // task priority
+                    (TaskHandle_t *)&id);   // task handle
+        if (res != pdPASS) id = NULL;
+    //}
 
     if (id == NULL) {
         // Task not started, restore previous thread and clean-up
@@ -337,13 +372,23 @@ static TaskHandle_t mp_thread_create_ex(void *entry, void *arg, size_t task_stac
         mp_thread_mutex_unlock(&thread_mutex);
         nlr_raise(mp_obj_new_exception_msg(&mp_type_OSError, "Error creating thread"));
     }
-
     th->id = id;
 
-    vTaskResume(id);
-    vTaskDelay(1);
-
     mp_thread_mutex_unlock(&thread_mutex);
+
+    // wait for thread to start
+    int th_started = 0;
+    int tmo = 20;
+    while ( th_started != 1) {
+        tmo--;
+        if (tmo == 0) break;
+        vTaskDelay(5 / portTICK_PERIOD_MS);
+        th_started = mp_thread_started(id);
+    }
+
+    if (th_started != 1) {
+        LOGE("[THREAD]", "New thread not started");
+    }
     return id;
 }
 
@@ -396,8 +441,6 @@ int mp_thread_suspend(TaskHandle_t id) {
         	if ((th->allow_suspend) && (th->suspended == 0) && (th->waiting == 0)) {
         		th->suspended = 1;
         		vTaskSuspend(th->id);
-        		//if (uxTaskGetProcessorId() == xTaskGetProcessor(th->id)) vTaskSuspend(th->id);
-        		//else xTaskNotify(MPySysTaskHandle, (SYS_TASK_NOTIFY_SUSPEND << 56) | (uint64_t)th->id, eSetValueWithOverwrite);
         		res = 1;
         	}
             break;
@@ -420,8 +463,6 @@ int mp_thread_resume(TaskHandle_t id) {
         	if ((th->allow_suspend) && (th->suspended) && (th->waiting == 0)) {
         		th->suspended = 0;
         		vTaskResume(th->id);
-                //if (uxTaskGetProcessorId() == xTaskGetProcessor(th->id)) vTaskResume(th->id);
-                //else xTaskNotify(MPySysTaskHandle, (SYS_TASK_NOTIFY_RESUME << 56) | (uint64_t)th->id, eSetValueWithOverwrite);
         		res = 1;
         	}
             break;

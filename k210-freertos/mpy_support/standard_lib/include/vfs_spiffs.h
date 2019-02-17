@@ -110,21 +110,28 @@ typedef struct {
     uint8_t type;   /*!< file type */
 } __attribute__((packed, aligned(1))) vfs_spiffs_meta_t;
 
+extern spiffs_user_mount_t spiffs_user_mount_handle;
 
 extern const byte SPIFFS_errno_table[43];
 extern const mp_obj_type_t mp_spiffs_vfs_type;
 extern const mp_obj_type_t mp_type_vfs_spiffs_fileio;
 extern const mp_obj_type_t mp_type_vfs_spiffs_textio;
-extern char spiffs_current_dir[SPIFFS_OBJ_NAME_LEN];
 
+#if SPIFFS_HAL_CALLBACK_EXTRA
 s32_t sys_spiffs_read(spiffs* fs, int addr, int size, char *buf);
 s32_t sys_spiffs_write(spiffs* fs, int addr, int size, char *buf);
 s32_t sys_spiffs_erase(spiffs* fs, int addr, int size);
-void vfs_spiffs_update_meta(spiffs *fs, spiffs_file fd, uint8_t type);
+#else
+s32_t sys_spiffs_read(int addr, int size, char *buf);
+s32_t sys_spiffs_write(int addr, int size, char *buf);
+s32_t sys_spiffs_erase(int addr, int size);
+#endif
+
+bool vfs_spiffs_update_meta(spiffs *fs, spiffs_file fd, uint8_t type);
 int mp_module_spiffs_mount(spiffs* fs,spiffs_config* cfg);
 int mp_module_spiffs_format(spiffs* fs);
 MP_NOINLINE bool init_flash_spiffs();
-char *spiffs_local_path(char *path);
+const char *spiffs_local_path(const char *path);
 bool check_main_py(spiffs *fs);
 
 MP_DECLARE_CONST_FUN_OBJ_3(spiffs_vfs_open_obj);

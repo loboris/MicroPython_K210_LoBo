@@ -1386,6 +1386,7 @@ s32_t SPIFFS_vis(spiffs *fs) {
   spiffs_obj_id *obj_lu_buf = (spiffs_obj_id *)fs->lu_work;
   spiffs_block_ix bix = 0;
 
+  spiffs_printf("Blk  Pages\n----------\n");
   while (bix < fs->block_count) {
     // check each object lookup page
     int obj_lookup_page = 0;
@@ -1415,7 +1416,7 @@ s32_t SPIFFS_vis(spiffs *fs) {
         }
         cur_entry++;
         if ((cur_entry & 0x3f) == 0) {
-          spiffs_printf("\n");
+          spiffs_printf("\r\n");
         }
       } // per entry
       obj_lookup_page++;
@@ -1428,24 +1429,28 @@ s32_t SPIFFS_vis(spiffs *fs) {
     SPIFFS_CHECK_RES(res);
 
     if (erase_count != (spiffs_obj_id)-1) {
-      spiffs_printf("\tera_cnt: "_SPIPRIi"\n", erase_count);
+      spiffs_printf("\tera_cnt: "_SPIPRIi"\r\n", erase_count);
     } else {
-      spiffs_printf("\tera_cnt: N/A\n");
+      spiffs_printf("\tera_cnt: N/A\r\n");
     }
 
     bix++;
   } // per block
 
-  spiffs_printf("era_cnt_max: "_SPIPRIi"\n", fs->max_erase_count);
-  spiffs_printf("last_errno:  "_SPIPRIi"\n", fs->err_code);
-  spiffs_printf("blocks:      "_SPIPRIi"\n", fs->block_count);
-  spiffs_printf("free_blocks: "_SPIPRIi"\n", fs->free_blocks);
-  spiffs_printf("page_alloc:  "_SPIPRIi"\n", fs->stats_p_allocated);
-  spiffs_printf("page_delet:  "_SPIPRIi"\n", fs->stats_p_deleted);
+  spiffs_printf("\r\n--------------\r\n");
+  spiffs_printf("erase_cnt_max: "_SPIPRIi"\r\n", fs->max_erase_count);
+  spiffs_printf("   last_errno: "_SPIPRIi"\r\n", fs->err_code);
+  spiffs_printf("       blocks: "_SPIPRIi"\r\n", fs->block_count);
+  spiffs_printf("  free_blocks: "_SPIPRIi"\r\n", fs->free_blocks);
+  spiffs_printf("   page_alloc: "_SPIPRIi"\r\n", fs->stats_p_allocated);
+  spiffs_printf("   page_delet: "_SPIPRIi"\r\n", fs->stats_p_deleted);
   SPIFFS_UNLOCK(fs);
   u32_t total, used;
   SPIFFS_info(fs, &total, &used);
-  spiffs_printf("used:        "_SPIPRIi" of "_SPIPRIi"\n", used, total);
+  spiffs_printf("         used: "_SPIPRIi" of "_SPIPRIi"\r\n", used, total);
+  spiffs_printf("--------------------------------------------------\r\n");
+  spiffs_printf("Legend: '%s' free, '%s' deleted, '%s' index, '%s' data\r\n\n",
+          SPIFFS_TEST_VIS_FREE_STR, SPIFFS_TEST_VIS_DELE_STR, SPIFFS_TEST_VIS_INDX_STR(id), SPIFFS_TEST_VIS_DATA_STR(id));
   return res;
 }
 #endif

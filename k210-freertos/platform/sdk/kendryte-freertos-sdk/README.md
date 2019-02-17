@@ -1,25 +1,48 @@
-Kendryte K210 SDK
+Kendryte K210 SDK with FreeRTOS
 ======
 
-This SDK is for Kendryte K210 which contains FreeRTOS support.  
-If you have any questions, please be free to contact us.
+This SDK is for Kendryte K210 which contains FreeRTOS support. <br> 
+Ported from [Kendryte `kendryte-freertos-sdk`](https://github.com/kendryte/kendryte-freertos-sdk)
 
-# Usage
+## Changes to make the SDK work better with MicroPython
 
-If you want to start a new project, for instance, `hello_world`, you only need to:
+_**The following files were modified:**_
 
-`mkdir` your project in `src/`, `cd src && mkdir hello_world`, then put your codes in it, and build it.
+* lib/bsp/
+  * `printf.c`
+  * device/
+    * `rtc.cpp`
+    * `uart.cpp`
+    * `gpiohs.cpp`
+* lib/arch/include/
+  * `encoding.h`
+* lib/drivers/src/storage/
+  * `sdcard.cpp`
+* lib/utils/include/
+  * `syslog.h`
+* lib/freertos/
+  * include/
+    * `task.h`
+    * `devices.h`
+    * `FreeRTOS.h`
+    * `filesystem.h`
+  * kernel/
+    * `devices.cpp`
+    * storage/
+      * `filesystem.cpp`
+  * conf/
+    * `FreeRTOSConfig.h`
+  * portable/
+    * `port.c`
+* third_party/
+  * lwip/
+    * src/
+      * `Filelist.cmake`
+      * include/
+        * netif/
+          * ppp/
+            * `ppp_opts.h`
+  * fatfs/
+    * source/
+      * `ffconf.h`
 
-```shell
-mkdir build && cd build
-cmake .. -DPROJ=<ProjectName> -DTOOLCHAIN=/opt/riscv-toolchain/bin && make
-```
-
-You will get 2 key files, `hello_world` and `hello_world.bin`.
-
-1. If you are using JLink to run or debug your program, use `hello_world`
-2. If you want to flash it in UOG, using `hello_world.bin`, then using flash-tool(s) burn <ProjectName>.bin to your flash.
-
-This is very important, don't make a mistake in files.
-
-*If you don't like place code inside SDK, see `CMakeLists.txt.example.cmake`*

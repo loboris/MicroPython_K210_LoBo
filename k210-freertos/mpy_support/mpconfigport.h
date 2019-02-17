@@ -30,12 +30,26 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <limits.h>
+
+// ===========================================
 // options to control how MicroPython is built
+// ===========================================
 
-#define MICRO_PY_DEFAULT_CPU_CLOCK              (400000000) // dafault cpu clock in Hz
+#define MICRO_PY_DEFAULT_CPU_CLOCK              (400000000) // default cpu clock in Hz
+#define MICRO_PY_DEFAULT_BAUDRATE               (115200)    // default REPL baudrate
 
+#define USE_MICROPY_VM_HOOK_LOOP                (1)
+#if USE_MICROPY_VM_HOOK_LOOP
 extern void vm_loop_hook();
 #define MICROPY_VM_HOOK_LOOP                    vm_loop_hook();
+#endif
+
+//-------------------------------------------------------------
+// If set to 1, two main MicroPython tasks are created on boot,
+// each running on its own K210 processor
+// !!This feature is under development and does not work yet!!
+#define MICROPY_USE_TWO_MAIN_TASKS              (0)
+//-------------------------------------------------------------
 
 // !MicroPython threads are always supported!
 #define MICROPY_PY_THREAD                       (1)  // !DO NOT CHANGE!
@@ -46,25 +60,15 @@ extern void vm_loop_hook();
 #define MICROPY_TASK_PRIORITY                   (8) // default thread priority
 #define MICROPY_PY_THREAD_STATIC_TASK           (0)
 //MicroPython heap size in bytes
+#if MICROPY_USE_TWO_MAIN_TASKS
+#define MICROPY_HEAP_SIZE                       (3 * 512 * 1024)
+#else
 #define MICROPY_HEAP_SIZE                       (3 * 1024 * 1024)
+#endif
 
 #define MICROPY_USE_DISPLAY                     (1)
 #define MICROPY_USE_TFT                         (1)
 
-
-// You can disable the built-in MicroPython compiler by setting the following
-// config option to 0.  If you do this then you won't get a REPL prompt, but you
-// will still be able to execute pre-compiled scripts, compiled with mpy-cross.
-
-// object representation and NLR handling
-#define MICROPY_OBJ_REPR                        (MICROPY_OBJ_REPR_D)
-
-#define MICROPY_NLR_SETJMP                      (1)
-#define MICROPY_READER_VFS                      (1)
-
-// MCU definition
-#define MP_ENDIANNESS_LITTLE                    (1)
-#define MICROPY_NO_ALLOCA                       (0)
 // MicroPython main task stack size in bytes
 #define MICROPY_TASK_STACK_SIZE                 (32 * 1024)
 // MicroPython main task stack size in stack_type units (64-bits)
@@ -75,6 +79,31 @@ extern void vm_loop_hook();
 #else
 #define MICROPY_PYSTACK_SIZE                    (0)
 #endif
+#define MICRO_PY_UARTHS_BUFFER_SIZE             (1280)
+
+// object representation and NLR handling
+
+//--------------------------------------------------------------------------------------------------
+// A MicroPython object is a 64-bit word having the following form (called R):
+//  - seeeeeee eeeeffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff 64-bit fp, e != 0x7ff
+//  - s1111111 11110000 00000000 00000000 00000000 00000000 00000000 00000000 +/- inf
+//  - 01111111 11111000 00000000 00000000 00000000 00000000 00000000 00000000 normalised nan
+//  - 01111111 11111101 iiiiiiii iiiiiiii iiiiiiii iiiiiiii iiiiiiii iiiiiii1 small int
+//  - 01111111 11111110 00000000 00000000 qqqqqqqq qqqqqqqq qqqqqqqq qqqqqqq1 str
+//  - 01111111 11111100 00000000 00000000 pppppppp pppppppp pppppppp pppppp00 ptr (4 byte alignment)
+// Stored as O = R + 0x8004000000000000, retrieved as R = O - 0x8004000000000000.
+// This makes pointers have all zeros in the top 32 bits.
+// Small-ints and strs have 1 as LSB to make sure they don't look like pointers
+// to the garbage collector.
+#define MICROPY_OBJ_REPR                        (MICROPY_OBJ_REPR_D)
+//--------------------------------------------------------------------------------------------------
+
+#define MICROPY_NLR_SETJMP                      (1)
+#define MICROPY_READER_VFS                      (1)
+
+// MCU definition
+#define MP_ENDIANNESS_LITTLE                    (1)
+#define MICROPY_NO_ALLOCA                       (0)
 
 // optimisations
 #define MICROPY_OPT_COMPUTED_GOTO               (1)
@@ -129,7 +158,6 @@ extern const struct _mp_print_t mp_debug_print;
 #define MICROPY_DEBUG_VERBOSE                   (0)
 #define MICROPY_DEBUG_PRINTER                   (&mp_debug_print)
 
-
 #define MICROPY_MEM_STATS                       (1)
 #define MICROPY_DEBUG_PRINTERS                  (0)
 #define MICROPY_ENABLE_GC                       (1)
@@ -157,6 +185,9 @@ extern const struct _mp_print_t mp_debug_print;
 #define MICROPY_MODULE_FROZEN_MPY               (1)
 #define MICROPY_LONGINT_IMPL                    (MICROPY_LONGINT_IMPL_MPZ) //(MICROPY_LONGINT_IMPL_LONGLONG)
 
+//-----------------------------
+// control over Python builtins
+//-----------------------------
 #define MICROPY_FLOAT_IMPL                      (MICROPY_FLOAT_IMPL_DOUBLE)
 #define MICROPY_PY_BUILTINS_HELP                (1)
 #define MICROPY_PY_BUILTINS_HELP_TEXT           kendryte_k210_help_text
@@ -164,8 +195,6 @@ extern const struct _mp_print_t mp_debug_print;
 #define MICROPY_PY_BUILTINS_COMPLEX             (1)
 #define MICROPY_PY_BUILTINS_FLOAT               (1)
 
-
-// control over Python builtins
 #define MICROPY_PY_STR_BYTES_CMP_WARN           (1)
 #define MICROPY_PY_BUILTINS_STR_UNICODE         (1)
 #define MICROPY_PY_BUILTINS_STR_CENTER          (1)
@@ -232,8 +261,9 @@ extern const struct _mp_print_t mp_debug_print;
 #define MICROPY_PY_FUNCTION_ATTRS               (1)
 #define MICROPY_PY_DESCRIPTORS                  (1)
 
-
+//-----------------
 // extended modules
+//-----------------
 #define MICROPY_PY_UCTYPES                      (1)
 #define MICROPY_PY_UZLIB                        (1)
 #define MICROPY_PY_UJSON                        (1)
@@ -306,9 +336,6 @@ extern const struct _mp_obj_module_t machine_module;
 extern const struct _mp_obj_module_t uos_module;
 extern const struct _mp_obj_module_t utime_module;
 extern const struct _mp_obj_module_t mp_module_ymodem;
-//extern const struct _mp_obj_module_t maix_module;
-//extern const struct _mp_obj_module_t app_module;
-//extern const struct _mp_obj_module_t socket_module;
 
 #ifdef MICROPY_PY_UHASHLIB_K210
 extern const struct _mp_obj_module_t mp_module_uhashlib;
@@ -339,26 +366,30 @@ extern const struct _mp_obj_module_t mp_module_utimeq;
 #endif
 
 #define MICROPY_PORT_BUILTIN_MODULES \
-    { MP_OBJ_NEW_QSTR(MP_QSTR_uos), (mp_obj_t)&uos_module }, \
-    { MP_OBJ_NEW_QSTR(MP_QSTR_utime), (mp_obj_t)&utime_module }, \
-    { MP_OBJ_NEW_QSTR(MP_QSTR_machine), (mp_obj_t)&machine_module }, \
-    { MP_OBJ_NEW_QSTR(MP_QSTR_ymodem), (mp_obj_t)&mp_module_ymodem }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_os),          (mp_obj_t)&uos_module }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_time),        (mp_obj_t)&utime_module }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_re),          (mp_obj_t)&mp_module_ure }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_io),          (mp_obj_t)&mp_module_io }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_binascii),    (mp_obj_t)&mp_module_ubinascii }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_collections), (mp_obj_t)&mp_module_collections }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_uos),         (mp_obj_t)&uos_module }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_utime),       (mp_obj_t)&utime_module }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_machine),     (mp_obj_t)&machine_module }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_ymodem),      (mp_obj_t)&mp_module_ymodem }, \
     BUILTIN_MODULE_UHASHLIB_K210 \
     BUILTIN_MODULE_UCRYPTOLIB_K210 \
     BUILTIN_MODULE_DISPLAY \
     BUILTIN_MODULE_UTIMEQ_K210 \
-    // { MP_OBJ_NEW_QSTR(MP_QSTR_Maix), (mp_obj_t)&maix_module },\
-    // { MP_OBJ_NEW_QSTR(MP_QSTR_usocket), (mp_obj_t)&socket_module }, \
-    // { MP_OBJ_NEW_QSTR(MP_QSTR_socket), (mp_obj_t)&socket_module }, \
-    // { MP_OBJ_NEW_QSTR(MP_QSTR_app), (mp_obj_t)&app_module }, \
 
-
+/*
 #define MICROPY_PORT_BUILTIN_MODULE_WEAK_LINKS \
-    { MP_OBJ_NEW_QSTR(MP_QSTR_os), (mp_obj_t)&uos_module }, \
-    { MP_OBJ_NEW_QSTR(MP_QSTR_time), (mp_obj_t)&utime_module }, \
-    { MP_OBJ_NEW_QSTR(MP_QSTR_re), (mp_obj_t)&mp_module_ure }, \
-    { MP_OBJ_NEW_QSTR(MP_QSTR_binascii), (mp_obj_t)&mp_module_ubinascii }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_os),          (mp_obj_t)&uos_module }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_time),        (mp_obj_t)&utime_module }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_re),          (mp_obj_t)&mp_module_ure }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_io),          (mp_obj_t)&mp_module_io }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_binascii),    (mp_obj_t)&mp_module_ubinascii }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_collections), (mp_obj_t)&mp_module_collections }, \
+*/
 
 #define MICROPY_PY_MACHINE                  (1)
 #define MICROPY_PY_MACHINE_PIN_MAKE_NEW     mp_pin_make_new
@@ -369,10 +400,6 @@ extern const struct _mp_obj_module_t mp_module_utimeq;
 #define MICROPY_HW_BOARD_NAME       "Sipeed_board"
 #define MICROPY_HW_MCU_NAME         "Kendryte-K210"
 #define MICROPY_PY_SYS_PLATFORM     "Sipeed"
-
-#ifdef __linux__
-#define MICROPY_MIN_USE_STDOUT (1)
-#endif
 
 #define MP_STATE_PORT MP_STATE_VM
 

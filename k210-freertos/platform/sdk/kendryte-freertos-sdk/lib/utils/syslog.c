@@ -12,32 +12,36 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-//
-// Core Synchronization
+#ifndef _SYSLOG_H
+#define _SYSLOG_H
 
-#ifndef CORE_SYNC_H
-#define CORE_SYNC_H
-
-#include "FreeRTOS.h"
+#include "syslog.h"
+#include "printf.h"
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
-typedef enum
-{
-    CORE_SYNC_NONE,
-    CORE_SYNC_ADD_TCB,
-    CORE_SYNC_SWITCH_CONTEXT
-} core_sync_event_t;
+uint32_t user_log_level = 2;
+uint64_t log_divisor = (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000);
 
-void core_sync_request(uint64_t core_id, int event);
-void core_sync_complete(uint64_t core_id);
-void core_sync_awaken(uintptr_t address);
+int log_print(const char* format, ...)
+{
+    va_list ap;
+
+    va_start(ap, format);
+    /* Begin protected code */
+    corelock_lock(&lock);
+    tfp_format(stdout_putp, uart_putf, format, ap);
+    /* End protected code */
+    corelock_unlock(&lock);
+    va_end(ap);
+
+    return 0;
+}
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* CORE_SYNC_H */
+

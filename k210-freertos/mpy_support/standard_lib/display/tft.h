@@ -40,11 +40,6 @@
 #include "tftspi.h"
 #include "py/obj.h"
 
-#define TFT_MODE_TFT    0
-#define TFT_MODE_EPD    1
-#define TFT_MODE_EVE    2
-
-
 typedef struct {
 	uint16_t        x1;
 	uint16_t        y1;
@@ -63,19 +58,6 @@ typedef struct {
     uint8_t     bitmap;
 	color_t     color;
 } Font;
-
-typedef struct _tft_eve_obj_t {
-    mp_obj_base_t base;
-    uint32_t    addr;
-    uint32_t    size;
-    uint16_t    width;
-    uint16_t    height;
-    uint16_t    rowsize;
-    uint8_t     type;
-    uint8_t     byte_per_pixel;
-    uint8_t     prev_tft_mode;
-    uint8_t     loaded;
-} tft_eve_obj_t;
 
 
 //==========================================================================================
@@ -103,19 +85,12 @@ extern int	TFT_Y;					// Y position of the next character after TFT_print() func
 extern uint32_t tp_calx;			// touch screen X calibration constant
 extern uint32_t tp_caly;			// touch screen Y calibration constant
 
-extern uint8_t tft_active_mode;     // used tft driver mode (TFT, EPD or EVE)
-
-#if CONFIG_MICROPY_USE_EVE
-extern tft_eve_obj_t *eve_tft_obj;
-#endif
-
 // =========================================================================================
 
 
 // Buffer is created during jpeg decode for sending data
-// Total size of the buffer is  2 * (JPG_IMAGE_LINE_BUF_SIZE * 3)
 // The size must be multiple of 256 bytes !!
-#define JPG_IMAGE_LINE_BUF_SIZE 512
+#define JPG_IMAGE_LINE_BUF_SIZE 256
 
 // --- Constants for ellipse function ---
 #define TFT_ELLIPSE_UPPER_RIGHT 0x01
@@ -137,6 +112,27 @@ extern tft_eve_obj_t *eve_tft_obj;
 #define MAX_POLIGON_SIDES	60
 
 // === Color names constants ===
+#define cTFT_BLACK       0x0000      /*   0,   0,   0 */
+#define cTFT_NAVY        0x000F      /*   0,   0, 128 */
+#define cTFT_DARKGREEN   0x03E0      /*   0, 128,   0 */
+#define cTFT_DARKCYAN    0x03EF      /*   0, 128, 128 */
+#define cTFT_MAROON      0x7800      /* 128,   0,   0 */
+#define cTFT_PURPLE      0x780F      /* 128,   0, 128 */
+#define cTFT_OLIVE       0x7BE0      /* 128, 128,   0 */
+#define cTFT_LIGHTGREY   0xC618      /* 192, 192, 192 */
+#define cTFT_DARKGREY    0x7BEF      /* 128, 128, 128 */
+#define cTFT_BLUE        0x001F      /*   0,   0, 255 */
+#define cTFT_GREEN       0x07E0      /*   0, 255,   0 */
+#define cTFT_CYAN        0x07FF      /*   0, 255, 255 */
+#define cTFT_RED         0xF800      /* 255,   0,   0 */
+#define cTFT_MAGENTA     0xF81F      /* 255,   0, 255 */
+#define cTFT_YELLOW      0xFFE0      /* 255, 255,   0 */
+#define cTFT_WHITE       0xFFFF      /* 255, 255, 255 */
+#define cTFT_ORANGE      0xFD20      /* 255, 165,   0 */
+#define cTFT_GREENYELLOW 0xAFE5      /* 173, 255,  47 */
+#define cTFT_PINK        0xF81F
+
+
 extern const color_t TFT_BLACK;
 extern const color_t TFT_NAVY;
 extern const color_t TFT_DARKGREEN;
@@ -156,23 +152,8 @@ extern const color_t TFT_WHITE;
 extern const color_t TFT_ORANGE;
 extern const color_t TFT_GREENYELLOW;
 extern const color_t TFT_PINK;
-extern const color_t EPD_BLACK;
-extern const color_t EPD_WHITE;
-extern const color_t EPD_GRAY1;
-extern const color_t EPD_GRAY2;
-extern const color_t EPD_GRAY3;
-extern const color_t EPD_GRAY4;
-extern const color_t EPD_GRAY5;
-extern const color_t EPD_GRAY6;
-extern const color_t EPD_GRAY7;
-extern const color_t EPD_GRAY8;
-extern const color_t EPD_GRAY9;
-extern const color_t EPD_GRAY10;
-extern const color_t EPD_GRAY11;
-extern const color_t EPD_GRAY12;
-extern const color_t EPD_GRAY13;
-extern const color_t EPD_GRAY14;
 
+/*
 #define iTFT_BLACK       0
 #define iTFT_NAVY        128
 #define iTFT_DARKGREEN   32768
@@ -208,6 +189,7 @@ extern const color_t EPD_GRAY14;
 #define iEPD_GRAY12      12
 #define iEPD_GRAY13      13
 #define iEPD_GRAY14      14
+*/
 
 // === Color invert constants ===
 #define INVERT_ON		1
@@ -240,6 +222,7 @@ extern const color_t EPD_GRAY14;
 
 #define IMAGE_TYPE_JPG	1
 #define IMAGE_TYPE_BMP	2
+#define IMAGE_TYPE_FB   3
 
 
 // ===== PUBLIC FUNCTIONS =========================================================================
@@ -741,6 +724,6 @@ void TFT_jpg_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *buf, in
 //----------------------------------------------------------------------------------------
 int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, int size);
 
-#endif // CONFIG_MICROPY_USE_DISPLAY
+#endif // MICROPY_USE_DISPLAY
 
 #endif

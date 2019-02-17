@@ -46,6 +46,7 @@
 #include <devices.h>
 #include <filesystem.h>
 #include <storage/sdcard.h>
+#include "syslog.h"
 #include "modmachine.h"
 
 static bool sdcard_pins_init = false;
@@ -95,6 +96,11 @@ const byte fresult_to_errno_table[20] = {
     [FR_TOO_MANY_OPEN_FILES] = MP_EMFILE,
     [FR_INVALID_PARAMETER] = MP_EINVAL,
 };
+
+static const char* TAG = "[VFS_SDCARD]";
+
+static char sdcard_current_dir[FF_MAX_LFN-8] = {'\0'};
+static char sdcard_file_path[FF_MAX_LFN] = {'\0'};
 
 //--------------------------------------------------------------------------------------------------------------
 STATIC mp_obj_t sdcard_vfs_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args)
@@ -185,12 +191,69 @@ STATIC mp_obj_t vfs_sdcard_umount(mp_obj_t self_in)
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(sdcard_vfs_umount_obj, vfs_sdcard_umount);
 
 
-//-----------------------------------------------------
-void sdcard_fix_path(const char *path,  char *fullpath)
+//--------------------------------------------------------------------------
+const char *sdcard_local_path(const char *path, sdcard_user_mount_t *vfsobj)
 {
-    if (strlen(path) == 0) sprintf(fullpath, "%s", "0/");
-    else if (path[0] != '/') sprintf(fullpath, "0/%s", path);
-    else sprintf(fullpath, "0%s", path);
+    const char *lpath = path;
+    if (lpath[0] == '/') {
+        lpath++; // absolute path
+        sprintf(sdcard_file_path, "0/%s", lpath);
+        int len = strlen(sdcard_file_path);
+        if ((len > 2) && (lpath[len-1] == '/')) {
+            sdcard_file_path[len-1] = '\0';
+            lpath = sdcard_file_path;
+        }
+    }
+    else {
+        if (strstr(lpath, "..") == lpath) {
+            // parent directory
+            lpath += 2;
+            if (lpath[0] == '/') lpath++;
+            if (sdcard_current_dir[0] == '/')
+                sprintf(sdcard_file_path, "0%s", sdcard_current_dir);
+            else
+                sprintf(sdcard_file_path, "0/%s", sdcard_current_dir);
+            int len = strlen(sdcard_file_path);
+            for (int i=len; i>0; i--) {
+                if (sdcard_file_path[i] == '/') {
+                    if (i == 1) sdcard_file_path[i+1] = '\0';
+                    else sdcard_file_path[i] = '\0';
+                    break;
+                }
+            }
+            strcat(sdcard_file_path, lpath);
+        }
+        else {
+            const char * mount_point = NULL;
+            int mplen = 0;
+            for (mp_vfs_mount_t **vfsp = &MP_STATE_VM(vfs_mount_table); *vfsp != NULL; vfsp = &(*vfsp)->next) {
+                if ((*vfsp)->obj == (mp_obj_t)vfsobj) {
+                    mount_point = (*vfsp)->str;
+                    mplen = (*vfsp)->len;
+                    break;
+                }
+            }
+            if (strstr(lpath, ".") == lpath) lpath += 1;
+            if ((mount_point != NULL) && (mplen > 1)) {
+                if (strstr(lpath, mount_point) == lpath) lpath += mplen;
+            }
+            else {
+                LOGE(TAG, "LOCAL_PATH mount point not found");
+            }
+            if (sdcard_current_dir[0] == '/')
+                snprintf(sdcard_file_path, FF_MAX_LFN, "0%s/%s", sdcard_current_dir, lpath);
+            else
+                snprintf(sdcard_file_path, FF_MAX_LFN, "0/%s/%s", sdcard_current_dir, lpath);
+        }
+        lpath = sdcard_file_path;
+        int len = strlen(lpath);
+        while ((len > 2) && (lpath[len-1] == '/')) {
+            sdcard_file_path[len-1] = '\0';
+            len = strlen(sdcard_file_path);
+        }
+    }
+    LOGD(TAG, "LOCAL_PATH [%s]->[%s], currdir=[%s] %s", path, lpath, sdcard_current_dir, sdcard_file_path);
+    return lpath;
 }
 
 //---------------------------------------------------------------------------
@@ -282,13 +345,13 @@ STATIC mp_obj_t mp_vfs_sdcard_ilistdir_it_iternext(mp_obj_t self_in)
         }
         if (fno.fattrib & AM_DIR) {
             // dir
-            t->items[1] = MP_OBJ_NEW_SMALL_INT(MP_S_IFDIR);
+            t->items[1] = mp_obj_new_int(MP_S_IFDIR);
         } 
 		else {
             // file
-            t->items[1] = MP_OBJ_NEW_SMALL_INT(MP_S_IFREG);
+            t->items[1] = mp_obj_new_int(MP_S_IFREG);
         }
-        t->items[2] = MP_OBJ_NEW_SMALL_INT(0); // no inode number
+        t->items[2] = mp_obj_new_int(0); // no inode number
         t->items[3] = mp_obj_new_int_from_uint(fno.fsize);
 
         return MP_OBJ_FROM_PTR(t);
@@ -303,18 +366,20 @@ STATIC mp_obj_t mp_vfs_sdcard_ilistdir_it_iternext(mp_obj_t self_in)
 //---------------------------------------------------------------------------
 STATIC mp_obj_t sdcard_vfs_ilistdir_func(size_t n_args, const mp_obj_t *args)
 {
-    //sdcard_user_mount_t *self = MP_OBJ_TO_PTR(args[0]);
+    sdcard_user_mount_t *self = MP_OBJ_TO_PTR(args[0]);
     bool is_str_type = true;
+
     const char *path;
+    const char *lpath;
     if (n_args == 2) {
         if (mp_obj_get_type(args[1]) == &mp_type_bytes) {
             is_str_type = false;
         }
         path = mp_obj_str_get_str(args[1]);
+        lpath = sdcard_local_path(path, self);
     }
-    else path = "";
-    char fullpath[strlen(path)+4];
-    sdcard_fix_path(path, fullpath);
+    else lpath =sdcard_local_path("", self);
+    LOGD(TAG, "LISTDIR [%s]", lpath);
 
     // Create a new iterator object to list the dir
     mp_vfs_sdcard_ilistdir_it_t *iter = m_new_obj(mp_vfs_sdcard_ilistdir_it_t);
@@ -322,7 +387,7 @@ STATIC mp_obj_t sdcard_vfs_ilistdir_func(size_t n_args, const mp_obj_t *args)
     iter->iternext = mp_vfs_sdcard_ilistdir_it_iternext;
     iter->is_str = is_str_type;
 
-    int res = f_opendir(&iter->dir, fullpath);
+    int res = f_opendir(&iter->dir, lpath);
     if (res != 0) {
         mp_raise_OSError(res);
         return mp_const_none;
@@ -336,13 +401,12 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(sdcard_vfs_ilistdir_obj, 1, 2, sdcard
 //------------------------------------------------------------------------------------------
 STATIC mp_obj_t sdcard_vfs_remove_internal(mp_obj_t vfs_in, mp_obj_t path_in, mp_int_t attr)
 {
-    //sdcard_user_mount_t *self = MP_OBJ_TO_PTR(vfs_in);
+    sdcard_user_mount_t *self = MP_OBJ_TO_PTR(vfs_in);
     const char *path = mp_obj_str_get_str(path_in);
-    char fullpath[strlen(path)+4];
-    sdcard_fix_path(path, fullpath);
+    const char *lpath = sdcard_local_path(path, self);
 
     FILINFO fno;
-    FRESULT res = f_stat(fullpath, &fno);
+    FRESULT res = f_stat(lpath, &fno);
 
     if (res != FR_OK) {
         mp_raise_OSError(fresult_to_errno_table[res]);
@@ -350,7 +414,7 @@ STATIC mp_obj_t sdcard_vfs_remove_internal(mp_obj_t vfs_in, mp_obj_t path_in, mp
 
     // check if path is a file or directory
     if ((fno.fattrib & AM_DIR) == attr) {
-        res = f_unlink(fullpath);
+        res = f_unlink(lpath);
 
         if (res != FR_OK) {
             mp_raise_OSError(fresult_to_errno_table[res]);
@@ -380,20 +444,18 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_2(sdcard_vfs_rmdir_obj, sdcard_vfs_rmdir);
 //-------------------------------------------------------------------------------------
 STATIC mp_obj_t sdcard_vfs_rename(mp_obj_t vfs_in, mp_obj_t path_in, mp_obj_t path_out)
 {
-    //mp_obj_sdcard_vfs_t *self = MP_OBJ_TO_PTR(vfs_in);
+    mp_obj_sdcard_vfs_t *self = MP_OBJ_TO_PTR(vfs_in);
     const char *old_path = mp_obj_str_get_str(path_in);
     const char *new_path = mp_obj_str_get_str(path_out);
-    char full_oldpath[strlen(old_path)+4];
-    sdcard_fix_path(old_path, full_oldpath);
-    char full_newpath[strlen(new_path)+4];
-    sdcard_fix_path(new_path, full_newpath);
+    const char *local_oldpath = sdcard_local_path(old_path, self);
+    const char *local_newpath = sdcard_local_path(new_path, self);
 
-    FRESULT res = f_rename(full_oldpath, full_newpath);
+    FRESULT res = f_rename(local_oldpath, local_newpath);
     if (res == FR_EXIST) {
         // if new_path exists then try removing it (but only if it's a file)
         sdcard_vfs_remove_internal(vfs_in, path_out, 0); // 0 == file attribute
         // try to rename again
-        res = f_rename(full_oldpath, full_newpath);
+        res = f_rename(local_oldpath, local_newpath);
     }
     if (res == FR_OK) {
         return mp_const_none;
@@ -407,12 +469,11 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_3(sdcard_vfs_rename_obj, sdcard_vfs_rename);
 //----------------------------------------------------------------
 STATIC mp_obj_t sdcard_vfs_mkdir(mp_obj_t vfs_in, mp_obj_t path_o)
 {
-    //mp_obj_sdcard_vfs_t *self = MP_OBJ_TO_PTR(vfs_in);
+    mp_obj_sdcard_vfs_t *self = MP_OBJ_TO_PTR(vfs_in);
     const char *path = mp_obj_str_get_str(path_o);
-    char fullpath[strlen(path)+4];
-    sdcard_fix_path(path, fullpath);
+    const char *lpath = sdcard_local_path(path, self);
 
-    FRESULT res = f_mkdir(fullpath);
+    FRESULT res = f_mkdir(lpath);
     if (res == FR_OK) {
         return mp_const_none;
     }
@@ -427,17 +488,27 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_2(sdcard_vfs_mkdir_obj, sdcard_vfs_mkdir);
 //-----------------------------------------------------------------
 STATIC mp_obj_t sdcard_vfs_chdir(mp_obj_t vfs_in, mp_obj_t path_in)
 {
-    //mp_obj_sdcard_vfs_t *self = MP_OBJ_TO_PTR(vfs_in);
+    mp_obj_sdcard_vfs_t *self = MP_OBJ_TO_PTR(vfs_in);
     const char *path;
     path = mp_obj_str_get_str(path_in);
-    char fullpath[strlen(path)+4];
-    sdcard_fix_path(path, fullpath);
 
-    FRESULT res = f_chdir(fullpath);
+    if ((path[0] != 0) && !(path[0] == '/' && path[1] == 0)) {
+        const char *lpath = sdcard_local_path(path, self);
+        // Check if directory
+        FILINFO fno;
+        int res = f_stat(lpath, &fno);
+        if (res != FR_OK) {
+            mp_raise_OSError(fresult_to_errno_table[res]);
+        }
 
-    if (res != FR_OK) {
-        mp_raise_OSError(fresult_to_errno_table[res]);
+        if (!(fno.fattrib & AM_DIR)) {
+            // Not a directory
+            mp_raise_OSError(MP_ENOTDIR);
+        }
+        sprintf(sdcard_current_dir, "/%s", lpath);
+        LOGD(TAG, "CHDIR currdir=[%s]", sdcard_current_dir);
     }
+    else sprintf(sdcard_current_dir, "%s", "");
 
     return mp_const_none;
 }
@@ -447,6 +518,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_2(sdcard_vfs_chdir_obj, sdcard_vfs_chdir);
 //------------------------------------------------
 STATIC mp_obj_t sdcard_vfs_getcwd(mp_obj_t vfs_in)
 {
+    /*
     //mp_obj_sdcard_vfs_t *self = MP_OBJ_TO_PTR(vfs_in);
     char buf[MICROPY_ALLOC_PATH_MAX + 1];
 
@@ -455,6 +527,9 @@ STATIC mp_obj_t sdcard_vfs_getcwd(mp_obj_t vfs_in)
         mp_raise_OSError(fresult_to_errno_table[res]);
     }
     return mp_obj_new_str(buf, strlen(buf));
+    */
+    LOGD(TAG, "GETCWD [%s]", sdcard_current_dir);
+    return mp_obj_new_str(sdcard_current_dir, strlen(sdcard_current_dir));
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(sdcard_vfs_getcwd_obj, sdcard_vfs_getcwd);
 
@@ -463,7 +538,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(sdcard_vfs_getcwd_obj, sdcard_vfs_getcwd);
 //----------------------------------------------------------------
 STATIC mp_obj_t sdcard_vfs_stat(mp_obj_t vfs_in, mp_obj_t path_in)
 {
-    //sdcard_user_mount_t *self = MP_OBJ_TO_PTR(vfs_in);
+    sdcard_user_mount_t *self = MP_OBJ_TO_PTR(vfs_in);
     const char *path = mp_obj_str_get_str(path_in);
     FILINFO fno;
 
@@ -476,9 +551,8 @@ STATIC mp_obj_t sdcard_vfs_stat(mp_obj_t vfs_in, mp_obj_t path_in)
     }
     else {
         int res;
-        char fullpath[strlen(path)+4];
-        sdcard_fix_path(path, fullpath);
-        res = f_stat(fullpath, &fno);
+        const char *lpath = sdcard_local_path(path, self);
+        res = f_stat(lpath, &fno);
         if (res != 0) {
             //printf("[MaixPy]:SPIFFS Error Code %d\n",res);
             mp_raise_OSError(fresult_to_errno_table[res]);
@@ -500,16 +574,16 @@ STATIC mp_obj_t sdcard_vfs_stat(mp_obj_t vfs_in, mp_obj_t path_in)
         2 * (fno.ftime & 0x1f)
     );
     seconds += 946684800; // Convert to UNIX time
-    t->items[0] = MP_OBJ_NEW_SMALL_INT(mode); // st_mode
-    t->items[1] = MP_OBJ_NEW_SMALL_INT(0); // st_ino
-    t->items[2] = MP_OBJ_NEW_SMALL_INT(0); // st_dev
-    t->items[3] = MP_OBJ_NEW_SMALL_INT(0); // st_nlink
-    t->items[4] = MP_OBJ_NEW_SMALL_INT(0); // st_uid
-    t->items[5] = MP_OBJ_NEW_SMALL_INT(0); // st_gid
+    t->items[0] = mp_obj_new_int(mode); // st_mode
+    t->items[1] = mp_obj_new_int(0); // st_ino
+    t->items[2] = mp_obj_new_int(0); // st_dev
+    t->items[3] = mp_obj_new_int(0); // st_nlink
+    t->items[4] = mp_obj_new_int(0); // st_uid
+    t->items[5] = mp_obj_new_int(0); // st_gid
     t->items[6] = mp_obj_new_int_from_uint(fno.fsize); // st_size
-    t->items[7] = MP_OBJ_NEW_SMALL_INT(seconds); // st_atime
-    t->items[8] = MP_OBJ_NEW_SMALL_INT(seconds); // st_mtime
-    t->items[9] = MP_OBJ_NEW_SMALL_INT(seconds); // st_ctime
+    t->items[7] = mp_obj_new_int(seconds); // st_atime
+    t->items[8] = mp_obj_new_int(seconds); // st_mtime
+    t->items[9] = mp_obj_new_int(seconds); // st_ctime
 
     return MP_OBJ_FROM_PTR(t);
 
@@ -531,16 +605,16 @@ STATIC mp_obj_t sdcard_vfs_statvfs(mp_obj_t vfs_in, mp_obj_t path_in)
 
     mp_obj_tuple_t *t = MP_OBJ_TO_PTR(mp_obj_new_tuple(10, NULL));
 
-    t->items[0] = MP_OBJ_NEW_SMALL_INT(self->fs->csize * SECSIZE(self->fs)); // f_bsize
+    t->items[0] = mp_obj_new_int(self->fs->csize * SECSIZE(self->fs)); // f_bsize
     t->items[1] = t->items[0]; // f_frsize
-    t->items[2] = MP_OBJ_NEW_SMALL_INT((self->fs->n_fatent - 2)); // f_blocks
-    t->items[3] = MP_OBJ_NEW_SMALL_INT(nclst); // f_bfree
+    t->items[2] = mp_obj_new_int((self->fs->n_fatent - 2)); // f_blocks
+    t->items[3] = mp_obj_new_int(nclst); // f_bfree
     t->items[4] = t->items[3]; // f_bavail
-    t->items[5] = MP_OBJ_NEW_SMALL_INT(0); // f_files
-    t->items[6] = MP_OBJ_NEW_SMALL_INT(0); // f_ffree
-    t->items[7] = MP_OBJ_NEW_SMALL_INT(0); // f_favail
-    t->items[8] = MP_OBJ_NEW_SMALL_INT(0); // f_flags
-    t->items[9] = MP_OBJ_NEW_SMALL_INT(FF_MAX_LFN); // f_namemax
+    t->items[5] = mp_obj_new_int(0); // f_files
+    t->items[6] = mp_obj_new_int(0); // f_ffree
+    t->items[7] = mp_obj_new_int(0); // f_favail
+    t->items[8] = mp_obj_new_int(0); // f_flags
+    t->items[9] = mp_obj_new_int(FF_MAX_LFN); // f_namemax
 
     return MP_OBJ_FROM_PTR(t);
 }

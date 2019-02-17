@@ -49,10 +49,6 @@
 #include "tjpgd.h"
 #include "mphalport.h"
 
-#if CONFIG_MICROPY_USE_EVE
-#include "eve/FT8.h"
-#endif
-
 #include "py/mpprint.h"
 #include "py/stream.h"
 #include "extmod/vfs.h"
@@ -85,6 +81,7 @@ extern uint8_t userFont3[];
 extern uint8_t userFont4[];
 
 // ==== Color definitions constants ==============
+/*
 const color_t TFT_BLACK       = {   0,   0,   0 };
 const color_t TFT_NAVY        = {   0,   0, 128 };
 const color_t TFT_DARKGREEN   = {   0, 128,   0 };
@@ -104,37 +101,39 @@ const color_t TFT_WHITE       = { 252, 252, 252 };
 const color_t TFT_ORANGE      = { 252, 164,   0 };
 const color_t TFT_GREENYELLOW = { 172, 252,  44 };
 const color_t TFT_PINK        = { 252, 192, 202 };
+*/
 
-const color_t EPD_BLACK       = { 0, 0, 15 };
-const color_t EPD_WHITE       = { 0, 0,  0 };
-const color_t EPD_GRAY1       = { 0, 0,  1 };
-const color_t EPD_GRAY2       = { 0, 0,  2 };
-const color_t EPD_GRAY3       = { 0, 0,  3 };
-const color_t EPD_GRAY4       = { 0, 0,  4 };
-const color_t EPD_GRAY5       = { 0, 0,  5 };
-const color_t EPD_GRAY6       = { 0, 0,  6 };
-const color_t EPD_GRAY7       = { 0, 0,  7 };
-const color_t EPD_GRAY8       = { 0, 0,  8 };
-const color_t EPD_GRAY9       = { 0, 0,  9 };
-const color_t EPD_GRAY10      = { 0, 0, 10 };
-const color_t EPD_GRAY11      = { 0, 0, 11 };
-const color_t EPD_GRAY12      = { 0, 0, 12 };
-const color_t EPD_GRAY13      = { 0, 0, 13 };
-const color_t EPD_GRAY14      = { 0, 0, 14 };
+const color_t TFT_BLACK       = 0x0000;      /*   0,   0,   0 */
+const color_t TFT_NAVY        = 0x000F;      /*   0,   0, 128 */
+const color_t TFT_DARKGREEN   = 0x03E0;      /*   0, 128,   0 */
+const color_t TFT_DARKCYAN    = 0x03EF;      /*   0, 128, 128 */
+const color_t TFT_MAROON      = 0x7800;      /* 128,   0,   0 */
+const color_t TFT_PURPLE      = 0x780F;      /* 128,   0, 128 */
+const color_t TFT_OLIVE       = 0x7BE0;      /* 128, 128,   0 */
+const color_t TFT_LIGHTGREY   = 0xC618;      /* 192, 192, 192 */
+const color_t TFT_DARKGREY    = 0x7BEF;      /* 128, 128, 128 */
+const color_t TFT_BLUE        = 0x001F;      /*   0,   0, 255 */
+const color_t TFT_GREEN       = 0x07E0;      /*   0, 255,   0 */
+const color_t TFT_CYAN        = 0x07FF;      /*   0, 255, 255 */
+const color_t TFT_RED         = 0xF800;      /* 255,   0,   0 */
+const color_t TFT_MAGENTA     = 0xF81F;      /* 255,   0, 255 */
+const color_t TFT_YELLOW      = 0xFFE0;      /* 255, 255,   0 */
+const color_t TFT_WHITE       = 0xFFFF;      /* 255, 255, 255 */
+const color_t TFT_ORANGE      = 0xFD20;      /* 255, 165,   0 */
+const color_t TFT_GREENYELLOW = 0xAFE5;      /* 173, 255,  47 */
+const color_t TFT_PINK        = 0xF81F;
 // ===============================================
 
 // ==============================================================
 // ==== Set default values of global variables ==================
-
-uint8_t tft_active_mode = TFT_MODE_TFT;
 
 uint8_t orientation = LANDSCAPE;// screen orientation
 uint16_t font_rotate = 0;		// font rotation
 uint8_t	font_transparent = 0;
 uint8_t	font_forceFixed = 0;
 uint8_t	text_wrap = 0;			// character wrapping to new line
-color_t	_fg = {  0, 255,   0};
-color_t _bg = {  0,   0,   0};
+color_t	_fg = cTFT_GREEN;
+color_t _bg = cTFT_BLACK;
 uint8_t image_debug = 0;
 
 float _angleOffset = DEFAULT_ANGLE_OFFSET;
@@ -207,261 +206,30 @@ static float _arcAngleMax = DEFAULT_ARC_ANGLE_MAX;
 //============================================
 int TFT_compare_colors(color_t c1, color_t c2)
 {
-	if ((c1.r & 0xFC) != (c2.r & 0xFC)) return 1;
-	if ((c1.g & 0xFC) != (c2.g & 0xFC)) return 1;
-	if ((c1.b & 0xFC) != (c2.b & 0xFC)) return 1;
-
-	return 0;
+	return (c1 == c2) ? 0 : 1;
 }
 
-// ==== EPD low level functions ====================================================
-
-//--------------------------------------------------
-static void EPD_drawPixel(int x, int y, uint8_t val)
+//-------------------------------------------------------------------------------------------------
+static void TFT_send_data(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf, uint8_t wait)
 {
-    if (orientation == LANDSCAPE_FLIP) {
-        x = _width - x - 1;
-        y = _height - y - 1;
-    }
-    if (_gs) {
-        if (gs_drawBuff == NULL) return;
-        val &= 0x0F;
-        gs_drawBuff[(y * _width) + x] = val;
-        gs_used_shades |= (1<<val);
-    }
-    else {
-        if (epd_type == EPD_TYPE_2_9) {
-            if (drawBuff == NULL) return;
-            val = (val > 0) ? 1:0;
-            uint8_t buf_val = drawBuff[(x * (_height >> 3)) + (y>>3)];
-            uint8_t new_val = buf_val;
-            if (val) new_val &= (0x80 >> (y % 8)) ^ 0xFF;
-            else new_val |= (0x80 >> (y % 8));
-            //if (new_val != buf_val) drawBuff[(x * (_height>>3)) + (y>>3)] = new_val;
-            drawBuff[(x * (_height>>3)) + (y>>3)] = new_val;
-        }
-        else {
-            if (drawBuff42 == NULL) return;
-            val &= 0x01;
-            uint8_t buf_val = drawBuff42[(y * (_width >> 3)) + (x>>3)];
-            uint8_t new_val = buf_val;
-            if (!val) new_val &= (0x80 >> (x % 8)) ^ 0xFF;
-            else new_val |= (0x80 >> (x % 8));
-            drawBuff42[(y * (_width >> 3)) + (x>>3)] = new_val;
-        }
-    }
-}
-
-//-------------------------------------------------------------------------
-static void EPD_pushColorRep(int x1, int y1, int x2, int y2, uint8_t color)
-{
-    if (_gs == 0) {
-        if (drawBuff == NULL) return;
-        color = (color > 0) ? 1:0;;
-    }
-    else {
-        if (gs_drawBuff == NULL) return;
-        color &= 0x0F;
-    }
-    for (int y=y1; y<=y2; y++) {
-        for (int x = x1; x<=x2; x++){
-            EPD_drawPixel(x, y, color);
-        }
-    }
-}
-
-// ^^^^ EPD low level functions ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-
-#if CONFIG_MICROPY_USE_EVE
-// ==== EVE low level functions ====================================================
-
-tft_eve_obj_t *eve_tft_obj = NULL;
-
-
-//--------------------------------------
-static uint16_t eve_color(color_t color)
-{
-    uint16_t _color;
-    if (eve_tft_obj->type == FT8_RGB565) {
-        _color = (uint16_t)(color.r & 0xF8) << 8;
-        _color |= (uint16_t)(color.g & 0xFC) << 3;
-        _color |= (uint16_t)(color.b & 0xF8) >> 3;
-    }
-    else {
-        _color = (uint16_t)(color.r & 0xE0);
-        _color |= (uint16_t)(color.g & 0xE0) >> 3;
-        _color |= (uint16_t)(color.b & 0xC0) >> 6;
-    }
-    return _color;
-}
-
-//----------------------------------------------------
-static void EVE_drawPixel(int x, int y, color_t color)
-{
-    if (eve_tft_obj == NULL) return;
-
-    uint16_t _color = eve_color(color);
-    // calculate pixel address
-    uint32_t addr = eve_tft_obj->addr + (y * eve_tft_obj->rowsize) + (x * eve_tft_obj->byte_per_pixel);
-    if (eve_tft_obj->type == FT8_RGB565) FT8_memWrite16(addr, _color);
-    else FT8_memWrite8(addr, (uint8_t)_color);
-}
-
-//-------------------------------------------------------------------------
-static void EVE_pushColorRep(int x1, int y1, int x2, int y2, color_t color)
-{
-    if (eve_tft_obj == NULL) return;
-
-    uint16_t _color = eve_color(color);
-
-    int y = y1;
-    uint16_t xlen = x2 - x1 + 1;
-    uint8_t buff[xlen * eve_tft_obj->byte_per_pixel];
-    uint32_t addr;
-
-    if (xlen > 2) {
-        // fill buffer with color
-        if (eve_tft_obj->type == FT8_RGB565) {
-            for (int i=0; i<xlen; i+=2) {
-                buff[i] = _color >> 8; // high byte first
-                buff[i+1] = _color & 0x00FF;
-            }
-        }
-        else {
-            for (int i=0; i<xlen; i++) {
-                buff[i] = (uint8_t)_color;
-            }
-        }
-    }
-
-    spi_device_select(eve_spi, 0);
-    ft8_full_cs = 0;
-
-    while (y <= y2) {
-        // calculate line address
-        addr = eve_tft_obj->addr + ((y * eve_tft_obj->width) * eve_tft_obj->byte_per_pixel) + (x1 * eve_tft_obj->byte_per_pixel);
-        if (eve_tft_obj->type == FT8_RGB565) {
-            if (xlen == 1) FT8_memWrite16(addr, _color);
-            else if (xlen == 2) FT8_memWrite32(addr, (uint32_t)((_color << 16) | _color));
-            else FT8_memWrite_flash_buffer(addr, (uint8_t *)buff, xlen*2, false);
-        }
-        else {
-            if (xlen == 1) FT8_memWrite8(addr, (uint8_t)_color);
-            else if (xlen == 2) FT8_memWrite16(addr, (uint16_t)((_color << 16) | _color));
-            else FT8_memWrite_flash_buffer(addr, (uint8_t *)buff, xlen, false);
-        }
-        y++;
-        if (y >= _height) break;
-    }
-
-    spi_device_deselect(eve_spi);
-    ft8_full_cs = 1;
-}
-
-//------------------------------------------------------------------------------------
-static void EVE_send_data(int x1, int y1, int x2, int y2, uint32_t len, color_t *cbuf)
-{
-    if (eve_tft_obj == NULL) return;
-
-    int y = y1;
-    int buf_pos = 0;
-    uint16_t xlen = x2 - x1 + 1;
-    uint8_t buff[xlen * eve_tft_obj->byte_per_pixel];
-    uint32_t addr;
-
-    spi_device_select(eve_spi, 0);
-    ft8_full_cs = 0;
-    while (y <= y2) {
-        // fill the row buffer
-        if (eve_tft_obj->type == FT8_RGB565) {
-            for (int i=0; i<xlen; i+=2) {
-                buff[i] = eve_color(cbuf[buf_pos]) >> 8;
-                buff[i+1] = eve_color(cbuf[buf_pos]) & 0x00FF;
-                buf_pos++;
-            }
-        }
-        else {
-            for (int i=0; i<xlen; i++) {
-                buff[i] = (uint8_t)eve_color(cbuf[buf_pos]);
-                buf_pos++;
-            }
-        }
-        // calculate line address
-        addr = eve_tft_obj->addr + ((y * eve_tft_obj->width) * eve_tft_obj->byte_per_pixel) + (x1 * eve_tft_obj->byte_per_pixel);
-        FT8_memWrite_flash_buffer(addr, (uint8_t *)buff, xlen*eve_tft_obj->byte_per_pixel, false);
-        y++;
-        if (y >= _height) break;
-    }
-    spi_device_deselect(eve_spi);
-    ft8_full_cs = 1;
-}
-
-// ^^^^ EVE low level functions ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#endif
-
-//===========================================================================================
-
-//------------------------------------
-static int TFT_EPD_disp_select()
-{
-    #if CONFIG_MICROPY_USE_EVE
-    if (tft_active_mode == TFT_MODE_EVE) {
-        spi_device_select(eve_spi, 0);
-        ft8_full_cs = 0;
-    }
-    #endif
-    return 0;
-}
-
-//--------------------------------------
-static int TFT_EPD_disp_deselect()
-{
-    #if CONFIG_MICROPY_USE_EVE
-    if (tft_active_mode == TFT_MODE_EVE) {
-        spi_device_deselect(eve_spi);
-        ft8_full_cs = 1;
-    }
-    #endif
-    return 0;
-}
-
-//-----------------------------------------------------------------------------------------------------
-static void TFT_EPD_send_data(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf, uint8_t wait)
-{
-    #if CONFIG_MICROPY_USE_EVE
-    if (tft_active_mode == TFT_MODE_EVE) {
-        EVE_send_data(x1, y1, x2, y2, len, buf);
-    }
-    else send_data(x1, y1, x2, y2, len, buf);
-    #else
     send_data(x1, y1, x2, y2, len, buf);
-    #endif
 }
 
 // draw color pixel on screen
 //----------------------------------------------------------------------------
-static void TFT_EPD_drawPixe(int16_t x, int16_t y, color_t color, uint8_t sel)
+static void TFT_drawPixe(int16_t x, int16_t y, color_t color, uint8_t sel)
 {
     if ((x < dispWin.x1) || (y < dispWin.y1) || (x > dispWin.x2) || (y > dispWin.y2)) return;
 
-    if (tft_active_mode == TFT_MODE_EPD) EPD_drawPixel(x, y, color.b);
-    #if CONFIG_MICROPY_USE_EVE
-    else if (tft_active_mode == TFT_MODE_EVE) EVE_drawPixel(x, y, color);
-    #endif
-    else if (tft_active_mode == TFT_MODE_TFT) drawPixel(x, y, color);
+    drawPixel(x, y, color);
 }
 
 //-------------------------------------------------------------------------------------------
-static void TFT_EPD_pushColorRep(int x1, int y1, int x2, int y2, color_t color, uint32_t len)
+static void TFT_pushRepColor(int x1, int y1, int x2, int y2, color_t color, uint32_t len)
 {
     if (len == 0) return;
 
-    if (tft_active_mode == TFT_MODE_EPD) EPD_pushColorRep(x1, y1, x2, y2, color.b);
-    #if CONFIG_MICROPY_USE_EVE
-    else if (tft_active_mode == TFT_MODE_EVE) EVE_pushColorRep(x1, y1, x2, y2, color);
-    #endif
-    else if (tft_active_mode == TFT_MODE_TFT) TFT_pushColorRep(x1, y1, x2, y2, color, len);
+    TFT_pushColorRep(x1, y1, x2, y2, color, len);
 }
 
 //===========================================================================================
@@ -470,7 +238,7 @@ static void TFT_EPD_pushColorRep(int x1, int y1, int x2, int y2, color_t color, 
 //====================================================================
 void TFT_drawPixel(int16_t x, int16_t y, color_t color, uint8_t sel) {
 
-	TFT_EPD_drawPixe(x+dispWin.x1, y+dispWin.y1, color, sel);
+	TFT_drawPixe(x+dispWin.x1, y+dispWin.y1, color, sel);
 }
 
 //--------------------------------------------------------------------------
@@ -484,7 +252,7 @@ static void _drawFastVLine(int16_t x, int16_t y, int16_t h, color_t color) {
 	if (h < 0) h = 0;
 	if ((y + h) > (dispWin.y2+1)) h = dispWin.y2 - y + 1;
 	if (h == 0) h = 1;
-	TFT_EPD_pushColorRep(x, y, x, y+h-1, color, (uint32_t)h);
+	TFT_pushRepColor(x, y, x, y+h-1, color, (uint32_t)h);
 }
 
 //--------------------------------------------------------------------------
@@ -499,7 +267,7 @@ static void _drawFastHLine(int16_t x, int16_t y, int16_t w, color_t color) {
 	if ((x + w) > (dispWin.x2+1)) w = dispWin.x2 - x + 1;
 	if (w == 0) w = 1;
 
-	TFT_EPD_pushColorRep(x, y, x+w-1, y, color, (uint32_t)w);
+	TFT_pushRepColor(x, y, x+w-1, y, color, (uint32_t)w);
 }
 
 //======================================================================
@@ -551,7 +319,7 @@ static void _drawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, color_t co
       err -= dy;
       if (err < 0) {
         err += dx;
-        if (dlen == 1) TFT_EPD_drawPixe(y0, xs, color, 1);
+        if (dlen == 1) TFT_drawPixe(y0, xs, color, 1);
         else _drawFastVLine(y0, xs, dlen, color);
         dlen = 0; y0 += ystep; xs = x0 + 1;
       }
@@ -565,7 +333,7 @@ static void _drawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, color_t co
       err -= dy;
       if (err < 0) {
         err += dx;
-        if (dlen == 1) TFT_EPD_drawPixe(xs, y0, color, 1);
+        if (dlen == 1) TFT_drawPixe(xs, y0, color, 1);
         else _drawFastHLine(xs, y0, dlen, color);
         dlen = 0; y0 += ystep; xs = x0 + 1;
       }
@@ -601,7 +369,7 @@ static void _fillRect(int16_t x, int16_t y, int16_t w, int16_t h, color_t color)
 	if ((y + h) > (dispWin.y2+1)) h = dispWin.y2 - y + 1;
 	if (w == 0) w = 1;
 	if (h == 0) h = 1;
-	TFT_EPD_pushColorRep(x, y, x+w-1, y+h-1, color, (uint32_t)(h*w));
+	TFT_pushRepColor(x, y, x+w-1, y+h-1, color, (uint32_t)(h*w));
 }
 
 //============================================================================
@@ -611,12 +379,12 @@ void TFT_fillRect(int16_t x, int16_t y, int16_t w, int16_t h, color_t color) {
 
 //==================================
 void TFT_fillScreen(color_t color) {
-    TFT_EPD_pushColorRep(0, 0, _width-1, _height-1, color, (uint32_t)(_height*_width));
+    TFT_pushRepColor(0, 0, _width-1, _height-1, color, (uint32_t)(_height*_width));
 }
 
 //==================================
 void TFT_fillWindow(color_t color) {
-    TFT_EPD_pushColorRep(dispWin.x1, dispWin.y1, dispWin.x2, dispWin.y2,
+    TFT_pushRepColor(dispWin.x1, dispWin.y1, dispWin.x2, dispWin.y2,
 			color, (uint32_t)((dispWin.x2-dispWin.x1+1) * (dispWin.y2-dispWin.y1+1)));
 }
 
@@ -647,7 +415,6 @@ static void drawCircleHelper(int16_t x0, int16_t y0, int16_t r, uint8_t cornerna
 	int16_t x = 0;
 	int16_t y = r;
 
-	TFT_EPD_disp_select();
 	while (x < y) {
 		if (f >= 0) {
 			y--;
@@ -658,23 +425,22 @@ static void drawCircleHelper(int16_t x0, int16_t y0, int16_t r, uint8_t cornerna
 		ddF_x += 2;
 		f += ddF_x;
 		if (cornername & 0x4) {
-			TFT_EPD_drawPixe(x0 + x, y0 + y, color, 0);
-			TFT_EPD_drawPixe(x0 + y, y0 + x, color, 0);
+			TFT_drawPixe(x0 + x, y0 + y, color, 0);
+			TFT_drawPixe(x0 + y, y0 + x, color, 0);
 		}
 		if (cornername & 0x2) {
-			TFT_EPD_drawPixe(x0 + x, y0 - y, color, 0);
-			TFT_EPD_drawPixe(x0 + y, y0 - x, color, 0);
+			TFT_drawPixe(x0 + x, y0 - y, color, 0);
+			TFT_drawPixe(x0 + y, y0 - x, color, 0);
 		}
 		if (cornername & 0x8) {
-			TFT_EPD_drawPixe(x0 - y, y0 + x, color, 0);
-			TFT_EPD_drawPixe(x0 - x, y0 + y, color, 0);
+			TFT_drawPixe(x0 - y, y0 + x, color, 0);
+			TFT_drawPixe(x0 - x, y0 + y, color, 0);
 		}
 		if (cornername & 0x1) {
-			TFT_EPD_drawPixe(x0 - y, y0 - x, color, 0);
-			TFT_EPD_drawPixe(x0 - x, y0 - y, color, 0);
+			TFT_drawPixe(x0 - y, y0 - x, color, 0);
+			TFT_drawPixe(x0 - x, y0 - y, color, 0);
 		}
 	}
-	TFT_EPD_disp_deselect();
 }
 
 // Used to do circles and roundrects
@@ -896,11 +662,10 @@ void TFT_drawCircle(int16_t x, int16_t y, int radius, color_t color) {
 	int x1 = 0;
 	int y1 = radius;
 
-	TFT_EPD_disp_select();
-	TFT_EPD_drawPixe(x, y + radius, color, 0);
-	TFT_EPD_drawPixe(x, y - radius, color, 0);
-	TFT_EPD_drawPixe(x + radius, y, color, 0);
-	TFT_EPD_drawPixe(x - radius, y, color, 0);
+	TFT_drawPixe(x, y + radius, color, 0);
+	TFT_drawPixe(x, y - radius, color, 0);
+	TFT_drawPixe(x + radius, y, color, 0);
+	TFT_drawPixe(x - radius, y, color, 0);
 	while(x1 < y1) {
 		if (f >= 0) {
 			y1--;
@@ -910,16 +675,15 @@ void TFT_drawCircle(int16_t x, int16_t y, int radius, color_t color) {
 		x1++;
 		ddF_x += 2;
 		f += ddF_x;
-		TFT_EPD_drawPixe(x + x1, y + y1, color, 0);
-		TFT_EPD_drawPixe(x - x1, y + y1, color, 0);
-		TFT_EPD_drawPixe(x + x1, y - y1, color, 0);
-		TFT_EPD_drawPixe(x - x1, y - y1, color, 0);
-		TFT_EPD_drawPixe(x + y1, y + x1, color, 0);
-		TFT_EPD_drawPixe(x - y1, y + x1, color, 0);
-		TFT_EPD_drawPixe(x + y1, y - x1, color, 0);
-		TFT_EPD_drawPixe(x - y1, y - x1, color, 0);
+		TFT_drawPixe(x + x1, y + y1, color, 0);
+		TFT_drawPixe(x - x1, y + y1, color, 0);
+		TFT_drawPixe(x + x1, y - y1, color, 0);
+		TFT_drawPixe(x - x1, y - y1, color, 0);
+		TFT_drawPixe(x + y1, y + x1, color, 0);
+		TFT_drawPixe(x - y1, y + x1, color, 0);
+		TFT_drawPixe(x + y1, y - x1, color, 0);
+		TFT_drawPixe(x - y1, y - x1, color, 0);
 	}
-  TFT_EPD_disp_deselect();
 }
 
 //====================================================================
@@ -934,16 +698,14 @@ void TFT_fillCircle(int16_t x, int16_t y, int radius, color_t color) {
 //----------------------------------------------------------------------------------------------------------------
 static void _draw_ellipse_section(uint16_t x, uint16_t y, uint16_t x0, uint16_t y0, color_t color, uint8_t option)
 {
-	TFT_EPD_disp_select();
     // upper right
-    if ( option & TFT_ELLIPSE_UPPER_RIGHT ) TFT_EPD_drawPixe(x0 + x, y0 - y, color, 0);
+    if ( option & TFT_ELLIPSE_UPPER_RIGHT ) TFT_drawPixe(x0 + x, y0 - y, color, 0);
     // upper left
-    if ( option & TFT_ELLIPSE_UPPER_LEFT ) TFT_EPD_drawPixe(x0 - x, y0 - y, color, 0);
+    if ( option & TFT_ELLIPSE_UPPER_LEFT ) TFT_drawPixe(x0 - x, y0 - y, color, 0);
     // lower right
-    if ( option & TFT_ELLIPSE_LOWER_RIGHT ) TFT_EPD_drawPixe(x0 + x, y0 + y, color, 0);
+    if ( option & TFT_ELLIPSE_LOWER_RIGHT ) TFT_drawPixe(x0 + x, y0 + y, color, 0);
     // lower left
-    if ( option & TFT_ELLIPSE_LOWER_LEFT ) TFT_EPD_drawPixe(x0 - x, y0 + y, color, 0);
-	TFT_EPD_disp_deselect();
+    if ( option & TFT_ELLIPSE_LOWER_LEFT ) TFT_drawPixe(x0 - x, y0 + y, color, 0);
 }
 
 //=====================================================================================================
@@ -1149,7 +911,6 @@ static void _fillArcOffsetted(uint16_t cx, uint16_t cy, uint16_t radius, uint16_
 	int ir2 = (radius - thickness) * (radius - thickness);
 	int or2 = radius * radius;
 
-	TFT_EPD_disp_select();
 	for (int x = -radius; x <= radius; x++) {
 		for (int y = -radius; y <= radius; y++) {
 			int x2 = x * x;
@@ -1172,10 +933,9 @@ static void _fillArcOffsetted(uint16_t cx, uint16_t cy, uint16_t radius, uint16_
 				(y == 0 && start == 0 && x > 0)
 				)
 				)
-				TFT_EPD_drawPixe(cx+x, cy+y, color, 0);
+				TFT_drawPixe(cx+x, cy+y, color, 0);
 		}
 	}
-	TFT_EPD_disp_deselect();
 }
 
 
@@ -1347,8 +1107,8 @@ static int load_file_font(mp_obj_t fontfile, int info)
     }
 
 	// Get file size
-    int fsize = mp_stream_posix_lseek(ffd, 0, SEEK_END);
-    int at_start = mp_stream_posix_lseek(ffd, 0, SEEK_SET);
+    int fsize = mp_stream_posix_lseek((void *)ffd, 0, SEEK_END);
+    int at_start = mp_stream_posix_lseek((void *)ffd, 0, SEEK_SET);
     if ((fsize <= 0) || (at_start != 0)) {
         sprintf(err_msg, "Error getting font file size");
         err = 2;
@@ -1369,7 +1129,7 @@ static int load_file_font(mp_obj_t fontfile, int info)
 		goto exit;
 	}
 
-	int read = mp_stream_posix_read(ffd, userfont, fsize);
+	int read = mp_stream_posix_read((void *)ffd, userfont, fsize);
 
     mp_stream_close(ffd);
 
@@ -1393,7 +1153,6 @@ static int load_file_font(mp_obj_t fontfile, int info)
 	int height = userfont[1];
 	uint8_t first = 255;
 	uint8_t last = 0;
-	//int offst = 0;
 	int pminwidth = 255;
 	int pmaxwidth = 0;
 
@@ -1613,7 +1372,7 @@ static int printProportionalChar(int x, int y) {
 
 	char_width = ((fontChar.width > fontChar.xDelta) ? fontChar.width : fontChar.xDelta);
 
-	if ((font_buffered_char) && (!font_transparent) && (tft_active_mode != TFT_MODE_EPD)) {
+	if ((font_buffered_char) && (!font_transparent)) {
 		int len, bufPos;
 
 		// === buffer Glyph data for faster sending ===
@@ -1644,7 +1403,7 @@ static int printProportionalChar(int x, int y) {
 				}
 			}
 			// send to display in one transaction
-			TFT_EPD_send_data(x, y, x+char_width+1, y+cfont.y_size, len, color_line, 1);
+			TFT_send_data(x, y, x+char_width+1, y+cfont.y_size, len, color_line, 1);
 			free(color_line);
 
 			return char_width;
@@ -1655,7 +1414,6 @@ static int printProportionalChar(int x, int y) {
 
 	// draw Glyph
 	uint8_t mask = 0x80;
-	TFT_EPD_disp_select();
 	for (j=0; j < fontChar.height; j++) {
 		for (i=0; i < fontChar.width; i++) {
 			if (((i + (j*fontChar.width)) % 8) == 0) {
@@ -1666,12 +1424,11 @@ static int printProportionalChar(int x, int y) {
 			if ((ch & mask) !=0) {
 				cx = (uint16_t)(x+fontChar.xOffset+i);
 				cy = (uint16_t)(y+j+fontChar.adjYOffset);
-				TFT_EPD_drawPixe(cx, cy, _fg, 0);
+				TFT_drawPixe(cx, cy, _fg, 0);
 			}
 			mask >>= 1;
 		}
 	}
-	TFT_EPD_disp_deselect();
 
 	return char_width;
 }
@@ -1689,7 +1446,7 @@ static void printChar(uint8_t c, int x, int y) {
 	// get character position in buffer
 	temp = ((c-cfont.offset)*((fz)*cfont.y_size))+4;
 
-	if ((font_buffered_char) && (!font_transparent) && (tft_active_mode != TFT_MODE_EPD)) {
+	if ((font_buffered_char) && (!font_transparent)) {
 		// === buffer Glyph data for faster sending ===
 		len = cfont.x_size * cfont.y_size;
 		color_t *color_line = malloc(len*3);
@@ -1711,7 +1468,7 @@ static void printChar(uint8_t c, int x, int y) {
 				temp += (fz);
 			}
 			// send to display
-			TFT_EPD_send_data(x, y, x+cfont.x_size, y+cfont.y_size, len, color_line, 1);
+			TFT_send_data(x, y, x+cfont.x_size, y+cfont.y_size, len, color_line, 1);
 			free(color_line);
 
 			return;
@@ -1720,7 +1477,6 @@ static void printChar(uint8_t c, int x, int y) {
 
 	if (!font_transparent) _fillRect(x, y, cfont.x_size, cfont.y_size, _bg);
 
-	TFT_EPD_disp_select();
 	for (j=0; j<cfont.y_size; j++) {
 		for (k=0; k < fz; k++) {
 			ch = cfont.font[temp+k];
@@ -1729,14 +1485,13 @@ static void printChar(uint8_t c, int x, int y) {
 				if ((ch & mask) !=0) {
 					cx = (uint16_t)(x+i+(k*8));
 					cy = (uint16_t)(y+j);
-					TFT_EPD_drawPixe(cx, cy, _fg, 0);
+					TFT_drawPixe(cx, cy, _fg, 0);
 				}
 				mask >>= 1;
 			}
 		}
 		temp += (fz);
 	}
-	TFT_EPD_disp_deselect();
 }
 
 // print rotated proportional character
@@ -1749,7 +1504,6 @@ static int rotatePropChar(int x, int y, int offset) {
   float sin_radian = sin(radian);
 
   uint8_t mask = 0x80;
-  TFT_EPD_disp_select();
   for (int j=0; j < fontChar.height; j++) {
     for (int i=0; i < fontChar.width; i++) {
       if (((i + (j*fontChar.width)) % 8) == 0) {
@@ -1760,13 +1514,12 @@ static int rotatePropChar(int x, int y, int offset) {
       int newX = (int)(x + (((offset + i) * cos_radian) - ((j+fontChar.adjYOffset)*sin_radian)));
       int newY = (int)(y + (((j+fontChar.adjYOffset) * cos_radian) + ((offset + i) * sin_radian)));
 
-      if ((ch & mask) != 0) TFT_EPD_drawPixe(newX,newY,_fg, 0);
-      else if (!font_transparent) TFT_EPD_drawPixe(newX,newY,_bg, 0);
+      if ((ch & mask) != 0) TFT_drawPixe(newX,newY,_fg, 0);
+      else if (!font_transparent) TFT_drawPixe(newX,newY,_bg, 0);
 
       mask >>= 1;
     }
   }
-  TFT_EPD_disp_deselect();
 
   return fontChar.xDelta+1;
 }
@@ -1786,7 +1539,6 @@ static void rotateChar(uint8_t c, int x, int y, int pos) {
   else fz = cfont.x_size/8;
   temp=((c-cfont.offset)*((fz)*cfont.y_size))+4;
 
-  TFT_EPD_disp_select();
   for (j=0; j<cfont.y_size; j++) {
     for (zz=0; zz<(fz); zz++) {
       ch = cfont.font[temp+zz];
@@ -1795,14 +1547,13 @@ static void rotateChar(uint8_t c, int x, int y, int pos) {
         newx=(int)(x+(((i+(zz*8)+(pos*cfont.x_size))*cos_radian)-((j)*sin_radian)));
         newy=(int)(y+(((j)*cos_radian)+((i+(zz*8)+(pos*cfont.x_size))*sin_radian)));
 
-        if ((ch & mask) != 0) TFT_EPD_drawPixe(newx,newy,_fg, 0);
-        else if (!font_transparent) TFT_EPD_drawPixe(newx,newy,_bg, 0);
+        if ((ch & mask) != 0) TFT_drawPixe(newx,newy,_fg, 0);
+        else if (!font_transparent) TFT_drawPixe(newx,newy,_bg, 0);
         mask >>= 1;
       }
     }
     temp+=(fz);
   }
-  TFT_EPD_disp_deselect();
   // calculate x,y for the next char
   TFT_X = (int)(x + ((pos+1) * cfont.x_size * cos_radian));
   TFT_Y = (int)(y + ((pos+1) * cfont.x_size * sin_radian));
@@ -2100,19 +1851,16 @@ void TFT_print(char *st, int x, int y) {
 
 // Change the screen rotation.
 // Input: m new rotation value (0 to 3)
-//=================================
-void TFT_setRotation(uint8_t rot) {
-    if (tft_active_mode == TFT_MODE_TFT) {
-        if (rot > 3) {
-            uint8_t madctl = (rot & 0xF8); // for testing, manually set MADCTL register
-            if (TFT_EPD_disp_select() == 0) {
-                disp_spi_transfer_cmd_data(MEMORY_ACCESS_CTL, &madctl, 1);
-            }
-        }
-        else {
-            orientation = rot;
-            _tft_setRotation(rot);
-        }
+//===============================
+void TFT_setRotation(uint8_t rot)
+{
+    if (rot > 3) {
+        uint8_t madctl = (rot & 0xF8); // for testing, manually set MADCTL register
+        disp_spi_transfer_cmd_data(MEMORY_ACCESS_CTL, &madctl, 1);
+    }
+    else {
+        orientation = rot;
+        _tft_setRotation(rot);
     }
 
 	dispWin.x1 = 0;
@@ -2125,22 +1873,20 @@ void TFT_setRotation(uint8_t rot) {
 
 // Send the command to invert all of the colors.
 // Input: i 0 to disable inversion; non-zero to enable inversion
-//==========================================
-void TFT_invertDisplay(const uint8_t mode) {
-    if (tft_active_mode == TFT_MODE_TFT) {
-        if ( mode == INVERT_ON ) disp_spi_transfer_cmd(INVERSION_DISPALY_ON);
-        else disp_spi_transfer_cmd(INVERSION_DISPALY_OFF);
-    }
+//========================================
+void TFT_invertDisplay(const uint8_t mode)
+{
+    if ( mode == INVERT_ON ) disp_spi_transfer_cmd(INVERSION_DISPALY_ON);
+    else disp_spi_transfer_cmd(INVERSION_DISPALY_OFF);
 }
 
 // Select gamma curve
 // Input: gamma = 0~3
-//==================================
-void TFT_setGammaCurve(uint8_t gm) {
-    if (tft_active_mode == TFT_MODE_TFT) {
-        uint8_t gamma_curve = 1 << (gm & 0x03);
-        disp_spi_transfer_cmd_data(GAMMA_SET, &gamma_curve, 1);
-    }
+//================================
+void TFT_setGammaCurve(uint8_t gm)
+{
+    uint8_t gamma_curve = 1 << (gm & 0x03);
+    disp_spi_transfer_cmd_data(GAMMA_SET, &gamma_curve, 1);
 }
 
 //===========================================================
@@ -2205,9 +1951,9 @@ color_t HSBtoRGB(float _hue, float _sat, float _brightness) {
  }
 
  color_t color;
- color.r = ((uint8_t)(red * 255.0)) & 0xFC;
- color.g = ((uint8_t)(green * 255.0)) & 0xFC;
- color.b = ((uint8_t)(blue * 255.0)) & 0xFC;
+ color = (uint16_t)(((uint8_t)(blue * 255.0)) & 0xF8) << 8;
+ color |= (uint16_t)(((uint8_t)(green * 255.0)) & 0xFC) << 3;
+ color |= (uint16_t)(((uint8_t)(red * 255.0)) & 0xF8) >> 3;
 
  return color;
 }
@@ -2325,11 +2071,11 @@ static UINT tjd_input (
 	JPGIODEV *dev = (JPGIODEV*)jd->device;
 
 	if (buff) {	// Read nd bytes from the input strem
-		rb = mp_stream_posix_read(dev->fhndl, buff, nd);
+		rb = mp_stream_posix_read((void *)dev->fhndl, buff, nd);
 		return rb;	// Returns actual number of bytes read
 	}
 	else {	// Remove nd bytes from the input stream
-        if (mp_stream_posix_lseek(dev->fhndl, nd, SEEK_CUR) >= 0) return nd;
+        if (mp_stream_posix_lseek((void *)dev->fhndl, nd, SEEK_CUR) >= 0) return nd;
 		else return 0;
 	}
 }
@@ -2376,11 +2122,13 @@ static UINT tjd_output (
 	int y;
 	int dleft, dtop, dright, dbottom;
 	BYTE *src = (BYTE*)bitmap;
+    uint16_t _color;
 
 	int left = rect->left + dev->x;
 	int top = rect->top + dev->y;
 	int right = rect->right + dev->x;
 	int bottom = rect->bottom + dev->y;
+	int fbpos;
 
 	if ((left > dispWin.x2) || (top > dispWin.y2)) return 1;	// out of screen area, return
 	if ((right < dispWin.x1) || (bottom < dispWin.y1)) return 1;// out of screen area, return
@@ -2399,49 +2147,32 @@ static UINT tjd_output (
 
 	uint32_t len = ((dright-dleft+1) * (dbottom-dtop+1));	// calculate length of data
 
-
 	if ((len > 0) && (len <= JPG_IMAGE_LINE_BUF_SIZE)) {
-	    if (tft_active_mode == TFT_MODE_EPD) {
-	        // For e-Paper display, output to grayscale buffer
-	        if (gs_drawBuff) {
-                uint8_t pix;
-                for (y = top; y <= bottom; y++) {
-                    for (x = left; x <= right; x++) {
-                        // Clip to display area
-                        if ((x >= dleft) && (y >= dtop) && (x <= dright) && (y <= dbottom)) {
-                            // Directly convert color to 4-bit gray scale
-                            pix = 0;
-                            pix |= ((*src++) >> 4) & 0x08;
-                            pix |= ((*src++) >> 5) & 0x06;
-                            pix |= ((*src++) >> 7);
-                            pix ^= 0x0F;
-                            gs_drawBuff[(y * _width) + x] = pix;
-                            gs_used_shades |= (1 << pix);
-                        }
-                        else src += 3; // skip
+        int lbidx = 0;
+        for (y = top; y <= bottom; y++) {
+            for (x = left; x <= right; x++) {
+                // Clip to display area
+                if ((x >= dleft) && (y >= dtop) && (x <= dright) && (y <= dbottom)) {
+                    _color = (uint16_t)((*src++) & 0xF8) << 8;  // R
+                    _color |= (uint16_t)((*src++) & 0xFC) << 3; // G
+                    _color |= (uint16_t)((*src++) & 0xF8) >> 3; // B
+                    if (use_frame_buffer) {
+                        fbpos = y*_width + x;
+                        tft_frame_buffer[fbpos] = _color;
+                    }
+                    else {
+                        dev->linbuf[lbidx] = _color;
+                        lbidx++;
                     }
                 }
-	        }
-	    }
-	    else {
-            // For TFT displays, output directly to SPI interface
-            uint8_t *dest = (uint8_t *)dev->linbuf;
-
-            for (y = top; y <= bottom; y++) {
-                for (x = left; x <= right; x++) {
-                    // Clip to display area
-                    if ((x >= dleft) && (y >= dtop) && (x <= dright) && (y <= dbottom)) {
-                        *dest++ = (*src++) & 0xFC;
-                        *dest++ = (*src++) & 0xFC;
-                        *dest++ = (*src++) & 0xFC;
-                    }
-                    else src += 3; // skip
-                }
+                else src += 3; // skip
             }
+        }
+        if (!use_frame_buffer) {
             uint64_t spi_startt = mp_hal_ticks_us();
             send_data(dleft, dtop, dright+1, dbottom+1, len, dev->linbuf);
             dev->spi_time += (uint32_t)(mp_hal_ticks_us() - spi_startt);
-	    }
+        }
 	}
 	else {
 		mp_printf(&mp_plat_print, "Data size error: %d jpg: (%d,%d,%d,%d) disp: (%d,%d,%d,%d)\r\n", len, left,top,right,bottom, dleft,dtop,dright,dbottom);
@@ -2465,8 +2196,8 @@ void TFT_jpg_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *buf, in
 	dev.linbuf = NULL;
 	dev.spi_time = 0;
 
-   	dev.fhndl = NULL;
-    if (fname == NULL) {
+   	dev.fhndl = mp_const_none;
+    if (fname == mp_const_none) {
     	// image from buffer
         dev.membuff = buf;
         dev.bufsize = size;
@@ -2517,13 +2248,13 @@ void TFT_jpg_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *buf, in
 			dev.x = x;
 			dev.y = y;
 
-			if (tft_active_mode != TFT_MODE_EPD) {
-                dev.linbuf = malloc(JPG_IMAGE_LINE_BUF_SIZE*3);
+            if (!use_frame_buffer) {
+                dev.linbuf = malloc(JPG_IMAGE_LINE_BUF_SIZE*2);
                 if (dev.linbuf == NULL) {
-                    if (image_debug) mp_printf(&mp_plat_print, "Error allocating line buffer #0\r\n");
+                    if (image_debug) mp_printf(&mp_plat_print, "Error allocating line buffer\r\n");
                     goto exit;
                 }
-			}
+            }
 
 			// Start to decode the JPEG file
 			rc = jd_decomp(&jd, tjd_output, scale);
@@ -2552,13 +2283,10 @@ exit:
 //=======================================================================================
 int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, int size)
 {
-    if (tft_active_mode == TFT_MODE_EPD) return -99;
-
-    mp_obj_t fhndl = NULL;
+    mp_obj_t fhndl = mp_const_none;
 	int i, err=0;
 	int img_xsize, img_ysize, img_xstart, img_xlen, img_ystart, img_ylen;
 	int img_pos, img_pix_pos, scan_lines, rd_len;
-	uint8_t tmpc;
 	uint16_t wtemp;
 	uint32_t temp;
 	int disp_xstart, disp_xend, disp_ystart, disp_yend;
@@ -2569,6 +2297,8 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 	uint8_t scale_pix;
 	uint16_t co[3] = {0,0,0};			// RGB sum
 	uint8_t npix;
+	uint16_t _color;
+	int idx16;
 
 	if (scale > 7) scale = 7;
 	scale_pix = scale+1;	// scale factor ( 1~8 )
@@ -2587,15 +2317,14 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
         }
 
         // Get file size
-        int fsize = mp_stream_posix_lseek(ffd, 0, SEEK_END);
-        int at_start = mp_stream_posix_lseek(ffd, 0, SEEK_SET);
+        int fsize = mp_stream_posix_lseek((void *)ffd, 0, SEEK_END);
+        int at_start = mp_stream_posix_lseek((void *)ffd, 0, SEEK_SET);
         if ((fsize <= 0) || (at_start != 0)) {
             sprintf(err_buf, "getting file size");
         }
-        printf("file size = %d\n", fsize);
         size = fsize;
         fhndl = ffd;
-        i = mp_stream_posix_read(fhndl, buf, 54); // read header
+        i = mp_stream_posix_read((void *)fhndl, buf, 54); // read header
     }
     else {
     	// * Reading image from buffer
@@ -2693,7 +2422,7 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 	// ** Allocate memory for 2 lines of image pixels
 	line_buf = malloc(img_xsize*3);
 	if (line_buf == NULL) {
-	    sprintf(err_buf, "allocating line buffer #1");
+	    sprintf(err_buf, "allocating line buffer");
 		err=-12;
 		goto exit;
 	}
@@ -2728,8 +2457,8 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 
 	// Set position in image to the first color data (beginning of the LAST line)
 	img_pos += (img_ystart * (img_xsize*3));
-	if (fhndl) {
-        if (mp_stream_posix_lseek(fhndl, img_pos, SEEK_CUR) < 0) {
+	if (fhndl != mp_const_none) {
+        if (mp_stream_posix_lseek((void *)fhndl, img_pos, SEEK_CUR) < 0) {
 			sprintf(err_buf, "file seek at %d", img_pos);
 			err = -15;
 			goto exit;
@@ -2737,7 +2466,7 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 	}
 
 	if (image_debug) mp_printf(&mp_plat_print, "BMP: image size: (%d,%d) scale: %d disp size: (%d,%d) img xofs: %d img yofs: %d at: %d,%d; line buf: 2* %d scale buf: %d\r\n",
-			img_xsize, img_ysize, scale_pix, img_xlen, img_ylen, img_xstart, img_ystart, disp_xstart, disp_ystart, img_xsize*3, ((scale) ? (rd_len*scale_pix) : 0));
+			img_xsize, img_ysize, scale_pix, img_xlen, img_ylen, img_xstart, img_ystart, disp_xstart, disp_ystart, img_xsize*2, ((scale) ? (rd_len*scale_pix) : 0));
 
 	while ((disp_yend >= disp_ystart) && ((img_pos + (img_xsize*3)) <= size)) {
 		if (img_pos > size) {
@@ -2747,8 +2476,8 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 		}
 		if (scale == 0) {
 			// Read the line of color data into color buffer
-			if (fhndl) {
-		        i = mp_stream_posix_read(fhndl, line_buf, img_xsize*3); // read line from file
+			if (fhndl != mp_const_none) {
+		        i = mp_stream_posix_read((void *)fhndl, line_buf, img_xsize*3); // read line of BGR pixels from file
 				if (i != (img_xsize*3)) {
 					sprintf(err_buf, "file read at %d (%d<>%d)", img_pos, i, img_xsize*3);
 					err = -16;
@@ -2758,12 +2487,16 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 			else memcpy(line_buf, imgbuf+img_pos, img_xsize*3);
 
 			if (img_xstart > 0)	memmove(line_buf, line_buf+(img_xstart*3), rd_len);
-			// Convert colors BGR-888 (BMP) -> RGB-888 (DISPLAY) ===
+			// Convert colors BGR-888 (BMP) -> 565color (DISPLAY) ===
+			idx16 = 0;
 			for (i=0; i < rd_len; i += 3) {
-				tmpc = line_buf[i+2] & 0xfc;				// save R
-				line_buf[i+2] = line_buf[i] & 0xfc;	// B -> R
-				line_buf[i] = tmpc;							// R -> B
-				line_buf[i+1] &= 0xfc;						// G
+                _color = (uint16_t)(line_buf[i+2] & 0xF8) << 8;  // R
+                _color |= (uint16_t)(line_buf[i+1] & 0xFC) << 3; // G
+                _color |= (uint16_t)(line_buf[i] & 0xF8) >> 3; // B
+                line_buf[idx16] = _color >> 8;
+                idx16++;
+                line_buf[idx16+1] = _color & 0xFF;
+                idx16++;
 			}
 			img_pos += (img_xsize*3);
 		}
@@ -2772,7 +2505,7 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 			for (scan_lines=0; scan_lines<scale_pix; scan_lines++) {
 				if (img_pos > size) break;
 				if (fhndl) {
-	                i = mp_stream_posix_read(fhndl, line_buf, img_xsize*3); // read line from file
+	                i = mp_stream_posix_read((void *)fhndl, line_buf, img_xsize*3); // read line from file
 					if (i != (img_xsize*3)) {
 						sprintf(err_buf, "file read at %d (%d<>%d)", img_pos, i, img_xsize*3);
 						err = -17;
@@ -2787,6 +2520,7 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 			}
 
 			// Populate display line buffer
+			idx16 = 0;
 			for (int n=0;n<(img_xlen*3);n += 3) {
 				memset(co, 0, sizeof(co));	// initialize color sum
 				npix = 0;					// initialize number of pixels in scale rectangle
@@ -2803,10 +2537,13 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 						npix++;
 					}
 				}
-				// Place the average in display buffer, convert BGR-888 (BMP) -> RGB-888 (DISPLAY)
-				line_buf[n+2] = (uint8_t)(co[0] / npix);	// B
-				line_buf[n+1] = (uint8_t)(co[1] / npix);	// G
-				line_buf[n] = (uint8_t)(co[2] / npix);		// R
+				// Place the average in display buffer, convert BGR-888 (BMP) -> 565color (DISPLAY)
+                _color = (uint16_t)((uint8_t)(co[0] / npix) & 0xF8) >> 3;   // R
+                _color |= (uint16_t)((uint8_t)(co[1] / npix) & 0xFC) << 3;  // G
+                _color |= (uint16_t)((uint8_t)(co[2] / npix) & 0xF8) << 8;  // B
+                line_buf[idx16] = _color >> 8;
+                line_buf[idx16+1] = _color & 0xFF;
+                idx16 += 2;
 			}
 		}
 
@@ -2818,10 +2555,10 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 exit:
 	if (scale_buf) free(scale_buf);
 	if (line_buf) free(line_buf);
-    if (fhndl) mp_stream_close(fhndl);  // close input file
+    if (fhndl != mp_const_none) mp_stream_close(fhndl);  // close input file
 	if ((err) && (image_debug)) mp_printf(&mp_plat_print, "Error: %d [%s]\r\n", err, err_buf);
 
 	return err;
 }
 
-#endif // CONFIG_MICROPY_USE_DISPLAY
+#endif // MICROPY_USE_DISPLAY

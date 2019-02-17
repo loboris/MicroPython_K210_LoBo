@@ -45,5 +45,6 @@ genrst/
 
 test/
 kendryte-toolchain/
+kendryte-toolchain.tar.xz
 
 backup.sh

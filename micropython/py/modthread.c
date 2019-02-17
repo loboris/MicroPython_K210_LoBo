@@ -27,9 +27,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include "syslog.h"
 
-//#include "FreeRTOS.h"
-//#include "task.h"
 #include "py/runtime.h"
 #include "py/stackctrl.h"
 
@@ -84,6 +83,7 @@ void mp_thread_entry(void *args_in)
     volatile void *stack_p = 0;
     volatile void *sp = (void *)((uint64_t)(&stack_p) & 0xFFFFFFFFFFFFFFF8);
     void *stack = (void *)(((uint64_t)pxTaskGetStackStart(NULL) & 0xFFFFFFFFFFFFFFF8)+16);
+
     // === Execution begins here for a new thread.  We do not have the GIL. ===
     thread_entry_args_t *args = (thread_entry_args_t*)args_in;
 
@@ -139,6 +139,8 @@ void mp_thread_entry(void *args_in)
     mp_thread_finish();
     // and remove the thread from the linked list of all threads
     mp_thread_remove_thread();
+
+    vTaskDelete(NULL);
 }
 
 //-----------------------------------------------------------------------------------------------------
@@ -571,7 +573,7 @@ STATIC mp_obj_t mod_thread_list(mp_uint_t n_args, const mp_obj_t *args) {
 
         mp_printf(&mp_plat_print, "\n");
 
-        #if (defined(CONFIG_FREERTOS_USE_TRACE_FACILITY) && defined(CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS))
+        #if configUSE_TRACE_FACILITY
         if ( pxTaskStatusArray != NULL ) free(pxTaskStatusArray);
         #endif
 
@@ -673,6 +675,73 @@ STATIC mp_obj_t mod_thread_unlock()
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_thread_unlock_obj, mod_thread_unlock);
 
+
+#if MICROPY_USE_TWO_MAIN_TASKS
+
+//-------------------------------------------------------
+STATIC mp_obj_t mod_thread_execute_proc2(mp_obj_t cmd_in)
+{
+    if (MainTaskHandle2 == NULL)  return mp_const_none;
+
+    const char *cmd = NULL;
+    size_t cmdlen = 0;
+
+    cmd = mp_obj_str_get_data(cmd_in, &cmdlen);
+    if (cmdlen == 0) return mp_const_false;
+
+    xSemaphoreTake(inter_proc_mutex, portMAX_DELAY);
+    if (ipc_cmd_buff == NULL) {
+        ipc_cmd_buff = calloc(cmdlen+1, 1);
+    }
+    else if (ipc_cmd_buff_size < (cmdlen+1)) {
+        free(ipc_cmd_buff);
+        ipc_cmd_buff = calloc(cmdlen+1, 1);
+    }
+    if (ipc_cmd_buff == NULL) {
+        xSemaphoreGive(inter_proc_mutex);
+        return mp_const_false;
+    }
+    ipc_cmd_buff_size = cmdlen+1;
+    sprintf(ipc_cmd_buff, "%s", cmd);
+    ipc_request = 1;
+    xSemaphoreGive(inter_proc_mutex);
+
+    //xTaskNotify(MainTaskHandle2, 1, eSetValueWithOverwrite);
+    xSemaphoreGive(inter_proc_semaphore);
+
+    return mp_const_true;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_thread_execute_proc2_obj, mod_thread_execute_proc2);
+
+//-------------------------------------------------------
+STATIC mp_obj_t mod_thread_get_proc2_res()
+{
+    if (MainTaskHandle2 == NULL) return mp_const_none;
+
+    if (xSemaphoreTake(inter_proc_mutex, 100 / portTICK_PERIOD_MS) != pdTRUE) {
+        LOGW("[MPy@1]", "Bussy");
+        return mp_const_false;
+    }
+
+    mp_obj_t res = mp_const_false;
+    if (ipc_response_buff == NULL) {
+        LOGW("[MPy@1]", "No result");
+    }
+    else {
+        res = mp_obj_new_str(ipc_response_buff, ipc_response_buff_idx);
+        free(ipc_response_buff);
+        ipc_response_buff_size = 0;
+        ipc_response_buff_idx = 0;
+    }
+    xSemaphoreGive(inter_proc_mutex);
+
+    return res;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_thread_get_proc2_res_obj, mod_thread_get_proc2_res);
+
+#endif
+
+
 //=================================================================
 STATIC const mp_rom_map_elem_t mp_module_thread_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__),			MP_ROM_QSTR(MP_QSTR__thread) },
@@ -699,7 +768,11 @@ STATIC const mp_rom_map_elem_t mp_module_thread_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_getPriority),         MP_ROM_PTR(&mod_thread_getpriority_obj) },
     { MP_ROM_QSTR(MP_QSTR_setPriority),         MP_ROM_PTR(&mod_thread_setpriority_obj) },
 
-	// Constants
+    #if MICROPY_USE_TWO_MAIN_TASKS
+    { MP_ROM_QSTR(MP_QSTR_executeOnProc2),      MP_ROM_PTR(&mod_thread_execute_proc2_obj) },
+    { MP_ROM_QSTR(MP_QSTR_getProc2Res),         MP_ROM_PTR(&mod_thread_get_proc2_res_obj) },
+    #endif
+    // Constants
 	{ MP_ROM_QSTR(MP_QSTR_PAUSE),				MP_ROM_INT(THREAD_NOTIFY_PAUSE) },
 	{ MP_ROM_QSTR(MP_QSTR_SUSPEND),				MP_ROM_INT(THREAD_NOTIFY_PAUSE) },
 	{ MP_ROM_QSTR(MP_QSTR_RESUME),				MP_ROM_INT(THREAD_NOTIFY_RESUME) },

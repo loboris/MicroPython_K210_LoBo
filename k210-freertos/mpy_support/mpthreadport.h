@@ -80,6 +80,17 @@
 #define SYS_TASK_NOTIFY_SUSPEND_OTHERS  3ULL
 #define SYS_TASK_NOTIFY_RESUME_OTHERS   4ULL
 
+/*
+typedef struct _create_task_params_t {
+    UBaseType_t uxProcessor;
+    TaskFunction_t pxTaskCode;
+    char pcName[configMAX_TASK_NAME_LEN];
+    configSTACK_DEPTH_TYPE usStackDepth;
+    void * pvParameters;
+    UBaseType_t uxPriority;
+    TaskHandle_t * pxCreatedTask;
+} create_task_params_t;
+*/
 
 typedef struct _mp_thread_mutex_t {
     SemaphoreHandle_t handle;
@@ -139,7 +150,7 @@ typedef struct _thread_list_t {
 } thread_list_t;
 
 extern TaskHandle_t MainTaskHandle;
-extern TaskHandle_t MPySysTaskHandle;
+extern TaskHandle_t MainTaskHandle2;
 
 extern thread_msg_t thread_messages[MAX_THREAD_MESSAGES];
 
@@ -157,6 +168,7 @@ thread_t *mp_thread_get_th_from_id(TaskHandle_t id);
 void mp_thread_set_pystack();
 int mp_thread_stack_max_used();
 int mp_thread_stack_get_size();
+int mp_thread_started(TaskHandle_t id);
 
 void mp_thread_allowsuspend(int allow);
 int mp_thread_suspend(TaskHandle_t id);

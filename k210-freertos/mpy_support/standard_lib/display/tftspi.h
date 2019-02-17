@@ -40,9 +40,6 @@
 typedef struct {
     uint32_t	speed;		// SPI clock in Hz
     uint8_t		type;		// Display type, use one of the defined DISP_TYPE_* values
-    int8_t		bckl;		// GPIO used for backlight control
-    uint8_t		bckl_on;	// GPIO value for backlight ON
-    uint8_t		color_bits;	// Bits per color (16 or 24)
     uint8_t		gamma;		// Gamma curve used
     uint16_t	width;		// Display width (smaller dimension)
     uint16_t	height;		// Display height (larger dimension)
@@ -50,13 +47,15 @@ typedef struct {
     uint8_t		bgr;		// SET TO 0X00 FOR DISPLAYS WITH RGB MATRIX, 0x08 FOR DISPLAYS WITH BGR MATRIX
 } display_config_t;
 
+/*
 // 24-bit color type structure
 typedef struct __attribute__((__packed__)) {
 	uint8_t r;
 	uint8_t g;
 	uint8_t b;
 } color_t ;
-
+*/
+typedef uint16_t color_t;
 
 #define EPD_TYPE_2_9        0
 #define EPD_TYPE_4_2        1
@@ -102,6 +101,8 @@ typedef struct __attribute__((__packed__)) {
 // #### Global variables                                     ####
 // ##############################################################
 
+extern bool use_frame_buffer;
+
 // ==== Converts colors to grayscale if 1 =======================
 extern uint8_t gray_scale;
 
@@ -113,12 +114,11 @@ extern int _height;
 extern uint8_t tft_disp_type;
 extern uint8_t tft_touch_type;
 
-extern uint8_t bits_per_color;
 //extern uint8_t TFT_RGB_BGR;
 extern uint8_t gamma_curve;
 extern uint32_t spi_speed;
 
-extern uint8_t spibus_is_init;
+extern uint16_t tft_frame_buffer[DEFAULT_TFT_DISPLAY_WIDTH*DEFAULT_TFT_DISPLAY_HEIGHT];
 // ##############################################################
 
 /* clang-format off */
@@ -213,22 +213,13 @@ extern uint8_t spibus_is_init;
 // ==== Public functions =========================================================
 
 // == Low level functions; usually not used directly ==
-int wait_trans_finish(uint8_t free_line);
 void disp_spi_transfer_cmd(int8_t cmd);
 void disp_spi_transfer_cmd_data(int8_t cmd, uint8_t *data, uint32_t len);
 void drawPixel(int16_t x, int16_t y, color_t color);
 void send_data(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf);
-void send_data16(int x1, int y1, int x2, int y2, uint32_t len, uint16_t *buf);
 void TFT_pushColorRep(int x1, int y1, int x2, int y2, color_t data, uint32_t len);
-
-void bcklOn(display_config_t *dconfig);
-void bcklOff(display_config_t *dconfig);
-
+void send_frame_buffer();
 void TFT_display_setvars(display_config_t *dconfig);
-
-void _tft_setBitsPerColor(uint8_t bitsperc);
-
-int TFT_spiInit(display_config_t *dconfig);
 uint32_t tft_set_speed();
 
 // Change the screen rotation.
@@ -240,7 +231,6 @@ void _tft_setRotation(uint8_t rot);
 // Sets orientation to landscape; clears the screen
 //============================================================
 int  TFT_display_init(display_config_t *display_config);
-
 
 // ===============================================================================
 

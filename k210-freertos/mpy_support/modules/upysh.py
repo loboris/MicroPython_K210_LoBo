@@ -98,11 +98,11 @@ class CP:
         try:
             st = os.stat(srcf)
         except:
-            print("'{}' not found".format(srcf))
+            print("Source not found")
             return
         try:
             st = os.stat(destf)
-            print("'{}' exists".format(destf))
+            print("Dest file exists")
             return
         except:
             pass
@@ -112,7 +112,7 @@ class CP:
                 fd = open(destf, 'wb')
             except:
                 fs.close()
-                print("Error opening '{}'".format(srcf))
+                print("Error opening '{}'".format(destf))
                 return
             try:
                 while True:

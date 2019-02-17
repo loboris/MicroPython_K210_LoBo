@@ -68,54 +68,15 @@
 #define ABORT1                  (0x41)  /* 'A' == 0x41, abort by user */
 #define ABORT2                  (0x61)  /* 'a' == 0x61, abort by user */
 
-#define NAK_TIMEOUT             (1000)
+#define NAK_TIMEOUT             (1000) // 1 second timeout
 #define MAX_ERRORS              (200)
 
 #define YM_MAX_FILESIZE         (10*1024*1024)
 
 static volatile uarths_t *const uarths = (volatile uarths_t *)UARTHS_BASE_ADDR;
+static char err_msg[128] = {'\0'};
 
-//------------------------------------------------------------------------
-static unsigned short crc16(const unsigned char *buf, unsigned long count)
-{
-  unsigned short crc = 0;
-  int i;
-
-  while(count--) {
-    crc = crc ^ *buf++ << 8;
-
-    for (i=0; i<8; i++) {
-      if (crc & 0x8000) crc = crc << 1 ^ 0x1021;
-      else crc = crc << 1;
-    }
-  }
-  return crc;
-}
-
-//--------------------------------------------------------------
-static int32_t Receive_Byte (unsigned char *c, uint32_t timeout)
-{
-    int cc = -1;
-    uarths_rxdata_t recv = uarths->rxdata;
-    if (!recv.empty) {
-        cc = recv.data;
-    }
-    if (cc >= 0) {
-        *c = (uint8_t)cc;
-        return 0;
-    }
-    while ( (cc < 0) && (timeout--)) {
-        mp_hal_delay_us(100);
-        recv = uarths->rxdata;
-        if (!recv.empty) {
-            cc = recv.data;
-        }
-        else cc = -1;
-    }
-    if (cc < 0) return -1;
-	*c = (uint8_t)cc;
-    return 0;
-}
+static recv_block_t recv_data = { NULL, 0, 0, false };
 
 //------------------------
 static void uart_consume()
@@ -128,45 +89,31 @@ static void uart_consume()
     }
 }
 
-//----------------------------------------
-static void send_Bytes(char *buf, int len)
-{
-    while (len--) {
-        uarths_write_byte(*buf++);
-    }
-}
-//--------------------------------
-static uint32_t Send_Byte (char c)
-{
-	send_Bytes(&c,1);
-	return 0;
-}
-
 //----------------------------
 static void send_CA ( void ) {
-  Send_Byte(CA);
-  Send_Byte(CA);
+  mp_hal_send_byte(CA);
+  mp_hal_send_byte(CA);
 }
 
 //-----------------------------
 static void send_ACK ( void ) {
-  Send_Byte(ACK);
+  mp_hal_send_byte(ACK);
 }
 
 //----------------------------------
 static void send_ACKCRC16 ( void ) {
-  Send_Byte(ACK);
-  Send_Byte(CRC16);
+  mp_hal_send_byte(ACK);
+  mp_hal_send_byte(CRC16);
 }
 
 //-----------------------------
 static void send_NAK ( void ) {
-  Send_Byte(NAK);
+  mp_hal_send_byte(NAK);
 }
 
 //-------------------------------
 static void send_CRC16 ( void ) {
-  Send_Byte(CRC16);
+  mp_hal_send_byte(CRC16);
 }
 
 
@@ -191,7 +138,7 @@ static int32_t Receive_Packet (uint8_t *data, int *length, uint32_t timeout)
   *length = 0;
   
   // receive 1st byte
-  if (Receive_Byte(&ch, timeout) < 0) {
+  if (mp_hal_receive_byte(&ch, timeout) < 0) {
 	  return -1;
   }
 
@@ -206,7 +153,7 @@ static int32_t Receive_Packet (uint8_t *data, int *length, uint32_t timeout)
         *length = 0;
         return 0;
     case CA:
-    	if (Receive_Byte(&ch, timeout) < 0) {
+    	if (mp_hal_receive_byte(&ch, timeout) < 0) {
     		return -2;
     	}
     	if (ch == CA) {
@@ -228,7 +175,7 @@ static int32_t Receive_Packet (uint8_t *data, int *length, uint32_t timeout)
   count = packet_size + PACKET_OVERHEAD-1;
 
   for (i=0; i<count; i++) {
-	  if (Receive_Byte(&ch, timeout) < 0) {
+	  if (mp_hal_receive_byte(&ch, timeout) < 0) {
 		  return -1;
 	  }
 	  *dptr++ = (uint8_t)ch;;
@@ -238,7 +185,7 @@ static int32_t Receive_Packet (uint8_t *data, int *length, uint32_t timeout)
       *length = -2;
       return 0;
   }
-  if (crc16(&data[PACKET_HEADER], packet_size + PACKET_TRAILER) != 0) {
+  if (mp_hal_crc16(&data[PACKET_HEADER], packet_size + PACKET_TRAILER) != 0) {
       *length = -2;
       return 0;
   }
@@ -365,14 +312,17 @@ int Ymodem_Receive (mp_obj_t ffd, unsigned int maxsize, char* getname, char *err
                     }
                     else write_len = packet_length;
 
-                    int written_bytes = mp_stream_posix_write(ffd, (char*)(packet_data + PACKET_HEADER), write_len);
-                    //int written_bytes = fwrite((char*)(packet_data + PACKET_HEADER), 1, write_len, ffd);
-                    if (written_bytes != write_len) { //failed
-                      /* End session */
-                      send_CA();
-                      size = -6;
-                      sprintf(errmsg, "fwrite() error [%d <> %d]", written_bytes, write_len);
-                      goto exit;
+                    int written_bytes = mp_stream_posix_write((void *)ffd, (char*)(packet_data + PACKET_HEADER), write_len);
+                    if (written_bytes != write_len) {
+                        // failed, try one more time
+                        written_bytes = mp_stream_posix_write((void *)ffd, (char*)(packet_data + PACKET_HEADER), write_len);
+                        if (written_bytes != write_len) { //failed
+                          /* End session */
+                          send_CA();
+                          size = -6;
+                          sprintf(errmsg, "fwrite() error [%d <> %d]", written_bytes, write_len);
+                          goto exit;
+                        }
                     }
                   }
                   //success
@@ -435,7 +385,7 @@ static void Ymodem_PrepareIntialPacket(uint8_t *data, char *fileName, uint32_t l
 	   1 + strlen((char *)(data + PACKET_HEADER + strlen((char *)(data+PACKET_HEADER)) + 1))] = ' ';
   
   // add crc
-  tempCRC = crc16(&data[PACKET_HEADER], PACKET_SIZE);
+  tempCRC = mp_hal_crc16(&data[PACKET_HEADER], PACKET_SIZE);
   data[PACKET_SIZE + PACKET_HEADER] = tempCRC >> 8;
   data[PACKET_SIZE + PACKET_HEADER + 1] = tempCRC & 0xFF;
 }
@@ -449,7 +399,7 @@ static void Ymodem_PrepareLastPacket(uint8_t *data)
   data[0] = SOH;
   data[1] = 0x00;
   data[2] = 0xff;
-  tempCRC = crc16(&data[PACKET_HEADER], PACKET_SIZE);
+  tempCRC = mp_hal_crc16(&data[PACKET_HEADER], PACKET_SIZE);
   //tempCRC = crc16_le(0, &data[PACKET_HEADER], PACKET_SIZE);
   data[PACKET_SIZE + PACKET_HEADER] = tempCRC >> 8;
   data[PACKET_SIZE + PACKET_HEADER + 1] = tempCRC & 0xFF;
@@ -468,7 +418,7 @@ static void Ymodem_PreparePacket(uint8_t *data, uint8_t pktNo, uint32_t sizeBlk,
   size = sizeBlk < PACKET_1K_SIZE ? sizeBlk :PACKET_1K_SIZE;
   // Read block from file
   if (size > 0) {
-      size = mp_stream_posix_read(ffd, data + PACKET_HEADER, size);
+      size = mp_stream_posix_read((void *)ffd, data + PACKET_HEADER, size);
 	  //size = fread(data + PACKET_HEADER, 1, size, ffd);
   }
 
@@ -477,7 +427,7 @@ static void Ymodem_PreparePacket(uint8_t *data, uint8_t pktNo, uint32_t sizeBlk,
       data[i] = 0x00; // EOF (0x1A) or 0x00
     }
   }
-  tempCRC = crc16(&data[PACKET_HEADER], PACKET_1K_SIZE);
+  tempCRC = mp_hal_crc16(&data[PACKET_HEADER], PACKET_1K_SIZE);
   //tempCRC = crc16_le(0, &data[PACKET_HEADER], PACKET_1K_SIZE);
   data[PACKET_1K_SIZE + PACKET_HEADER] = tempCRC >> 8;
   data[PACKET_1K_SIZE + PACKET_HEADER + 1] = tempCRC & 0xFF;
@@ -490,7 +440,7 @@ static uint8_t Ymodem_WaitResponse(uint8_t ackchr, uint8_t tmo)
   uint32_t errors = 0;
 
   do {
-    if (Receive_Byte(&receivedC, NAK_TIMEOUT) == 0) {
+    if (mp_hal_receive_byte(&receivedC, NAK_TIMEOUT) == 0) {
       if (receivedC == ackchr) {
         return 1;
       }
@@ -525,8 +475,8 @@ int Ymodem_Transmit (char* sendFileName, unsigned int sizeFile, mp_obj_t ffd, ch
   // Wait for response from receiver
   err = 0;
   do {
-    Send_Byte(CRC16);
-  } while ((Receive_Byte(&receivedC, NAK_TIMEOUT) < 0) && (err++ < MAX_ERRORS));
+    mp_hal_send_byte(CRC16);
+  } while ((mp_hal_receive_byte(&receivedC, NAK_TIMEOUT) < 0) && (err++ < MAX_ERRORS));
 
   if (err >= MAX_ERRORS || receivedC != CRC16) {
     send_CA();
@@ -544,7 +494,7 @@ int Ymodem_Transmit (char* sendFileName, unsigned int sizeFile, mp_obj_t ffd, ch
   do 
   {
     // Send Packet
-	  send_Bytes((char *)packet_data, PACKET_SIZE + PACKET_OVERHEAD);
+	  mp_hal_send_bytes((char *)packet_data, PACKET_SIZE + PACKET_OVERHEAD);
 
 	// Wait for Ack
     err = Ymodem_WaitResponse(ACK, 10);
@@ -577,7 +527,7 @@ int Ymodem_Transmit (char* sendFileName, unsigned int sizeFile, mp_obj_t ffd, ch
     Ymodem_PreparePacket(packet_data, blkNumber, size, ffd);
     do
     {
-    	send_Bytes((char *)packet_data, PACKET_1K_SIZE + PACKET_OVERHEAD);
+    	mp_hal_send_bytes((char *)packet_data, PACKET_1K_SIZE + PACKET_OVERHEAD);
 
       // Wait for Ack
       err = Ymodem_WaitResponse(ACK, 10);
@@ -599,14 +549,14 @@ int Ymodem_Transmit (char* sendFileName, unsigned int sizeFile, mp_obj_t ffd, ch
   }
   
   // === Send EOT ==============================================================
-  Send_Byte(EOT); // Send (EOT)
+  mp_hal_send_byte(EOT); // Send (EOT)
   // Wait for Ack
   do 
   {
     // Wait for Ack
     err = Ymodem_WaitResponse(ACK, 10);
     if (err == 3) {   // NAK
-      Send_Byte(EOT); // Send (EOT)
+      mp_hal_send_byte(EOT); // Send (EOT)
     }
     else if (err == 0 || err == 4) {
       send_CA();
@@ -630,7 +580,7 @@ int Ymodem_Transmit (char* sendFileName, unsigned int sizeFile, mp_obj_t ffd, ch
   do 
   {
 	// Send Packet
-	  send_Bytes((char *)packet_data, PACKET_SIZE + PACKET_OVERHEAD);
+	  mp_hal_send_bytes((char *)packet_data, PACKET_SIZE + PACKET_OVERHEAD);
 
 	// Wait for Ack
     err = Ymodem_WaitResponse(ACK, 10);
@@ -654,9 +604,7 @@ int Ymodem_Transmit (char* sendFileName, unsigned int sizeFile, mp_obj_t ffd, ch
 //--------------------------------------------
 STATIC mp_obj_t ymodem_recv(mp_obj_t fname_in)
 {
-	const char *fname = mp_obj_str_get_str(fname_in);
-    char err_msg[128] = {'\0'};
-    int err = 1;
+    err_msg[0] = '\0';
     mp_obj_t args[2];
     args[0] = fname_in;
     args[1] = mp_obj_new_str("wb", 2);
@@ -668,7 +616,8 @@ STATIC mp_obj_t ymodem_recv(mp_obj_t fname_in)
 		mp_printf(&mp_plat_print, "\nReceiving file, please start YModem transfer on host ...\n");
 		mp_printf(&mp_plat_print, "(Press \"a\" to abort)\n");
 
-	    mp_hal_uarths_setirqhandle(NULL);
+		mp_hal_uarths_setirq_ymodem();
+		mp_hal_purge_uart_buffer();
 		int rec_res = Ymodem_Receive(ffd, 1000000, orig_name, err_msg);
 	    mp_hal_uarths_setirq_default();
 
@@ -676,25 +625,31 @@ STATIC mp_obj_t ymodem_recv(mp_obj_t fname_in)
 		mp_printf(&mp_plat_print, "\r\n");
 
 		if (rec_res > 0) {
-			err = 0;
 			mp_printf(&mp_plat_print, "File received, size=%d, original name: \"%s\"\n", rec_res, orig_name);
+		    err_msg[0] = '\0';
 		}
 	}
 	else {
-		sprintf(err_msg, "Opening file \"%s\" for writing.", fname);
+	    mp_raise_msg(&mp_type_OSError, "Error opening file for writing.");
 	}
 
-	mp_printf(&mp_plat_print, "\n%s%s\n", ((err == 0) ? "" : "Error: "), err_msg);
 	return mp_const_none;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(ymodem_recv_obj, ymodem_recv);
+
+//-----------------------------------
+STATIC mp_obj_t ymodem_geterror(void)
+{
+    return mp_obj_new_str(err_msg, strlen(err_msg));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(ymodem_geterror_obj, ymodem_geterror);
 
 //--------------------------------------------
 STATIC mp_obj_t ymodem_send(mp_obj_t fname_in)
 {
     const char *fname = mp_obj_str_get_str(fname_in);
     int err = 0;
-    char err_msg[128] = {'\0'};
+    err_msg[0] = '\0';
     mp_obj_t args[2];
     args[0] = fname_in;
     args[1] = mp_obj_new_str("rb", 2);
@@ -703,8 +658,8 @@ STATIC mp_obj_t ymodem_send(mp_obj_t fname_in)
     mp_obj_t ffd = mp_vfs_open(2, args, (mp_map_t*)&mp_const_empty_map);
 	if (ffd) {
 	    // Get file size
-        int fsize = mp_stream_posix_lseek(ffd, 0, SEEK_END);
-        int at_start = mp_stream_posix_lseek(ffd, 0, SEEK_SET);
+        int fsize = mp_stream_posix_lseek((void *)ffd, 0, SEEK_END);
+        int at_start = mp_stream_posix_lseek((void *)ffd, 0, SEEK_SET);
         if ((fsize <= 0) || (at_start != 0)) {
             sprintf(err_msg, "Error getting file size");
         }
@@ -712,7 +667,8 @@ STATIC mp_obj_t ymodem_send(mp_obj_t fname_in)
             mp_printf(&mp_plat_print, "\nSending file, please start YModem receive on host ...\n");
             mp_printf(&mp_plat_print, "(Press \"a\" to abort)\n");
 
-            mp_hal_uarths_setirqhandle(NULL);
+            mp_hal_uarths_setirq_ymodem();
+            mp_hal_purge_uart_buffer();
             int trans_res = Ymodem_Transmit((char *)fname, fsize, ffd, err_msg);
             mp_hal_uarths_setirq_default();
 
@@ -722,10 +678,13 @@ STATIC mp_obj_t ymodem_send(mp_obj_t fname_in)
             if (trans_res == 0) {
                 err = 0;
                 sprintf(err_msg, "Transfer complete, %d bytes sent", fsize);
+                err_msg[0] = '\0';
             }
         }
 	}
-	else sprintf(err_msg, "Opening file \"%s\" for reading.", fname);
+    else {
+        mp_raise_msg(&mp_type_OSError, "Error opening file for reading.");
+    }
 
     mp_printf(&mp_plat_print, "\n%s%s\n", ((err == 0) ? "" : "Error: "), err_msg);
 	return mp_const_none;
@@ -736,10 +695,11 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(ymodem_send_obj, ymodem_send);
 
 //--------------------------------------------------------------
 STATIC const mp_rom_map_elem_t ymodem_module_globals_table[] = {
-    { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_ymodem) },
+    { MP_ROM_QSTR(MP_QSTR___name__),    MP_ROM_QSTR(MP_QSTR_ymodem) },
 
-    { MP_ROM_QSTR(MP_QSTR_send), MP_ROM_PTR(&ymodem_send_obj) },
-    { MP_ROM_QSTR(MP_QSTR_recv), MP_ROM_PTR(&ymodem_recv_obj) }
+    { MP_ROM_QSTR(MP_QSTR_send),        MP_ROM_PTR(&ymodem_send_obj) },
+    { MP_ROM_QSTR(MP_QSTR_recv),        MP_ROM_PTR(&ymodem_recv_obj) },
+    { MP_ROM_QSTR(MP_QSTR_get_error),   MP_ROM_PTR(&ymodem_geterror_obj) }
 };
 
 STATIC MP_DEFINE_CONST_DICT(ymodem_module_globals, ymodem_module_globals_table);

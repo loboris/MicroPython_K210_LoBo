@@ -53,6 +53,7 @@ STATIC bool repl_display_debugging_info = 0;
 #define EXEC_FLAG_SOURCE_IS_RAW_CODE (8)
 #define EXEC_FLAG_SOURCE_IS_VSTR (16)
 #define EXEC_FLAG_SOURCE_IS_FILENAME (32)
+#define EXEC_FLAG_SOURCE_IS_STR (64)
 
 // parses, compiles and executes the code in the lexer
 // frees the lexer before returning
@@ -81,6 +82,8 @@ STATIC int parse_compile_execute(const void *source, mp_parse_input_kind_t input
             if (exec_flags & EXEC_FLAG_SOURCE_IS_VSTR) {
                 const vstr_t *vstr = source;
                 lex = mp_lexer_new_from_str_len(MP_QSTR__lt_stdin_gt_, vstr->buf, vstr->len, 0);
+            } else if (exec_flags & EXEC_FLAG_SOURCE_IS_STR) {
+                lex = mp_lexer_new_from_str_len(MP_QSTR__lt_stdin_gt_, (char *)source, strlen((char *)source), 0);
             } else if (exec_flags & EXEC_FLAG_SOURCE_IS_FILENAME) {
                 lex = mp_lexer_new_from_file(source);
             } else {
@@ -504,6 +507,10 @@ friendly_repl_reset:
 
 int pyexec_file(const char *filename) {
     return parse_compile_execute(filename, MP_PARSE_FILE_INPUT, EXEC_FLAG_SOURCE_IS_FILENAME);
+}
+
+int pyexec_string(const char *buff) {
+    return parse_compile_execute(buff, MP_PARSE_FILE_INPUT, EXEC_FLAG_SOURCE_IS_STR);
 }
 
 #if MICROPY_MODULE_FROZEN

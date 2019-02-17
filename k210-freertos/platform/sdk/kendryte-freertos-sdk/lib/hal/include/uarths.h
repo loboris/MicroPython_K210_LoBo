@@ -170,6 +170,8 @@ typedef struct _uarths
     uarths_div_t div;
 } __attribute__((packed, aligned(4))) uarths_t;
 
+extern uint32_t uarths_baudrate;
+
 /**
  * @brief       Initialization Core UART
  *
@@ -177,7 +179,7 @@ typedef struct _uarths
  *     - 0      Success
  *     - Other  Fail
  */
-void uarths_init();
+uint32_t uarths_init(uint32_t baudrate);
 
 /**
  * @brief       Get a byte from UART

@@ -131,7 +131,7 @@ static int spiffs_res_to_errno(s32_t fr)
 }
 
 //-------------------------------------------------------------------
-void vfs_spiffs_update_meta(spiffs *fs, spiffs_file fd, uint8_t type)
+bool vfs_spiffs_update_meta(spiffs *fs, spiffs_file fd, uint8_t type)
 {
     vfs_spiffs_meta_t meta;
     time_t seconds;
@@ -144,12 +144,11 @@ void vfs_spiffs_update_meta(spiffs *fs, spiffs_file fd, uint8_t type)
     int ret = SPIFFS_fupdate_meta(fs, fd, (uint8_t *)&meta);
     if (ret != SPIFFS_OK) {
         #if DEBUG_PRINTS
-        LOGE(TAG, "Failed to update metadata (%d)", ret);
+        LOGD(TAG, "Failed to update metadata (%d)", ret);
         #endif
+        return false;
     }
-    #if DEBUG_PRINTS
-    LOGD(TAG, "Updated metadata: time=%u, type=%d", seconds, type);
-    #endif
+    return true;
 }
 
 //-----------------------------------------------------------------------------------------
@@ -186,8 +185,6 @@ STATIC mp_uint_t file_obj_write(mp_obj_t self_in, const void *buf, mp_uint_t siz
         return MP_STREAM_ERROR;
     }
     if (ret != size) {
-        //ToDo: does it have the same meaning for spiffs?
-        // The FatFS documentation says that this means disk full.
         *errcode = MP_ENOSPC;
         return MP_STREAM_ERROR;
     }
@@ -272,8 +269,8 @@ STATIC mp_obj_t file_open(spiffs_user_mount_t *vfs, const mp_obj_type_t *type, m
         mp_raise_ValueError("name too long");
     }
 
-    char *lpath = spiffs_local_path(file_name);
-    LOGD(TAG, "OPEN [%s]->[%s], currdir=[%s]", file_name, lpath, spiffs_current_dir);
+    const char *lpath = spiffs_local_path(file_name);
+    LOGD(TAG, "OPEN [%s]->[%s]", file_name, lpath);
 
     uint32_t mode = 0;
     while (*mode_s) {
@@ -305,26 +302,12 @@ STATIC mp_obj_t file_open(spiffs_user_mount_t *vfs, const mp_obj_type_t *type, m
                 mp_raise_ValueError("not allowed mode character");
         }
     }
-    #if DEBUG_PRINTS
-    uint64_t ticks_start;
-    uint64_t ticks_end;
-    uint64_t ellapsed;
-    uint32_t rd_count = 0;
-    uint32_t wr_count = 0;
-    uint32_t er_count = 0;
-    w25qxx_clear_counters();
-    ticks_start = mp_hal_ticks_us();
-    #endif
 
     spiffs_file_obj_t *o = m_new_obj_with_finaliser(spiffs_file_obj_t);
     o->base.type = type;
     spiffs_FILE fp;
 
     fp.fd = SPIFFS_open(&vfs->fs, lpath, mode, 0);
-    #if DEBUG_PRINTS
-    ticks_end = mp_hal_ticks_us();
-    ellapsed = ticks_end - ticks_start;
-    #endif
 
 	fp.fs = &vfs->fs;
     if(fp.fd <= 0) {
@@ -350,12 +333,10 @@ STATIC mp_obj_t file_open(spiffs_user_mount_t *vfs, const mp_obj_type_t *type, m
     }
     if (mode != SPIFFS_RDONLY) {
         vfs_spiffs_update_meta(&vfs->fs, fp.fd, SPIFFS_TYPE_FILE);
+        //if (!vfs_spiffs_update_meta(&vfs->fs, fp.fd, SPIFFS_TYPE_FILE)) {
+        //    mp_raise_OSError(SPIFFS_errno_table[SPIFFS_ERR_NOT_FOUND]);
+        //}
     }
-
-    #if DEBUG_PRINTS
-    w25qxx_get_counters(&rd_count, &wr_count, &er_count);
-    LOGD(TAG, "OPEN time=%lu us, rd=%u, wr=%u, er=%u", ellapsed, rd_count, wr_count, er_count);
-    #endif
 
     return MP_OBJ_FROM_PTR(o);
 }
@@ -393,6 +374,7 @@ STATIC const mp_stream_p_t fileio_stream_p = {
     .ioctl = file_obj_ioctl,
 };
 
+
 const mp_obj_type_t mp_type_vfs_spiffs_fileio = {
     { &mp_type_type },
     .name = MP_QSTR_FileIO,
@@ -424,7 +406,9 @@ const mp_obj_type_t mp_type_vfs_spiffs_textio = {
 
 
 // Factory function for I/O stream classes
-STATIC mp_obj_t spiffs_builtin_open_self(mp_obj_t self_in, mp_obj_t path, mp_obj_t mode) {
+//--------------------------------------------------------------------------------------
+STATIC mp_obj_t spiffs_builtin_open_self(mp_obj_t self_in, mp_obj_t path, mp_obj_t mode)
+{
     // TODO: analyze buffering args and instantiate appropriate type
     spiffs_user_mount_t *self = MP_OBJ_TO_PTR(self_in);
     mp_arg_val_t arg_vals[FILE_OPEN_NUM_ARGS];
@@ -433,7 +417,6 @@ STATIC mp_obj_t spiffs_builtin_open_self(mp_obj_t self_in, mp_obj_t path, mp_obj
     arg_vals[2].u_obj = mp_const_none;
     return file_open(self, &mp_type_vfs_spiffs_textio, arg_vals);
 }
-
 MP_DEFINE_CONST_FUN_OBJ_3(spiffs_vfs_open_obj, spiffs_builtin_open_self);
 
 #endif // MICROPY_VFS && MICROPY_VFS_SPIFFS

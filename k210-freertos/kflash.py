@@ -726,8 +726,9 @@ class MAIXLoader:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--port", help="COM Port", default="DEFAULT")
-    parser.add_argument("-c", "--chip", help="SPI Flash type, 1 for in-chip, 0 for on-board", default=1)
+    parser.add_argument("-c", "--chip", help="SPI Flash type, 0 for in-chip, 1 for on-board", default=1)
     parser.add_argument("-b", "--baudrate", type=int, help="UART baudrate for uploading firmware", default=115200)
+    parser.add_argument("-s", "--termbdr", type=int, help="UART baudrate for terminal", default=115200)
     parser.add_argument("-l", "--bootloader", help="bootloader bin path", required=False, default=None)
     parser.add_argument("-k", "--key", help="AES key in hex, if you need encrypt your firmware.", required=False, default=None)
     parser.add_argument("-v", "--verbose", help="increase output verbosity", default=False,
@@ -765,8 +766,8 @@ if __name__ == '__main__':
         import serial.tools.miniterm
         # For using the terminal with MaixPy the 'filter' option must be set to 'direct'
         # because some control characters are emited
-        sys.argv = ['kflash.py', _port, str(args.baudrate), '--dtr=0', '--rts=0',  '--filter=direct']
-        serial.tools.miniterm.main(default_port=_port, default_baudrate=115200, default_dtr=False, default_rts=False)
+        sys.argv = ['kflash.py', _port, str(args.termbdr), '--dtr=0', '--rts=0',  '--filter=direct']
+        serial.tools.miniterm.main(default_port=_port, default_baudrate=args.termbdr, default_dtr=False, default_rts=False)
         sys.exit(0)
 
     loader = MAIXLoader(port=_port, baudrate=115200)
@@ -872,6 +873,6 @@ if __name__ == '__main__':
         import serial.tools.miniterm
         # For using the terminal with MaixPy the 'filter' option must be set to 'direct'
         # because some control characters are emited
-        sys.argv = ['kflash.py', _port, '115200', '--dtr=0', '--rts=0',  '--filter=direct']
-        serial.tools.miniterm.main(default_port=_port, default_baudrate=115200, default_dtr=False, default_rts=False)
+        sys.argv = ['kflash.py', _port, str(args.termbdr), '--dtr=0', '--rts=0',  '--filter=direct']
+        serial.tools.miniterm.main(default_port=_port, default_baudrate=args.termbdr, default_dtr=False, default_rts=False)
         sys.exit(0)

@@ -13,6 +13,7 @@
  * limitations under the License.
  */
 #include "devices.h"
+#include "FreeRTOS.h"
 #include "device_priv.h"
 #include "filesystem.h"
 #include "hal.h"
@@ -941,8 +942,8 @@ object_accessor<object_access> &sys::system_handle_to_object(handle_t file)
 
 uint32_t system_set_cpu_frequency(uint32_t frequency)
 {
-    uint32_t result = sysctl_pll_set_freq(SYSCTL_PLL0, (sysctl->clk_sel0.aclk_divider_sel + 1) * 2 * frequency);
-    uxCPUClockRate = result;
-    uarths_init();
-    return result;
+    sysctl_pll_set_freq(SYSCTL_PLL0, (sysctl->clk_sel0.aclk_divider_sel + 1) * 2 * frequency);
+    uxCPUClockRate = sysctl_clock_get_freq(SYSCTL_CLOCK_CPU);
+    uarths_init(uarths_baudrate);
+    return uxCPUClockRate;
 }

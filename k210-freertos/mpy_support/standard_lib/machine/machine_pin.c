@@ -470,7 +470,7 @@ STATIC mp_obj_t machine_pin_call(mp_obj_t self_in, size_t n_args, size_t n_kw, c
     machine_pin_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (n_args == 0) {
         // get pin
-        return MP_OBJ_NEW_SMALL_INT(gpio_get_pin_value(gpiohs_handle, self->gpio));
+        return mp_obj_new_int(gpio_get_pin_value(gpiohs_handle, self->gpio));
     }
     else {
         // set pin
@@ -490,7 +490,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_pin_value_obj, 1, 2, machine_
 STATIC mp_obj_t machine_pin_irq_value(mp_obj_t self_in) {
     machine_pin_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
-    return MP_OBJ_NEW_SMALL_INT(self->irq_level);
+    return mp_obj_new_int(self->irq_level);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_pin_irq_value_obj, machine_pin_irq_value);
 
@@ -498,7 +498,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_pin_irq_value_obj, machine_pin_irq_valu
 STATIC mp_obj_t machine_pin_getpin(mp_obj_t self_in) {
     machine_pin_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
-    return MP_OBJ_NEW_SMALL_INT(self->pin);
+    return mp_obj_new_int(self->pin);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_pin_getpin_obj, machine_pin_getpin);
 
@@ -506,7 +506,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_pin_getpin_obj, machine_pin_getpin);
 STATIC mp_obj_t machine_pin_irq_time(mp_obj_t self_in) {
     machine_pin_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
-    return MP_OBJ_NEW_SMALL_INT(self->irq_time);
+    return mp_obj_new_int(self->irq_time);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_pin_irq_time_obj, machine_pin_irq_time);
 
@@ -514,7 +514,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_pin_irq_time_obj, machine_pin_irq_time)
 STATIC mp_obj_t machine_pin_irq_dbcnum(mp_obj_t self_in) {
     machine_pin_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
-    return MP_OBJ_NEW_SMALL_INT(self->irq_dbcpulses);
+    return mp_obj_new_int(self->irq_dbcpulses);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_pin_irq_dbcnum_obj, machine_pin_irq_dbcnum);
 

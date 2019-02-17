@@ -73,18 +73,25 @@ STATIC mp_uint_t file_obj_write(mp_obj_t self_in, const void *buf, mp_uint_t siz
 {
     sdcard_file_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
-    uint32_t written = 0;
-	int res = f_write(&self->fp, buf, size, &written);
-    if (res != FR_OK) {
-        *errcode = fresult_to_errno_table[res];
-        return MP_STREAM_ERROR;
+    uint32_t written = 0, total = 0, wrsize;
+    int remain = size;
+    while (remain > 0) {
+        wrsize = (remain > 256) ? 256 : remain;
+        int res = f_write(&self->fp, buf+total, wrsize, &written);
+        if (res != FR_OK) {
+            *errcode = fresult_to_errno_table[res];
+            return MP_STREAM_ERROR;
+        }
+        if (written != wrsize) {
+            // The FatFS documentation says that this means disk full.
+            *errcode = MP_ENOSPC;
+            return MP_STREAM_ERROR;
+        }
+        remain -= wrsize;
+        total += wrsize;
     }
-    if (written != size) {
-        // The FatFS documentation says that this means disk full.
-        *errcode = MP_ENOSPC;
-        return MP_STREAM_ERROR;
-    }
-    return (mp_uint_t)written;
+
+    return (mp_uint_t)total;
 }
 
 //----------------------------------------------------------------------
@@ -158,8 +165,7 @@ STATIC mp_obj_t file_open(sdcard_user_mount_t *vfs, const mp_obj_type_t *type, m
 {
 	const char* file_name = mp_obj_str_get_str(args[0].u_obj);
     const char *mode_s = mp_obj_str_get_str(args[1].u_obj);
-    char fullname[strlen(file_name)+4];
-    sdcard_fix_path(file_name, fullname);
+    const char *lpath = sdcard_local_path(file_name, vfs);
     uint32_t mode = 0;
     while (*mode_s) {
         switch (*mode_s++) {
@@ -193,7 +199,7 @@ STATIC mp_obj_t file_open(sdcard_user_mount_t *vfs, const mp_obj_type_t *type, m
 
     sdcard_file_obj_t *o = m_new_obj_with_finaliser(sdcard_file_obj_t);
     o->base.type = type;
-    FRESULT res = f_open(&o->fp, fullname, mode);
+    FRESULT res = f_open(&o->fp, lpath, mode);
     if (res != FR_OK) {
         m_del_obj(sdcard_file_obj_t, o);
         mp_raise_OSError(fresult_to_errno_table[res]);

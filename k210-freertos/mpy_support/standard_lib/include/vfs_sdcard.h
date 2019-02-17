@@ -46,7 +46,7 @@ typedef struct _sdcard_user_mount_t {
 
 extern const byte fresult_to_errno_table[20];
 extern const mp_obj_type_t mp_sdcard_vfs_type;
-void sdcard_fix_path(const char *path,  char *fullpath);
+const char *sdcard_local_path(const char *path, sdcard_user_mount_t *vfsobj);
 
 MP_DECLARE_CONST_FUN_OBJ_3(sdcard_vfs_open_obj);
 

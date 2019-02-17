@@ -1,16 +1,13 @@
 /*
  * spiffs_config.h
  *
- *  Created on: Jul 3, 2013
- *      Author: petera
+ *  Created on: Feb 9, 2019
+ *      Author: LoBo
  */
 
 #ifndef SPIFFS_CONFIG_H_
 #define SPIFFS_CONFIG_H_
 
-// ----------- 8< ------------
-// Following includes are for the linux test build of spiffs
-// These may/should/must be removed/altered/replaced in your target
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -18,67 +15,37 @@
 #include <stddef.h>
 #include <unistd.h>
 #include "syslog.h"
+#include "py/mpprint.h"
+
+extern int spiffs_dbg_level;
 
 // compile time switches
 #define SPIFFS_TAG "SPIFFS"
 
 /*
-#define CONFIG_SPIFFS_DBG   1
-
-// Set generic spiffs debug output call.
-#if CONFIG_SPIFFS_DBG
-#define SPIFFS_DBG(format, ...)             LOGD(SPIFFS_TAG, format, ## __VA_ARGS__)
-#else
-#define SPIFFS_DBG(format, ...)
-#endif
-#if CONFIG_SPIFFS_DBG
-#define SPIFFS_API_DBG(format, ...)         LOGD(SPIFFS_TAG, format, ## __VA_ARGS__)
-#else
-#define SPIFFS_API_DBG(format, ...)
-#endif
-#if CONFIG_SPIFFS_DBG
-#define SPIFFS_GC_DBG(format, ...)          LOGD(SPIFFS_TAG, format, ## __VA_ARGS__)
-#else
-#define SPIFFS_GC_DBG(format, ...)
-#endif
-#if CONFIG_SPIFFS_DBG
-#define SPIFFS_CACHE_DBG(format, ...)       LOGD(SPIFFS_TAG, format, ## __VA_ARGS__)
-#else
-#define SPIFFS_CACHE_DBG(format, ...)
-#endif
-#if CONFIG_SPIFFS_DBG
-#define SPIFFS_CHECK_DBG(format, ...)       LOGD(SPIFFS_TAG, format, ## __VA_ARGS__)
-#else
-#define SPIFFS_CHECK_DBG(format, ...)
-#endif
-*/
-
-#define open_fs_debug 0
-#if open_fs_debug
-    #include "py/mpprint.h"
-
-    // Set generic spiffs debug output call.
-    #define SPIFFS_DBG(_f, ...) mp_printf(&mp_plat_print, _f, ## __VA_ARGS__)
-
-    // Set spiffs debug output call for garbage collecting.
-    #define SPIFFS_GC_DBG(_f, ...) mp_printf(&mp_plat_print, _f, ## __VA_ARGS__)
-
-    // Set spiffs debug output call for caching.
-
-    #define SPIFFS_CACHE_DBG(_f, ...) mp_printf(&mp_plat_print, _f, ## __VA_ARGS__)
-
-    // Set spiffs debug output call for system consistency checks.
-    #define SPIFFS_CHECK_DBG(_f, ...) mp_printf(&mp_plat_print, _f, ## __VA_ARGS__)
-
-    // Set spiffs debug output call for all api invocations.
-    #define SPIFFS_API_DBG(_f, ...) mp_printf(&mp_plat_print, _f, ## __VA_ARGS__)
-#else
 #define SPIFFS_DBG(_f, ...)
 #define SPIFFS_API_DBG(_f, ...)
 #define SPIFFS_GC_DBG(_f, ...)
 #define SPIFFS_CACHE_DBG(_f, ...)
 #define SPIFFS_CHECK_DBG(_f, ...)
-#endif
+*/
+
+// Set generic spiffs debug output call.
+#define SPIFFS_DBG(_f, ...) do {if (spiffs_dbg_level & 1) mp_printf(&mp_plat_print, _f, ## __VA_ARGS__); } while (0)
+
+// Set spiffs debug output call for garbage collecting.
+#define SPIFFS_GC_DBG(_f, ...) do {if (spiffs_dbg_level & 2) mp_printf(&mp_plat_print, _f, ## __VA_ARGS__); } while (0)
+
+// Set spiffs debug output call for caching.
+
+#define SPIFFS_CACHE_DBG(_f, ...) do {if (spiffs_dbg_level & 4) mp_printf(&mp_plat_print, _f, ## __VA_ARGS__); } while (0)
+
+// Set spiffs debug output call for system consistency checks.
+#define SPIFFS_CHECK_DBG(_f, ...) do {if (spiffs_dbg_level & 8) mp_printf(&mp_plat_print, _f, ## __VA_ARGS__); } while (0)
+
+// Set spiffs debug output call for all api invocations.
+#define SPIFFS_API_DBG(_f, ...) do {if (spiffs_dbg_level & 16) mp_printf(&mp_plat_print, _f, ## __VA_ARGS__); } while (0)
+
 
 // needed types
 typedef signed int s32_t;
@@ -92,7 +59,6 @@ typedef unsigned char u8_t;
 struct spiffs_t;
 extern void spiffs_api_lock(struct spiffs_t *fs);
 extern void spiffs_api_unlock(struct spiffs_t *fs);
-extern int printk(const char* fmt, ...);
 
 // Enable if only one spiffs instance with constant configuration will exist
 // on the target. This will reduce calculations, flash and memory accesses.
@@ -106,8 +72,8 @@ extern int printk(const char* fmt, ...);
 #define SPIFFS_CFG_PHYS_ERASE_SZ(ignore)    (4 * 1024)
 #define SPIFFS_CFG_PHYS_ADDR(ignore)        (0x600000)
 
-#define SPIFFS_CFG_LOG_BLOCK_SZ(ignore)     (8*1024)
-#define SPIFFS_CFG_LOG_PAGE_SZ(ignore)      (SPIFFS_CFG_LOG_BLOCK_SZ(ignore)/8)
+#define SPIFFS_CFG_LOG_BLOCK_SZ(ignore)     (4*1024)
+#define SPIFFS_CFG_LOG_PAGE_SZ(ignore)      (SPIFFS_CFG_LOG_BLOCK_SZ(ignore)/16)
 
 // By default SPIFFS in some cases relies on the property of NOR flash that bits
 // cannot be set from 0 to 1 by writing and that controllers will ignore such
@@ -235,7 +201,7 @@ extern int printk(const char* fmt, ...);
 #define SPIFFS_ALIGNED_OBJECT_INDEX_TABLES      0
 
 // Enable this if you want the HAL callbacks to be called with the spiffs struct
-#define SPIFFS_HAL_CALLBACK_EXTRA               1
+#define SPIFFS_HAL_CALLBACK_EXTRA               0
 
 // Enable this if you want to add an integer offset to all file handles
 // (spiffs_file). This is useful if running multiple instances of spiffs on
@@ -304,7 +270,7 @@ extern int printk(const char* fmt, ...);
 #define SPIFFS_TEST_VISUALISATION               1
 #if SPIFFS_TEST_VISUALISATION
 #ifndef spiffs_printf
-#define spiffs_printf(...)                printk(__VA_ARGS__)
+#define spiffs_printf(...)                printf(__VA_ARGS__)
 #endif
 // spiffs_printf argument for a free page
 #define SPIFFS_TEST_VIS_FREE_STR          "_"

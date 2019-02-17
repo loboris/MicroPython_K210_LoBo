@@ -44,6 +44,10 @@
 #include "spiffs_nucleus.h"
 #include "vfs_spiffs.h"
 #include "spiffs_config.h"
+#include "w25qxx.h"
+
+int spiffs_dbg_level = 0;
+
 #if _MAX_SS == _MIN_SS
 #define SECSIZE(fs) (_MIN_SS)
 #else
@@ -57,18 +61,21 @@
 
 const mp_obj_type_t mp_spiffs_vfs_type;
 
-char spiffs_current_dir[SPIFFS_OBJ_NAME_LEN] = {'\0'};
+static char spiffs_current_dir[SPIFFS_OBJ_NAME_LEN-8] = {'\0'};
+static char spiffs_file_path[SPIFFS_OBJ_NAME_LEN] = {'\0'};
 
 static u8_t spiffs_work_buf[SPIFFS_CFG_LOG_PAGE_SZ(fs) * 2];
 static u8_t spiffs_fds[sizeof(spiffs_fd) * SPIFFS_MAX_OPEN_FILES + 8] = {0};
 #if SPIFFS_CACHE
-static u8_t spiffs_cache_buf[SPIFFS_CFG_LOG_PAGE_SZ(fs)*32+8];
+static u8_t spiffs_cache_buf[SPIFFS_CFG_LOG_PAGE_SZ(fs)*2];
 #endif
 static SemaphoreHandle_t spiffs_lock = NULL; // FS lock
 
 static const char* TAG = "[VFS_SPIFFS]";
 
 spiffs_user_mount_t spiffs_user_mount_handle;
+
+static int *fs_check = NULL;
 
 typedef struct _mp_vfs_spiffs_ilistdir_it_t {
     mp_obj_base_t base;
@@ -78,6 +85,26 @@ typedef struct _mp_vfs_spiffs_ilistdir_it_t {
     char path[SPIFFS_OBJ_NAME_LEN];
 } mp_vfs_spiffs_ilistdir_it_t;
 
+
+#if SPIFFS_HAL_CALLBACK_EXTRA
+//--------------------------------------------------------------------------------------------------------------------
+static void mp_spiffs_check_cb(spiffs *fs, spiffs_check_type type, spiffs_check_report report, u32_t arg1, u32_t arg2)
+#else
+//--------------------------------------------------------------------------------------------------------
+static void mp_spiffs_check_cb(spiffs_check_type type, spiffs_check_report report, u32_t arg1, u32_t arg2)
+#endif
+{
+    if (fs_check) {
+        if (report == SPIFFS_CHECK_PROGRESS) fs_check[SPIFFS_CHECK_PROGRESS]++;
+        else if (report == SPIFFS_CHECK_ERROR) fs_check[SPIFFS_CHECK_ERROR]++;
+        else if (report == SPIFFS_CHECK_FIX_INDEX) fs_check[SPIFFS_CHECK_FIX_INDEX]++;
+        else if (report == SPIFFS_CHECK_FIX_LOOKUP) fs_check[SPIFFS_CHECK_FIX_LOOKUP]++;
+        else if (report == SPIFFS_CHECK_DELETE_ORPHANED_INDEX) fs_check[SPIFFS_CHECK_DELETE_ORPHANED_INDEX]++;
+        else if (report == SPIFFS_CHECK_DELETE_PAGE) fs_check[SPIFFS_CHECK_DELETE_PAGE]++;
+        else if (report == SPIFFS_CHECK_DELETE_BAD_FILE) fs_check[SPIFFS_CHECK_DELETE_BAD_FILE]++;
+    }
+    return;
+}
 
 //------------------------------
 void spiffs_api_lock(spiffs *fs)
@@ -136,13 +163,43 @@ bool check_main_py(spiffs *fs)
     return false;
 }
 
-//---------------------------------
-char *spiffs_local_path(char *path)
+//---------------------------------------------
+const char *spiffs_local_path(const char *path)
 {
-    char *lpath = path;
-    if (strstr(lpath, "flash/") == lpath) lpath += 6;
-    if (strstr(lpath, spiffs_current_dir) == lpath) lpath += strlen(spiffs_current_dir);
-    if (lpath[0] == '/') lpath++;
+    const char *lpath = path;
+    if (lpath[0] == '/') {
+        lpath++; // absolute path
+        int len = strlen(lpath);
+        if (lpath[len-1] == '/') {
+            strcpy(spiffs_file_path, lpath);
+            spiffs_file_path[len-1] = '\0';
+            lpath = spiffs_file_path;
+        }
+    }
+    else {
+        if (strstr(lpath, "..") == lpath) {
+            // parent directory
+            lpath += 2;
+            if (lpath[0] == '/') lpath++;
+            sprintf(spiffs_file_path, "%s", spiffs_current_dir);
+            char *ppath = strrchr(spiffs_file_path, '/');
+            if (ppath) *ppath = '\0';
+            strcat(spiffs_file_path, lpath);
+        }
+        else {
+            if (strstr(lpath, ".") == lpath) lpath += 1;
+            if (strstr(lpath, "flash/") == lpath) lpath += 6;
+            snprintf(spiffs_file_path, SPIFFS_OBJ_NAME_LEN, "%s/%s", spiffs_current_dir, lpath);
+        }
+        int len = strlen(spiffs_file_path);
+        while ((len > 0) && (spiffs_file_path[len-1] == '/')) {
+            spiffs_file_path[len-1] = '\0';
+            len = strlen(spiffs_file_path);
+        }
+        lpath = spiffs_file_path;
+        if (lpath[0] == '/') lpath++;
+    }
+    LOGD(TAG, "LOCAL_PATH [%s]->[%s], currdir=[%s]", path, lpath, spiffs_current_dir);
     return lpath;
 }
 
@@ -152,6 +209,7 @@ MP_NOINLINE bool init_flash_spiffs()
     spiffs_lock = xSemaphoreCreateMutex();
     configASSERT(spiffs_lock);
 
+    w25qxx_clear_counters();
     spiffs_user_mount_t* vfs_spiffs = &spiffs_user_mount_handle;
     vfs_spiffs->flags = SYS_SPIFFS;
     vfs_spiffs->base.type = &mp_spiffs_vfs_type;
@@ -180,7 +238,7 @@ MP_NOINLINE bool init_flash_spiffs()
                         NULL,
                         0,
 #endif
-                       0);
+                        (void *)mp_spiffs_check_cb);
     if (FORMAT_FS_FORCE || res != SPIFFS_OK || res==SPIFFS_ERR_NOT_A_FS)
     {
         SPIFFS_unmount(&vfs_spiffs->fs);
@@ -239,41 +297,37 @@ MP_NOINLINE bool init_flash_spiffs()
     return true;
 }
 
+//--------------------------------------------------------------------------------------------------------------
+STATIC mp_obj_t spiffs_vfs_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args)
+{
+    mp_arg_check_num(n_args, n_kw, 0, 1, false);
+
+    // Return existing spiffs vfs object
+    for (mp_vfs_mount_t *vfs = MP_STATE_VM(vfs_mount_table); vfs != NULL; vfs = vfs->next) {
+        if ((vfs->len == 6) && (strcmp(vfs->str, "/flash") == 0)) {
+            return vfs->obj;
+        }
+    }
+    mp_raise_NotImplementedError("System spiffs not found");
+    return mp_const_none;
+}
 
 //---------------------------------------------------------------------------
 STATIC mp_import_stat_t spiffs_vfs_import_stat(void *vfs_in,const char *path)
 {
     spiffs_user_mount_t *vfs = vfs_in;
     spiffs_stat  fno;
-    assert(vfs != NULL);
-    /*
-	int len = strlen(path);
-	char file_path[50] ;
-	//char* file_path = m_malloc_with_finaliser(len+2);
-	int i = 0;
-	for(;i < len;i++)
-	{
-		file_path[i] = path[i+1];
-	}
-	file_path[len] = '\0';
-	*/
-    char *lpath = spiffs_local_path(path);
-    LOGD(TAG, "IMPORT_STAT [%s]->[%s], currdir=[%s]", path, lpath, spiffs_current_dir);
+    if (vfs == NULL) return MP_IMPORT_STAT_NO_EXIST;
+
+    const char *lpath = spiffs_local_path(path);
 
     int res = SPIFFS_stat(&vfs->fs, lpath, &fno);
     if (res == SPIFFS_OK) {
-        vfs_spiffs_meta_t * meta = (vfs_spiffs_meta_t *)&fno.meta;
+        vfs_spiffs_meta_t *meta = (vfs_spiffs_meta_t *)&fno.meta;
         if (meta->type == SPIFFS_TYPE_DIR) return MP_IMPORT_STAT_DIR;
         else return MP_IMPORT_STAT_FILE;
     }
     return MP_IMPORT_STAT_NO_EXIST;
-}
-
-//--------------------------------------------------------------------------------------------------------------
-STATIC mp_obj_t spiffs_vfs_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args)
-{
-    mp_raise_NotImplementedError("System spiffs is in use");
-    return mp_const_none;
 }
 
 /*
@@ -289,7 +343,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(spiffs_vfs_del_obj, spiffs_vfs_del);
 //-----------------------------------------------
 STATIC mp_obj_t spiffs_vfs_mkfs(mp_obj_t self_in)
 {
-    mp_raise_NotImplementedError("System spiffs is in use");
+    mp_raise_NotImplementedError("System Flash FS is always in use");
     return mp_const_none;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(spiffs_vfs_mkfs_fun_obj, spiffs_vfs_mkfs);
@@ -307,10 +361,10 @@ STATIC mp_obj_t mp_vfs_spiffs_ilistdir_it_iternext(mp_obj_t self_in)
 		de_ret = SPIFFS_readdir(&self->dir, &de);		
         char *fn = (char *)de.name;
         if (de_ret == NULL || fn[0] == 0) {
-            // stop on error or end of dir
+            // stop on error or end of directory
             break;
         }
-        // Note that FatFS already filters . and .., so we don't need to
+        // Note that SPIFFS already filters . and .., so we don't need to
 
         // Check if the name is in the selected directory
         char *fname = fn;
@@ -334,13 +388,13 @@ STATIC mp_obj_t mp_vfs_spiffs_ilistdir_it_iternext(mp_obj_t self_in)
         vfs_spiffs_meta_t * meta = (vfs_spiffs_meta_t *)&de.meta;
         if (meta->type == SPIFFS_TYPE_DIR) {
             // dir
-            t->items[1] = MP_OBJ_NEW_SMALL_INT(MP_S_IFDIR);
+            t->items[1] = mp_obj_new_int(MP_S_IFDIR);
         } 
 		else{
             // file
-            t->items[1] = MP_OBJ_NEW_SMALL_INT(MP_S_IFREG);
+            t->items[1] = mp_obj_new_int(MP_S_IFREG);
         }
-        t->items[2] = MP_OBJ_NEW_SMALL_INT(0); // no inode number
+        t->items[2] = mp_obj_new_int(0); // no inode number
         t->items[3] = mp_obj_new_int_from_uint(de.size);
 
         return MP_OBJ_FROM_PTR(t);
@@ -364,20 +418,31 @@ STATIC mp_obj_t spiffs_vfs_ilistdir_func(size_t n_args, const mp_obj_t *args)
             is_str_type = false;
         }
         path = mp_obj_str_get_str(args[1]);
-        char *lpath = spiffs_local_path(path);
-        LOGD(TAG, "LISTDIR [%s]->[%s], currdir=[%s]", path, lpath, spiffs_current_dir);
-    } else {
-        lpath = spiffs_current_dir;
+        lpath = (char *)spiffs_local_path(path);
+    }
+    else lpath = spiffs_current_dir;
+    LOGD(TAG, "LISTDIR [%s]", lpath);
+
+    if (strlen(lpath) > 0) {
+        // Check if requested path is a directory
+        spiffs_stat  fno;
+        int res = SPIFFS_stat(&(self->fs), lpath, &fno);
+        if (res == SPIFFS_OK) {
+            vfs_spiffs_meta_t * meta = (vfs_spiffs_meta_t *)&fno.meta;
+            if (meta->type != SPIFFS_TYPE_DIR) res = -1;
+        }
+        if (res != SPIFFS_OK) {
+            mp_raise_OSError(MP_ENOTDIR);
+        }
     }
 
-    // Create a new iterator object to list the dir
+    // Create a new iterator object to list the directory
     mp_vfs_spiffs_ilistdir_it_t *iter = m_new_obj(mp_vfs_spiffs_ilistdir_it_t);
     iter->base.type = &mp_type_polymorph_iter;
     iter->iternext = mp_vfs_spiffs_ilistdir_it_iternext;
     iter->is_str = is_str_type;
     strcpy(iter->path, lpath);
-	if(!SPIFFS_opendir(&self->fs, lpath, &iter->dir))
-	{
+	if (!SPIFFS_opendir(&(self->fs), lpath, &iter->dir)) {
         mp_raise_OSError(MP_ENOTDIR);
     }
 
@@ -386,8 +451,8 @@ STATIC mp_obj_t spiffs_vfs_ilistdir_func(size_t n_args, const mp_obj_t *args)
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(spiffs_vfs_ilistdir_obj, 1, 2, spiffs_vfs_ilistdir_func);
 
-//----------------------------------------------
-static bool is_dir_empty(spiffs *fs, char *path)
+//----------------------------------------------------
+static bool is_dir_empty(spiffs *fs, const char *path)
 {
     spiffs_DIR dir;
     struct spiffs_dirent de;
@@ -414,31 +479,44 @@ static bool is_dir_empty(spiffs *fs, char *path)
     return is_empty;
 }
 
+//----------------------------------------------
+static int _is_dir(spiffs *fs, const char *path)
+{
+    // Check if file is directory
+    spiffs_stat fno;
+    int res;
+
+    res = SPIFFS_stat(fs, path, &fno);
+    if (res != SPIFFS_OK) {
+        SPIFFS_clearerr(fs);
+        return res;
+    }
+    vfs_spiffs_meta_t *meta = (vfs_spiffs_meta_t *)&fno.meta;
+    if (meta->type == SPIFFS_TYPE_DIR) return 1;
+    return 0;
+}
+
 //------------------------------------------------------------------
 STATIC mp_obj_t spiffs_vfs_remove(mp_obj_t vfs_in, mp_obj_t path_in)
 {
-	spiffs_user_mount_t* vfs = MP_OBJ_TO_PTR(vfs_in);
+	spiffs_user_mount_t *self = MP_OBJ_TO_PTR(vfs_in);
 	const char *path = mp_obj_str_get_str(path_in);
-    char *lpath = spiffs_local_path(path);
-    LOGD(TAG, "REMOVE [%s]->[%s], currdir=[%s]", path, lpath, spiffs_current_dir);
+    const char *lpath = spiffs_local_path(path);
+    int res;
 
     // Check if file is directory
-    spiffs_stat fno;
-    int res = 0;
-    res = SPIFFS_stat(&vfs->fs, lpath, &fno);
-    if (res != SPIFFS_OK) {
-        SPIFFS_clearerr(&vfs->fs);
-        mp_raise_OSError(SPIFFS_errno_table[GET_ERR_CODE(res)]);
+    res = _is_dir(&(self->fs), lpath);
+    if (res < 0) {
+        mp_raise_OSError(MP_ENOENT);
     }
-    vfs_spiffs_meta_t * meta = (vfs_spiffs_meta_t *)&fno.meta;
-    if (meta->type == SPIFFS_TYPE_DIR) {
+    if (res == 1) {
         // It is directory, cannot be removed
         mp_raise_OSError(MP_EISDIR);
     }
 
-    res = SPIFFS_remove(&vfs->fs, lpath);
+    res = SPIFFS_remove(&(self->fs), lpath);
     if (res != SPIFFS_OK) {
-        SPIFFS_clearerr(&vfs->fs);
+        SPIFFS_clearerr(&(self->fs));
 		mp_raise_OSError(SPIFFS_errno_table[GET_ERR_CODE(res)]);
     }
     return mp_const_none;
@@ -452,21 +530,36 @@ STATIC mp_obj_t spiffs_vfs_rename(mp_obj_t vfs_in, mp_obj_t path_in, mp_obj_t pa
     spiffs_user_mount_t *self = MP_OBJ_TO_PTR(vfs_in);
     const char *old_path = mp_obj_str_get_str(path_in);
     const char *new_path = mp_obj_str_get_str(path_out);
-    char *lold_path = spiffs_local_path(old_path);
-    char *lnew_path = spiffs_local_path(new_path);
-    LOGD(TAG, "RENAME [%s]->[%s] to [%s]->[%s], currdir=[%s]", old_path, lold_path, new_path, lnew_path, spiffs_current_dir);
+    const char *lold_path = spiffs_local_path(old_path);
+    const char *lnew_path = spiffs_local_path(new_path);
+    int res;
 
-    int res = SPIFFS_rename(&self->fs, lold_path, lnew_path);
+    res = SPIFFS_rename(&(self->fs), lold_path, lnew_path);
     if (res == SPIFFS_ERR_CONFLICTING_NAME){
         // if new_path exists then try removing it (but only if it's a file)
-        res = SPIFFS_remove(&self->fs, new_path); //remove file
+        res = _is_dir(&(self->fs), lnew_path);
+        if (res < 0) {
+            mp_raise_OSError(SPIFFS_errno_table[GET_ERR_CODE(res)]);
+        }
+        if (res == 1) {
+            // It is directory, cannot be removed
+            mp_raise_OSError(MP_EISDIR);
+        }
+        res = SPIFFS_remove(&(self->fs), lnew_path); //remove file
+        if (res < 0) {
+            mp_raise_OSError(SPIFFS_errno_table[GET_ERR_CODE(res)]);
+        }
         // try to rename again
-        res = SPIFFS_rename(&self->fs, old_path, new_path);
+        res = SPIFFS_rename(&(self->fs), lold_path, lnew_path);
+        if (res < 0) {
+            mp_raise_OSError(SPIFFS_errno_table[GET_ERR_CODE(res)]);
+        }
     }
-    if (res == SPIFFS_OK) {
+    else if (res == SPIFFS_OK) {
         return mp_const_none;
-    } else {
-        SPIFFS_clearerr(&self->fs);
+    }
+    else {
+        SPIFFS_clearerr(&(self->fs));
         mp_raise_OSError(SPIFFS_errno_table[GET_ERR_CODE(res)]);
     }
     return mp_const_none;
@@ -476,21 +569,31 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_3(spiffs_vfs_rename_obj, spiffs_vfs_rename);
 //----------------------------------------------------------------
 STATIC mp_obj_t spiffs_vfs_mkdir(mp_obj_t vfs_in, mp_obj_t path_o)
 {
-    spiffs_user_mount_t* vfs = MP_OBJ_TO_PTR(vfs_in);
+    spiffs_user_mount_t* self = MP_OBJ_TO_PTR(vfs_in);
     const char *path = mp_obj_str_get_str(path_o);
-    char *lpath = spiffs_local_path(path);
-    LOGD(TAG, "MKDIR [%s]->[%s], currdir=[%s]", path, lpath, spiffs_current_dir);
+    const char *lpath = spiffs_local_path(path);
+    int res;
 
-    int fd = SPIFFS_open(&vfs->fs, lpath, SPIFFS_CREAT | SPIFFS_WRONLY, 0);
+    // Check if the directory or file with the same name exists
+    res = _is_dir(&(self->fs), lpath);
+    if (res >= 0) {
+        // It is directory, cannot be removed
+        mp_raise_OSError(MP_EEXIST);
+    }
+
+    int fd = SPIFFS_open(&(self->fs), lpath, SPIFFS_CREAT | SPIFFS_WRONLY, 0);
     if (fd < 0) {
-        SPIFFS_clearerr(&vfs->fs);
+        SPIFFS_clearerr(&(self->fs));
         mp_raise_OSError(SPIFFS_errno_table[GET_ERR_CODE(fd)]);
     }
-    vfs_spiffs_update_meta(&vfs->fs, fd, SPIFFS_TYPE_DIR);
+    vfs_spiffs_update_meta(&(self->fs), fd, SPIFFS_TYPE_DIR);
+    //if (!vfs_spiffs_update_meta(&(self->fs), fd, SPIFFS_TYPE_DIR)) {
+    //    mp_raise_OSError(MP_EIO);
+    //}
 
-    int res = SPIFFS_close(&vfs->fs, fd);
+    res = SPIFFS_close(&(self->fs), fd);
     if (res < 0) {
-        SPIFFS_clearerr(&vfs->fs);
+        SPIFFS_clearerr(&(self->fs));
         mp_raise_OSError(SPIFFS_errno_table[GET_ERR_CODE(res)]);
     }
     return mp_const_none;
@@ -502,19 +605,15 @@ STATIC mp_obj_t fat_vfs_rmdir(mp_obj_t vfs_in, mp_obj_t path_in)
 {
     spiffs_user_mount_t* vfs = MP_OBJ_TO_PTR(vfs_in);
     const char *path = mp_obj_str_get_str(path_in);
-    char *lpath = spiffs_local_path(path);
-    LOGD(TAG, "RMDIR [%s]->[%s], currdir=[%s]", path, lpath, spiffs_current_dir);
+    const char *lpath = spiffs_local_path(path);
+    int res;
 
     // Check if directory
-    spiffs_stat fno;
-    int res = 0;
-    res = SPIFFS_stat(&vfs->fs, lpath, &fno);
-    if (res != SPIFFS_OK) {
-        SPIFFS_clearerr(&vfs->fs);
+    res = _is_dir(&vfs->fs, lpath);
+    if (res < 0) {
         mp_raise_OSError(SPIFFS_errno_table[GET_ERR_CODE(res)]);
     }
-    vfs_spiffs_meta_t * meta = (vfs_spiffs_meta_t *)&fno.meta;
-    if (meta->type != SPIFFS_TYPE_DIR) {
+    if (res == 0) {
         // Not a directory
         mp_raise_OSError(MP_ENOTDIR);
     }
@@ -538,24 +637,21 @@ STATIC mp_obj_t spiffs_vfs_chdir(mp_obj_t vfs_in, mp_obj_t path_in)
 {
     spiffs_user_mount_t* vfs = MP_OBJ_TO_PTR(vfs_in);
     const char *path = mp_obj_str_get_str(path_in);
+    int res;
 
     if ((path[0] != 0) && !(path[0] == '/' && path[1] == 0)) {
-        char *lpath = spiffs_local_path(path);
+        const char *lpath = spiffs_local_path(path);
         // Check if directory
-        spiffs_stat fno;
-        int res = 0;
-        res = SPIFFS_stat(&vfs->fs, lpath, &fno);
-        if (res != SPIFFS_OK) {
-            SPIFFS_clearerr(&vfs->fs);
+        res = _is_dir(&vfs->fs, lpath);
+        if (res < 0) {
             mp_raise_OSError(SPIFFS_errno_table[GET_ERR_CODE(res)]);
         }
-        vfs_spiffs_meta_t * meta = (vfs_spiffs_meta_t *)&fno.meta;
-        if (meta->type != SPIFFS_TYPE_DIR) {
+        if (res == 0) {
             // Not a directory
             mp_raise_OSError(MP_ENOTDIR);
         }
         sprintf(spiffs_current_dir, "/%s", lpath);
-        LOGD(TAG, "CHDIR [%s]->[%s], currdir=[%s]", path, lpath, spiffs_current_dir);
+        LOGD(TAG, "CHDIR currdir=[%s]", spiffs_current_dir);
     }
     else sprintf(spiffs_current_dir, "%s", "");
     return mp_const_none;
@@ -578,17 +674,16 @@ STATIC mp_obj_t spiffs_vfs_stat(mp_obj_t vfs_in, mp_obj_t path_in)
 {
     spiffs_user_mount_t *self = MP_OBJ_TO_PTR(vfs_in);
     const char *path = mp_obj_str_get_str(path_in);
+    int res;
 
     mp_int_t mode = MP_S_IFDIR;
     mp_int_t size = 0;
     mp_int_t time = 0;
-    if ((path[0] != 0) && !(path[0] == '/' && path[1] == 0)) {
-        char *lpath = spiffs_local_path(path);
-        LOGD(TAG, "STAT [%s]->[%s], currdir=[%s]", path, lpath, spiffs_current_dir);
-        spiffs_stat fno;
-        int res = 0;
 
-        res = SPIFFS_stat(&self->fs, lpath, &fno);
+    if ((path[0] != 0) && !(path[0] == '/' && path[1] == 0)) {
+        const char *lpath = spiffs_local_path(path);
+        spiffs_stat fno;
+        res = SPIFFS_stat(&(self->fs), lpath, &fno);
         if (res != SPIFFS_OK) {
             mp_raise_OSError(SPIFFS_errno_table[GET_ERR_CODE(res)]);
         }
@@ -600,14 +695,14 @@ STATIC mp_obj_t spiffs_vfs_stat(mp_obj_t vfs_in, mp_obj_t path_in)
     }
 
     mp_obj_tuple_t *t = MP_OBJ_TO_PTR(mp_obj_new_tuple(10, NULL));
-    t->items[0] = MP_OBJ_NEW_SMALL_INT(mode); // st_mode
-    t->items[1] = MP_OBJ_NEW_SMALL_INT(0); // st_ino
-    t->items[2] = MP_OBJ_NEW_SMALL_INT(0); // st_dev
-    t->items[3] = MP_OBJ_NEW_SMALL_INT(0); // st_nlink
-    t->items[4] = MP_OBJ_NEW_SMALL_INT(0); // st_uid
-    t->items[5] = MP_OBJ_NEW_SMALL_INT(0); // st_gid
+    t->items[0] = mp_obj_new_int(mode); // st_mode
+    t->items[1] = mp_obj_new_int(0); // st_ino
+    t->items[2] = mp_obj_new_int(0); // st_dev
+    t->items[3] = mp_obj_new_int(0); // st_nlink
+    t->items[4] = mp_obj_new_int(0); // st_uid
+    t->items[5] = mp_obj_new_int(0); // st_gid
     t->items[6] = mp_obj_new_int_from_uint(size); // st_size
-    t->items[7] = MP_OBJ_NEW_SMALL_INT(time); // st_atime
+    t->items[7] = mp_obj_new_int(time); // st_atime
     t->items[8] = t->items[7]; // st_mtime
     t->items[9] = t->items[7]; // st_ctime
 
@@ -622,25 +717,27 @@ STATIC mp_obj_t spiffs_vfs_statvfs(mp_obj_t vfs_in, mp_obj_t path_in)
 {
     spiffs_user_mount_t *self = MP_OBJ_TO_PTR(vfs_in);
 
-    spiffs *spif_fs = &self->fs;
+    spiffs *spif_fs = &(self->fs);
 	u32_t total, used;
-    int res = SPIFFS_info(spif_fs, &total,&used);
+    int res;
+
+    res = SPIFFS_info(spif_fs, &total,&used);
     if (res != SPIFFS_OK) {
-        SPIFFS_clearerr(&self->fs);
+        SPIFFS_clearerr(&(self->fs));
 		mp_raise_OSError(SPIFFS_errno_table[GET_ERR_CODE(res)]);
     }
     mp_obj_tuple_t *t = MP_OBJ_TO_PTR(mp_obj_new_tuple(10, NULL));
 
-    t->items[0] = MP_OBJ_NEW_SMALL_INT(SPIFFS_CFG_LOG_PAGE_SZ());               // file system block size
-    t->items[1] = t->items[0];                                                  // fragment size
-    t->items[2] = MP_OBJ_NEW_SMALL_INT(total/SPIFFS_CFG_LOG_PAGE_SZ());         // size of fs in f_frsize units
-    t->items[3] = MP_OBJ_NEW_SMALL_INT((total-used)/SPIFFS_CFG_LOG_PAGE_SZ());  // f_bfree
-    t->items[4] = t->items[3];                                                  // f_bavail
-    t->items[5] = MP_OBJ_NEW_SMALL_INT(0); // f_files
-    t->items[6] = MP_OBJ_NEW_SMALL_INT(0); // f_ffree
-    t->items[7] = MP_OBJ_NEW_SMALL_INT(0); // f_favail
-    t->items[8] = MP_OBJ_NEW_SMALL_INT(0); // f_flags
-    t->items[9] = MP_OBJ_NEW_SMALL_INT(SPIFFS_OBJ_NAME_LEN);                    // f_namemax
+    t->items[0] = mp_obj_new_int(SPIFFS_CFG_LOG_PAGE_SZ());               // file system block size
+    t->items[1] = t->items[0];                                            // fragment size
+    t->items[2] = mp_obj_new_int(total/SPIFFS_CFG_LOG_PAGE_SZ());         // size of fs in f_frsize units
+    t->items[3] = mp_obj_new_int((total-used)/SPIFFS_CFG_LOG_PAGE_SZ());  // f_bfree
+    t->items[4] = t->items[3];                                            // f_bavail
+    t->items[5] = mp_obj_new_int(0); // f_files
+    t->items[6] = mp_obj_new_int(0); // f_ffree
+    t->items[7] = mp_obj_new_int(0); // f_favail
+    t->items[8] = mp_obj_new_int(0); // f_flags
+    t->items[9] = mp_obj_new_int(SPIFFS_OBJ_NAME_LEN);                    // f_namemax
 
     return MP_OBJ_FROM_PTR(t);
 
@@ -663,24 +760,158 @@ STATIC mp_obj_t vfs_spiffs_umount(mp_obj_t self_in)
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(spiffs_vfs_umount_obj, vfs_spiffs_umount);
 
+//-------------------------------------------------
+STATIC mp_obj_t vfs_spiffs_check(mp_obj_t self_in)
+{
+    spiffs_user_mount_t *self = MP_OBJ_TO_PTR(self_in);
+
+    int check[7] = {0};
+    fs_check = &check[0];
+    mp_printf(&mp_plat_print, "\r\nChecking spiffs, please wait...\r\n");
+
+    SPIFFS_clearerr(&(self->fs));
+    SPIFFS_check(&(self->fs));
+    fs_check = NULL;
+    mp_printf(&mp_plat_print, "Finished.\r\n");
+    mp_printf(&mp_plat_print, "--------------\r\n");
+    mp_printf(&mp_plat_print, " Checks      : %d\r\n", check[SPIFFS_CHECK_PROGRESS]);
+    mp_printf(&mp_plat_print, " Errors      : %d\r\n", check[SPIFFS_CHECK_ERROR]);
+    mp_printf(&mp_plat_print, " Fix index   : %d\r\n", check[SPIFFS_CHECK_FIX_INDEX]);
+    mp_printf(&mp_plat_print, " Fix look up : %d\r\n", check[SPIFFS_CHECK_FIX_LOOKUP]);
+    mp_printf(&mp_plat_print, " Del orph pg : %d\r\n", check[SPIFFS_CHECK_DELETE_ORPHANED_INDEX]);
+    mp_printf(&mp_plat_print, " Del pages   : %d\r\n", check[SPIFFS_CHECK_DELETE_PAGE]);
+    mp_printf(&mp_plat_print, " Del bad file: %d\r\n", check[SPIFFS_CHECK_DELETE_BAD_FILE]);
+    mp_printf(&mp_plat_print, "--------------\r\n");
+
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(spiffs_vfs_check_obj, vfs_spiffs_check);
+
+//---------------------------------------------------------------
+STATIC mp_obj_t vfs_spiffs_gc(size_t n_args, const mp_obj_t *args)
+{
+    spiffs_user_mount_t *self = MP_OBJ_TO_PTR(args[0]);
+
+    if (SPIFFS_mounted(&(self->fs)) == false) {
+        mp_raise_OSError(MP_ENOENT);
+    }
+    int n = 1;
+    if (n_args >= 2) {
+        n = mp_obj_get_int(args[1]);
+        if (n < 1) n = 1;
+        if (n > 64) n = 64;
+    }
+    int max_fp = 0;
+    if (n_args >= 3) {
+        max_fp = mp_obj_get_int(args[2]);
+        if (max_fp < 0) max_fp = 0;
+        if (max_fp > 50) max_fp = 50;
+    }
+
+    mp_printf(&mp_plat_print, "Starting spiffs garbage collection, please wait...\r\n");
+    int nf = 0;
+    SPIFFS_clearerr(&(self->fs));
+    for (int i=0; i<n; i++) {
+        if (SPIFFS_gc_quick(&(self->fs), max_fp) < 0) break;
+        if (SPIFFS_errno(&(self->fs)) == SPIFFS_OK) nf++;
+        SPIFFS_clearerr(&(self->fs));
+    }
+    mp_printf(&mp_plat_print, "Finished: %d %dK block(s) erased.\r\n", nf, SPIFFS_CFG_LOG_BLOCK_SZ(fs)/1024);
+
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(spiffs_vfs_gc_obj, 1, 3, vfs_spiffs_gc);
+
+#if SPIFFS_TEST_VISUALISATION
+//----------------------------------------------
+STATIC mp_obj_t vfs_spiffs_vis(mp_obj_t self_in)
+{
+    spiffs_user_mount_t *self = MP_OBJ_TO_PTR(self_in);
+
+    SPIFFS_clearerr(&(self->fs));
+    SPIFFS_vis(&(self->fs));
+
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(spiffs_vfs_vis_obj, vfs_spiffs_vis);
+#else
+//----------------------------------------------
+STATIC mp_obj_t vfs_spiffs_vis(mp_obj_t self_in)
+{
+    mp_raise_NotImplementedError("Only system spiffs is used");
+
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(spiffs_vfs_vis_obj, vfs_spiffs_vis);
+#endif
+
+//------------------------------------------------------------------------
+STATIC mp_obj_t vfs_spiffs_dbg_level(mp_obj_t self_in, mp_obj_t dbglev_in)
+{
+    //spiffs_user_mount_t *self = MP_OBJ_TO_PTR(self_in);
+
+    int dbg = mp_obj_get_int(dbglev_in);
+    if ((dbg >= 0) && (dbg <= 16)) {
+        spiffs_dbg_level = dbg;
+    }
+
+    return mp_obj_new_int(spiffs_dbg_level);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(spiffs_vfs_dbg_level_obj, vfs_spiffs_dbg_level);
+
+//----------------------------------------------------------------------
+STATIC mp_obj_t vfs_spiffs_counters(size_t n_args, const mp_obj_t *args)
+{
+    uint32_t rd, wr, er;
+    uint64_t spitime;
+    w25qxx_get_counters(&rd, &wr, &er, &spitime);
+
+    mp_obj_tuple_t *t = MP_OBJ_TO_PTR(mp_obj_new_tuple(4, NULL));
+    t->items[0] = mp_obj_new_int(rd);
+    t->items[1] = mp_obj_new_int(wr);
+    t->items[2] = mp_obj_new_int(er);
+    t->items[3] = mp_obj_new_int(spitime);
+
+    if (n_args > 1) {
+        if (mp_obj_is_true(args[1])) w25qxx_clear_counters();
+    }
+    return MP_OBJ_FROM_PTR(t);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(spiffs_vfs_counters_obj, 1, 2, vfs_spiffs_counters);
+
+
 //===============================================================
 STATIC const mp_rom_map_elem_t spiffs_vfs_locals_dict_table[] = {
     #if _FS_REENTRANT
     { MP_ROM_QSTR(MP_QSTR___del__), MP_ROM_PTR(&spiffs_vfs_del_obj) },
     #endif
-    { MP_ROM_QSTR(MP_QSTR_mkfs), MP_ROM_PTR(&spiffs_vfs_mkfs_obj) },
-    { MP_ROM_QSTR(MP_QSTR_open), MP_ROM_PTR(&spiffs_vfs_open_obj) },
-    { MP_ROM_QSTR(MP_QSTR_mount), MP_ROM_PTR(&vfs_spiffs_mount_obj) },
-    { MP_ROM_QSTR(MP_QSTR_ilistdir), MP_ROM_PTR(&spiffs_vfs_ilistdir_obj) },
-    { MP_ROM_QSTR(MP_QSTR_chdir), MP_ROM_PTR(&spiffs_vfs_chdir_obj) },
-    { MP_ROM_QSTR(MP_QSTR_mkdir), MP_ROM_PTR(&spiffs_vfs_mkdir_obj) },
-    { MP_ROM_QSTR(MP_QSTR_rmdir), MP_ROM_PTR(&spiffs_vfs_rmdir_obj) },
-    { MP_ROM_QSTR(MP_QSTR_getcwd), MP_ROM_PTR(&spiffs_vfs_getcwd_obj) },
-    { MP_ROM_QSTR(MP_QSTR_remove), MP_ROM_PTR(&spiffs_vfs_remove_obj) },
-    { MP_ROM_QSTR(MP_QSTR_rename), MP_ROM_PTR(&spiffs_vfs_rename_obj) },
-    { MP_ROM_QSTR(MP_QSTR_stat), MP_ROM_PTR(&spiffs_vfs_stat_obj) },
-    { MP_ROM_QSTR(MP_QSTR_statvfs), MP_ROM_PTR(&spiffs_vfs_statvfs_obj) },
-    { MP_ROM_QSTR(MP_QSTR_umount), MP_ROM_PTR(&spiffs_vfs_umount_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mkfs),        MP_ROM_PTR(&spiffs_vfs_mkfs_obj) },
+    { MP_ROM_QSTR(MP_QSTR_open),        MP_ROM_PTR(&spiffs_vfs_open_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mount),       MP_ROM_PTR(&vfs_spiffs_mount_obj) },
+    { MP_ROM_QSTR(MP_QSTR_ilistdir),    MP_ROM_PTR(&spiffs_vfs_ilistdir_obj) },
+    { MP_ROM_QSTR(MP_QSTR_chdir),       MP_ROM_PTR(&spiffs_vfs_chdir_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mkdir),       MP_ROM_PTR(&spiffs_vfs_mkdir_obj) },
+    { MP_ROM_QSTR(MP_QSTR_rmdir),       MP_ROM_PTR(&spiffs_vfs_rmdir_obj) },
+    { MP_ROM_QSTR(MP_QSTR_getcwd),      MP_ROM_PTR(&spiffs_vfs_getcwd_obj) },
+    { MP_ROM_QSTR(MP_QSTR_remove),      MP_ROM_PTR(&spiffs_vfs_remove_obj) },
+    { MP_ROM_QSTR(MP_QSTR_rename),      MP_ROM_PTR(&spiffs_vfs_rename_obj) },
+    { MP_ROM_QSTR(MP_QSTR_stat),        MP_ROM_PTR(&spiffs_vfs_stat_obj) },
+    { MP_ROM_QSTR(MP_QSTR_statvfs),     MP_ROM_PTR(&spiffs_vfs_statvfs_obj) },
+    { MP_ROM_QSTR(MP_QSTR_umount),      MP_ROM_PTR(&spiffs_vfs_umount_obj) },
+    { MP_ROM_QSTR(MP_QSTR_counters),    MP_ROM_PTR(&spiffs_vfs_counters_obj) },
+    { MP_ROM_QSTR(MP_QSTR_check),       MP_ROM_PTR(&spiffs_vfs_check_obj) },
+    { MP_ROM_QSTR(MP_QSTR_gc),          MP_ROM_PTR(&spiffs_vfs_gc_obj) },
+    { MP_ROM_QSTR(MP_QSTR_dbg_level),   MP_ROM_PTR(&spiffs_vfs_dbg_level_obj) },
+    #if SPIFFS_TEST_VISUALISATION
+    { MP_ROM_QSTR(MP_QSTR_vis),         MP_ROM_PTR(&spiffs_vfs_vis_obj) },
+    #endif
+    // class constants
+    { MP_ROM_QSTR(MP_QSTR_DBG_NONE),    MP_ROM_INT(0) },
+    { MP_ROM_QSTR(MP_QSTR_DBG_GEN),     MP_ROM_INT(1) },
+    { MP_ROM_QSTR(MP_QSTR_DBG_GC),      MP_ROM_INT(2) },
+    { MP_ROM_QSTR(MP_QSTR_DBG_CACHE),   MP_ROM_INT(4) },
+    { MP_ROM_QSTR(MP_QSTR_DBG_CHECK),   MP_ROM_INT(8) },
+    { MP_ROM_QSTR(MP_QSTR_DBG_API),     MP_ROM_INT(16) },
 };
 STATIC MP_DEFINE_CONST_DICT(spiffs_vfs_locals_dict, spiffs_vfs_locals_dict_table);
 

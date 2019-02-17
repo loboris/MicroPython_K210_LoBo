@@ -1010,6 +1010,7 @@ typedef struct xSTATIC_TCB
 	UBaseType_t			uxDummy5;
 	void				*pxDummy6;
 	uint8_t				ucDummy7[ configMAX_TASK_NAME_LEN ];
+    UBaseType_t         ucDummy22;
 	#if ( ( portSTACK_GROWTH > 0 ) || ( configRECORD_STACK_HIGH_ADDRESS == 1 ) )
 		void			*pxDummy8;
 	#endif
@@ -1029,13 +1030,13 @@ typedef struct xSTATIC_TCB
 		void			*pvDummy15[ configNUM_THREAD_LOCAL_STORAGE_POINTERS ];
 	#endif
 	#if ( configGENERATE_RUN_TIME_STATS == 1 )
-		uint32_t		ulDummy16;
+		uint64_t		ulDummy16;
 	#endif
 	#if ( configUSE_NEWLIB_REENTRANT == 1 )
 		struct	_reent	xDummy17;
 	#endif
 	#if ( configUSE_TASK_NOTIFICATIONS == 1 )
-		uint32_t 		ulDummy18;
+		uint64_t 		ulDummy18;
 		uint8_t 		ucDummy19;
 	#endif
 	#if( ( ( configSUPPORT_STATIC_ALLOCATION == 1 ) && ( configSUPPORT_DYNAMIC_ALLOCATION == 1 ) ) || ( portUSING_MPU_WRAPPERS == 1 ) )

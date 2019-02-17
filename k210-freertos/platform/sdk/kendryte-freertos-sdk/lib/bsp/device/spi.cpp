@@ -227,12 +227,22 @@ object_ptr<spi_device_driver> k_spi_driver::get_device(spi_mode_t mode, spi_fram
 
 double k_spi_driver::set_clock_rate(k_spi_device_driver &device, double clock_rate)
 {
+/*
     double clk = (double)sysctl_clock_get_freq(clock_);
     uint32_t div = std::min(65534U, std::max((uint32_t)ceil(clk / clock_rate), 2U));
     if (div & 1)
         div++;
     device.baud_rate_ = div;
     return clk / div;
+*/
+    if (clock_rate < 1000) {
+        return (double)(sysctl_clock_get_freq(clock_) / device.baud_rate_);
+    }
+    uint32_t spi_baudr = sysctl_clock_get_freq(clock_) / clock_rate;
+    if (spi_baudr < 2 ) spi_baudr = 2;
+    else if (spi_baudr > 65534) spi_baudr = 65534;
+    device.baud_rate_ = spi_baudr;
+    return (double)(sysctl_clock_get_freq(clock_) / spi_baudr);
 }
 
 int k_spi_driver::read(k_spi_device_driver &device, gsl::span<uint8_t> buffer)

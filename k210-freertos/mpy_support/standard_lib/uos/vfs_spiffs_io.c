@@ -13,35 +13,50 @@
 
 static const char* TAG = "[VFS_SPIFFS_IO]";
 
+#if SPIFFS_HAL_CALLBACK_EXTRA
 //--------------------------------------------------------------
 s32_t sys_spiffs_read(spiffs* fs, int addr, int size, char *buf)
+#else
+//--------------------------------------------------
+s32_t sys_spiffs_read(int addr, int size, char *buf)
+#endif
 {
     int phy_addr=addr;
     enum w25qxx_status_t res = w25qxx_read_data(phy_addr, (uint8_t *)buf, size);
     LOGV(TAG, "flash read addr:%x size:%d buf_head:%x %x", phy_addr,size,buf[0],buf[1]);
     if (res != W25QXX_OK) {
-        LOGV(TAG, "spifalsh read err");
+        LOGE(TAG, "spifalsh read err");
         return res;
     }
     return res;
 }
 
+#if SPIFFS_HAL_CALLBACK_EXTRA
 //---------------------------------------------------------------
 s32_t sys_spiffs_write(spiffs* fs, int addr, int size, char *buf)
+#else
+//---------------------------------------------------
+s32_t sys_spiffs_write(int addr, int size, char *buf)
+#endif
 {
     int phy_addr=addr;
     
     enum w25qxx_status_t res = w25qxx_write_data(phy_addr, (uint8_t *)buf, size);
     LOGV(TAG, "flash write addr:%x size:%d buf_head:%x,%x\n", phy_addr,size,buf[0],buf[1]);
     if (res != W25QXX_OK) {
-        LOGV(TAG, "spifalsh write err");
+        LOGE(TAG, "spifalsh write err");
         return res;
     }
     return res;
 }
 
+#if SPIFFS_HAL_CALLBACK_EXTRA
 //----------------------------------------------------
 s32_t sys_spiffs_erase(spiffs* fs, int addr, int size)
+#else
+//----------------------------------------
+s32_t sys_spiffs_erase(int addr, int size)
+#endif
 {
     // size is always 4096!
     uint8_t rd_buf[w25qxx_FLASH_SECTOR_SIZE];
@@ -51,8 +66,11 @@ s32_t sys_spiffs_erase(spiffs* fs, int addr, int size)
     {
         if (*pread != 0xFF) {
             w25qxx_sector_erase(addr);
-            while (w25qxx_is_busy() == W25QXX_BUSY)
-                ;
+            enum w25qxx_status_t res = w25qxx_wait_busy();
+            if (res != W25QXX_OK) {
+                LOGE(TAG, "spifalsh erase err");
+                return res;
+            }
             break;
         }
         pread++;

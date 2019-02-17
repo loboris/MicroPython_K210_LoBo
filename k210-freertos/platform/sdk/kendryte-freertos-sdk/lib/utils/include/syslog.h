@@ -96,25 +96,27 @@ enum kendryte_log_level_e
 #define LOG_COLOR_I       LOG_COLOR(LOG_COLOR_GREEN)
 #define LOG_COLOR_D
 #define LOG_COLOR_V
+#define LOG_COLOR_M       LOG_COLOR(LOG_COLOR_CYAN)
 #else /* CONFIG_LOG_COLORS */
 #define LOG_COLOR_E
 #define LOG_COLOR_W
 #define LOG_COLOR_I
 #define LOG_COLOR_D
 #define LOG_COLOR_V
+#define LOG_COLOR_M
 #define LOG_RESET_COLOR
 #endif /* CONFIG_LOG_COLORS */
 /* clang-format on */
 
-#define LOG_DIVISOR (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000)
-//#define LOG_DIVISOR 1
-
-#define LOG_FORMAT(letter, format)  LOG_COLOR_ ## letter #letter " (%llu) %s: " format LOG_RESET_COLOR "\n"
+#define LOG_FORMAT(letter, format)  LOG_COLOR_ ## letter #letter " (%llu) %s: " format LOG_RESET_COLOR "\r\n"
 
 #ifdef LOG_LEVEL
 #undef CONFIG_LOG_LEVEL
 #define CONFIG_LOG_LEVEL LOG_LEVEL
 #endif
+
+extern uint32_t user_log_level;
+extern uint64_t log_divisor;
 
 #ifdef LOG_KERNEL
 #define LOG_PRINTF printk
@@ -123,11 +125,12 @@ enum kendryte_log_level_e
 #endif
 
 #ifdef CONFIG_LOG_ENABLE
-#define LOGE(tag, format, ...)  do {if (CONFIG_LOG_LEVEL >= LOG_ERROR)   LOG_PRINTF(LOG_FORMAT(E, format), read_csr64(mcycle)/LOG_DIVISOR, tag, ##__VA_ARGS__); } while (0)
-#define LOGW(tag, format, ...)  do {if (CONFIG_LOG_LEVEL >= LOG_WARN)    LOG_PRINTF(LOG_FORMAT(W, format), read_csr64(mcycle)/LOG_DIVISOR, tag, ##__VA_ARGS__); } while (0)
-#define LOGI(tag, format, ...)  do {if (CONFIG_LOG_LEVEL >= LOG_INFO)    LOG_PRINTF(LOG_FORMAT(I, format), read_csr64(mcycle)/LOG_DIVISOR, tag, ##__VA_ARGS__); } while (0)
-#define LOGD(tag, format, ...)  do {if (CONFIG_LOG_LEVEL >= LOG_DEBUG)   LOG_PRINTF(LOG_FORMAT(D, format), read_csr64(mcycle)/LOG_DIVISOR, tag, ##__VA_ARGS__); } while (0)
-#define LOGV(tag, format, ...)  do {if (CONFIG_LOG_LEVEL >= LOG_VERBOSE) LOG_PRINTF(LOG_FORMAT(V, format), read_csr64(mcycle)/LOG_DIVISOR, tag, ##__VA_ARGS__); } while (0)
+#define LOGE(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   LOG_PRINTF(LOG_FORMAT(E, format), read_csr64(mcycle)/log_divisor, tag, ##__VA_ARGS__); } while (0)
+#define LOGW(tag, format, ...)  do {if (user_log_level >= LOG_WARN)    LOG_PRINTF(LOG_FORMAT(W, format), read_csr64(mcycle)/log_divisor, tag, ##__VA_ARGS__); } while (0)
+#define LOGI(tag, format, ...)  do {if (user_log_level >= LOG_INFO)    LOG_PRINTF(LOG_FORMAT(I, format), read_csr64(mcycle)/log_divisor, tag, ##__VA_ARGS__); } while (0)
+#define LOGD(tag, format, ...)  do {if (user_log_level >= LOG_DEBUG)   LOG_PRINTF(LOG_FORMAT(D, format), read_csr64(mcycle)/log_divisor, tag, ##__VA_ARGS__); } while (0)
+#define LOGV(tag, format, ...)  do {if (user_log_level >= LOG_VERBOSE) LOG_PRINTF(LOG_FORMAT(V, format), read_csr64(mcycle)/log_divisor, tag, ##__VA_ARGS__); } while (0)
+#define LOGM(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   LOG_PRINTF(LOG_FORMAT(M, format), read_csr64(mcycle)/log_divisor, tag, ##__VA_ARGS__); } while (0)
 #else
 #define LOGE(tag, format, ...)
 #define LOGW(tag, format, ...)

@@ -20,6 +20,8 @@
 
 volatile uarths_t *const uarths = (volatile uarths_t *)UARTHS_BASE_ADDR;
 
+uint32_t uarths_baudrate = 115200;
+
 uint8_t uarths_read_byte()
 {
     while (1)
@@ -66,10 +68,10 @@ size_t uarths_read(uint8_t* buffer, size_t len)
     return read;
 }
 
-void uarths_init()
+uint32_t uarths_init(uint32_t baudrate)
 {
     uint32_t freq = sysctl_clock_get_freq(SYSCTL_CLOCK_CPU);
-    uint16_t div = freq / 115200 - 1;
+    uint16_t div = freq / baudrate - 1;
 
     /* Set UART registers */
     uarths->div.div = div;
@@ -81,4 +83,5 @@ void uarths_init()
     uarths->ip.rxwm = 1;
     uarths->ie.txwm = 0;
     uarths->ie.rxwm = 1;
+    return (freq / (div + 1));
 }

@@ -82,10 +82,11 @@
 #endif
 
 extern handle_t mp_rtc_rtc0;
+handle_t flash_spi;
 
 int MainTaskProc = 0;
-static char *mpy_heap = NULL;
-static mp_obj_t mp_task_pystack = NULL;
+static char *mpy_heap[2] = { NULL, NULL };
+static mp_obj_t mp_task_pystack[2] = { NULL, NULL };
 
 #if MICROPY_PY_THREAD
 #if MICROPY_PY_THREAD_STATIC_TASK
@@ -118,14 +119,12 @@ const char Banner[] = {"\n __  __              _____  __   __  _____   __     __
 |_|  |_| /_/    \\_\\ |_____| /_/ \\_\\ |_|         |_|\n\
 ------------------------------------------------------\n\n"};
 
-const char ver_info[] = {"\nMaixPy-FreeRTOS by LoBo v1.0.4\n\
-------------------------------\n"};
+const char ver_info[] = {LOG_BOLD(LOG_COLOR_BROWN)"\nMaixPy-FreeRTOS by LoBo v1.0.5\n------------------------------\n"LOG_RESET_COLOR};
 
 static const char* TAG = "[MAIN]";
 
-
 // ===================================
-// MicroPython main task
+// MicroPython main task (REPL)
 // ===================================
 static void mp_task(void *pvParameter)
 {
@@ -133,17 +132,23 @@ static void mp_task(void *pvParameter)
     volatile void *sp = (void *)((uint64_t)(&stack_p) & 0xFFFFFFFFFFFFFFF8);
     void *stack = (void *)(((uint64_t)pxTaskGetStackStart(NULL) & 0xFFFFFFFFFFFFFFF8)+16);
 
-    mpy_heap = malloc(MICROPY_HEAP_SIZE+16);
-    configASSERT(mpy_heap);
+    int task_proc = (int)uxPortGetProcessorId();
+    mpy_heap[task_proc] = malloc(MICROPY_HEAP_SIZE+16);
+    configASSERT(mpy_heap[task_proc]);
     #if MICROPY_ENABLE_PYSTACK
-    mp_task_pystack = malloc(MICROPY_PYSTACK_SIZE);
-    configASSERT(mp_task_pystack);
+    mp_task_pystack[task_proc] = malloc(MICROPY_PYSTACK_SIZE);
+    configASSERT(mp_task_pystack[task_proc]);
     #endif
 
-    LOGD(TAG, "Main task start (proc=%d): heap at %p, pystack at %p, stack at %p (%p), free=%lu",
-            (int)uxPortGetProcessorId(), (void *)mpy_heap, (void *)mp_task_pystack, pxTaskGetStackStart(NULL), sp, uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t));
+    LOGM(TAG, "Main task start (proc=%d): heap at %p, pystack at %p, stack at %p (%p), free=%lu",
+            (int)uxPortGetProcessorId(), (void *)mpy_heap[task_proc], (void *)mp_task_pystack[task_proc], pxTaskGetStackStart(NULL),
+            sp, (uint32_t)(uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t)));
 
-    mp_thread_preinit(stack+1024, sp-(stack+1024), mp_task_pystack, MICROPY_PYSTACK_SIZE);
+    #if MICROPY_USE_TWO_MAIN_TASKS
+    if (task_proc == MainTaskProc) mp_thread_preinit(stack+1024, sp-(stack+1024), mp_task_pystack[task_proc], MICROPY_PYSTACK_SIZE);
+    #else
+    mp_thread_preinit(stack+1024, sp-(stack+1024), mp_task_pystack[task_proc], MICROPY_PYSTACK_SIZE);
+    #endif
 
     while (1) {
         // Initialize the stack pointer for the main thread
@@ -152,7 +157,7 @@ static void mp_task(void *pvParameter)
 
         #if MICROPY_ENABLE_GC
         // Initialize MicroPython heap
-        gc_init(mpy_heap, mpy_heap + MICROPY_HEAP_SIZE);
+        gc_init(mpy_heap[task_proc], mpy_heap[task_proc] + MICROPY_HEAP_SIZE);
         #endif
         mp_init();
         mp_obj_list_init(mp_sys_path, 0);
@@ -161,50 +166,85 @@ static void mp_task(void *pvParameter)
         // Set gc threshold to 4/5 of the heap size
         MP_STATE_MEM(gc_alloc_threshold) = (MICROPY_HEAP_SIZE * 4 / 5) & 0xFFFFFFFFFFFFFFF8;
 
-        // Initialize spiffs on internal Flash
-        bool spiffs_ok = init_flash_spiffs();
-        if (spiffs_ok) LOGD(TAG, "SPIFFS initialized");
-        else LOGE(TAG, "SPIFFS initialization failed!");
+        #if MICROPY_USE_TWO_MAIN_TASKS
+        if (task_proc == MainTaskProc) {
+        #endif
+            // Initialize spiffs on internal Flash
+            bool spiffs_ok = init_flash_spiffs();
+            if (spiffs_ok) LOGD(TAG, "SPIFFS initialized");
+            else LOGE(TAG, "SPIFFS initialization failed!");
 
-        readline_init0();
-        if (spiffs_ok) {
-            pyexec_file("/flash/boot.py");
-            /*
-            // Check if 'main.py' exists and run it
-            mp_obj_t args[2];
-            args[0] = mp_obj_new_str("/flash/main.py", 14);
-            args[1] = mp_obj_new_str("r", 1);
-            // Open the file
-            mp_obj_t ffd = mp_vfs_open(2, args, (mp_map_t*)&mp_const_empty_map);
-            if (ffd) {
-                mp_stream_close(ffd);
-                pyexec_file("/flash/main.py");
-            }
-            */
-        }
+            readline_init0();
 
-        // ---- Main REPL loop ----------------------------------------------
-        for (;;) {
-            if (pyexec_mode_kind == PYEXEC_MODE_RAW_REPL) {
-                if (pyexec_raw_repl() != 0) {
-                    break;
+            if (spiffs_ok) {
+                // 'boot.py' should always exist, so execute it
+                pyexec_file("/flash/boot.py");
+
+                // Execute 'main.py' if exists
+                spiffs_stat fno;
+                if (SPIFFS_stat(&spiffs_user_mount_handle.fs, "main.py", &fno) == SPIFFS_OK) {
+                    pyexec_file("/flash/main.py");
                 }
             }
-            else {
-                mp_printf(&mp_plat_print, ver_info);
-                if (pyexec_friendly_repl() != 0) {
-                    break;
+
+            // ---- Main REPL loop ----------------------------------------------
+            for (;;) {
+                if (pyexec_mode_kind == PYEXEC_MODE_RAW_REPL) {
+                    int raw_repl_res = pyexec_raw_repl();
+                    if (raw_repl_res != 0) {
+                        if (raw_repl_res == PYEXEC_FORCED_EXIT) {
+                            mp_printf(&mp_plat_print, "PYB: soft reboot\n");
+                            mp_hal_delay_ms(10);
+                            continue;
+                        }
+                        break;
+                    }
+                }
+                else {
+                    mp_printf(&mp_plat_print, "%s%s", Banner, ver_info);
+                    if (pyexec_friendly_repl() != 0) {
+                        break;
+                    }
                 }
             }
+            // ------------------------------------------------------------------
+
+            //ToDo: terminate all running threads ?!
+            mp_deinit();
+            mp_printf(&mp_plat_print, "PYB: soft reboot\n");
+            mp_hal_delay_ms(10);
+
+            //sysctl->soft_reset.soft_reset = 1;
+        #if MICROPY_USE_TWO_MAIN_TASKS
         }
-        // ------------------------------------------------------------------
+        else {
+            uint64_t notify_val = 0;
+            int notify_res = 0;
+            while (1) {
+                //notify_res = xTaskNotifyWait(0, ULONG_MAX, &notify_val, 1000 / portTICK_RATE_MS);
+                notify_res = xSemaphoreTake(inter_proc_semaphore, 10000 / portTICK_PERIOD_MS);
+                if (notify_res != pdPASS) continue;
 
-        //ToDo: terminate all running threads ?!
-        mp_deinit();
-        mp_printf(&mp_plat_print, "PYB: soft reboot\n");
-        mp_hal_delay_ms(10);
-
-        //sysctl->soft_reset.soft_reset = 1;
+                xSemaphoreTake(inter_proc_mutex, portMAX_DELAY);
+                LOGM("[MPy@1]", "Got notification: %lu", ipc_request);
+                if (ipc_request == 0) break; // Terminate task requested
+                if (ipc_request == 1) {
+                    if (ipc_cmd_buff) {
+                        //int res = pyexec_string((const char *)ipc_cmd_buff);
+                        LOGM("[MPy@1]", "Executing command [%s]", ipc_cmd_buff);
+                        vTaskDelay(5000 / portTICK_PERIOD_MS);
+                        mp_hal_stdout_tx_strn("Here is the result", 18);
+                        free(ipc_cmd_buff);
+                        ipc_cmd_buff_size = 0;
+                    }
+                    else {
+                        LOGW("[MPy@1]", "Cmd buffer is NULL");
+                    }
+                }
+                xSemaphoreGive(inter_proc_mutex);
+            }
+        }
+        #endif
     }
     vTaskDelete(NULL);
 }
@@ -212,6 +252,9 @@ static void mp_task(void *pvParameter)
 //========
 int main()
 {
+    user_log_level = CONFIG_LOG_LEVEL;
+    log_divisor = (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000);
+
     int res;
     // Set dvp and spi pins to 1.8V
 	sysctl_set_power_mode(SYSCTL_POWER_BANK6,SYSCTL_POWER_V18);
@@ -223,7 +266,7 @@ int main()
     return 1;
     #endif
 
-    // Initialize MPy HAL
+    // Initialize MicroPython HAL
 	mp_hal_init();
 
 	// Initialize RTC
@@ -234,54 +277,36 @@ int main()
     filesystem_rtc = mp_rtc_rtc0;
     #endif
 
-    #if MICROPY_USE_DISPLAYxx
-    // Used for display SPI function FUNC_SPI0_SS3
-    gpiohs_set_used(3);
-    #endif
+    sysctl_t sysctl;
+    sysctl.peri.jtag_clk_bypass = 1;
 
     // Initialize SPIFlash
-    mp_fpioa_cfg_item_t flash_pin_func[6];
-    flash_pin_func[0] = (mp_fpioa_cfg_item_t){-1, 30, FUNC_SPI1_SS0};
-    flash_pin_func[1] = (mp_fpioa_cfg_item_t){-1, 32, FUNC_SPI1_SCLK};
-    flash_pin_func[2] = (mp_fpioa_cfg_item_t){-1, 34, FUNC_SPI1_D0};
-    flash_pin_func[3] = (mp_fpioa_cfg_item_t){-1, 43, FUNC_SPI1_D1};
-    flash_pin_func[4] = (mp_fpioa_cfg_item_t){-1, 42, FUNC_SPI1_D2};
-    flash_pin_func[5] = (mp_fpioa_cfg_item_t){-1, 41, FUNC_SPI1_D3};
-    if (!fpioa_check_pins(6, flash_pin_func, GPIO_FUNC_FLASH)) {
+    sysctl_clock_set_threshold(SYSCTL_THRESHOLD_SPI3, 2);
+    sysctl_clock_set_clock_select(SYSCTL_CLOCK_SELECT_SPI3, 1);
+
+    flash_spi = io_open("/dev/spi3");
+    configASSERT(flash_spi);
+    w25qxx_spi_check = true;
+    if (w25qxx_init(flash_spi, SPI_FF_QUAD, SPI_DEFAULT_CLOCK) == 0) {
+        LOGE("MAIXPY", "Flash initialization error");
         vTaskDelete(NULL);
         return 1;
     }
-    fpioa_setup_pins(6, flash_pin_func);
-    fpioa_setused_pins(6, flash_pin_func, GPIO_FUNC_FLASH);
 
-    handle_t flash_spi;
-    uint8_t manuf_id, device_id;
-    flash_spi = io_open("/dev/spi3");
-    configASSERT(flash_spi);
-    w25qxx_init(flash_spi, SPI_FF_STANDARD, 20000000);
-    w25qxx_read_id(&manuf_id, &device_id);
-
-    // Print some info
-    mp_printf(&mp_plat_print, Banner);
-    LOGD("[MAIXPY]", "Stack:  min: %lu", uxTaskGetStackHighWaterMark(NULL));
-    LOGD("[MAIXPY]", " Pll0: freq: %d", sysctl_clock_get_freq(SYSCTL_CLOCK_PLL0));
-    LOGD("[MAIXPY]", " Pll1: freq: %d", sysctl_clock_get_freq(SYSCTL_CLOCK_PLL1));
-    LOGD("[MAIXPY]", " Pll2: freq: %d", sysctl_clock_get_freq(SYSCTL_CLOCK_PLL2));
-    LOGD("[MAIXPY]", "  Cpu: freq: %lu", uxPortGetCPUClock());
-    LOGD("[MAIXPY]", "Flash:   ID: [0x%02x:0x%02x]", manuf_id, device_id);
-
-    // Run Micropython as FreeRTOS task
-    #if MICROPY_PY_THREAD_STATIC_TASK
-    MainTaskHandle = xTaskCreateStaticAtProcessor(
-            MainTaskProc,           // processor
+    // Run MicroPython as FreeRTOS task
+    #if MICROPY_USE_TWO_MAIN_TASKS
+    res = xTaskCreateAtProcessor(
+            MainTaskProc ^ 1,       // processor
             mp_task,                // function entry
-            "mp_task",              // task name
+            "mp_task2",             // task name
             MICROPY_TASK_STACK_LEN, // stack_deepth
             NULL,                   // function argument
             MICROPY_TASK_PRIORITY,  // task priority
-            mp_task_stack,          // static task stack
-            &mp_task_tcb );         // static task TCB
-    #else
+            &MainTaskHandle2);      // task handle
+    configASSERT((res == pdPASS));
+    vTaskDelay(500);
+    #endif
+
     res = xTaskCreateAtProcessor(
             MainTaskProc,           // processor
             mp_task,                // function entry
@@ -290,9 +315,9 @@ int main()
             NULL,                   // function argument
             MICROPY_TASK_PRIORITY,  // task priority
             &MainTaskHandle);       // task handle
-    #endif
     configASSERT((res == pdPASS));
 
+    vTaskDelay(100);
     vTaskDelete(NULL);
 }
 

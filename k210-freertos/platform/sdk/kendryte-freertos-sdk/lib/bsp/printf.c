@@ -657,3 +657,6 @@ int printk(const char* format, ...)
 
     return 0;
 }
+
+uint32_t user_log_level = 2;
+uint64_t log_divisor = 1;

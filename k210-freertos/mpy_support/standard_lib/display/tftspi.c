@@ -48,8 +48,9 @@
 #include "task.h"
 #include "queue.h"
 #include "syslog.h"
-//#include "project_cfg.h"
 #include "mphalport.h"
+#include "gpiohs.h"
+
 
 #define WAIT_CYCLE      4U
 #define LCD_X_MAX   240
@@ -89,6 +90,8 @@ enum _frame_length
     FRAME_LEN_32 = 32,
 } ;
 
+volatile gpiohs_t* const gpiohs = (volatile gpiohs_t*)GPIOHS_BASE_ADDR;
+
 static handle_t gio;
 static handle_t spi0;
 static handle_t spi_dfs8;
@@ -113,6 +116,7 @@ static mp_fpioa_cfg_item_t disp_pin_func[DISP_NUM_FUNC];
 // ====================================================
 // ==== Global variables, default values ==============
 
+bool use_frame_buffer = false;
 // Converts colors to grayscale if set to 1
 uint8_t gray_scale = 0;
 
@@ -124,36 +128,55 @@ int _height = DEFAULT_TFT_DISPLAY_HEIGHT;
 uint8_t tft_disp_type = DEFAULT_DISP_TYPE;
 uint8_t tft_touch_type = TOUCH_TYPE_NONE;
 
-uint8_t bits_per_color = 16;
 uint8_t TFT_RGB_BGR = 0;
 uint8_t gamma_curve = 0;
 uint32_t spi_speed = 4000000;
-// ====================================================
 
-#if USE_DISPLAY_TASK
-extern int MainTaskProc;
-static QueueHandle_t dispQueue = NULL;
-static TaskHandle_t disp_task_handle = 0;
-#endif
+uint16_t tft_frame_buffer[DEFAULT_TFT_DISPLAY_WIDTH*DEFAULT_TFT_DISPLAY_HEIGHT] = {0};
+// ====================================================
 
 //static const char TAG[] = "[TFTSPI]";
 static uint8_t invertrot = 1;
 
-uint8_t spibus_is_init = 0;
-
 // ==== Functions =====================
 
+/*
+static void set_bit(volatile uint32_t *bits, uint32_t mask, uint32_t value)
+{
+    uint32_t org = (*bits) & ~mask;
+    *bits = org | (value & mask);
+}
+
+static void set_bit_offset(volatile uint32_t *bits, uint32_t mask, size_t offset, uint32_t value)
+{
+    set_bit(bits, mask << offset, value << offset);
+}
+
+static void set_gpio_bit(volatile uint32_t *bits, size_t offset, uint32_t value)
+{
+    set_bit_offset(bits, 1, offset, value);
+}
+*/
+//------------------------------------------------------
+void gpiohs_set_pin(uint8_t pin, gpio_pin_value_t value)
+{
+    //set_gpio_bit(gpiohs->output_val.u32, pin, value);
+    uint32_t org = (*gpiohs->output_val.u32) & ~(1 << pin);
+    *gpiohs->output_val.u32 = org | (value & (1 << pin));
+}
 
 //---------------------------
 static void set_dcx_control()
 {
-    gpio_set_pin_value(gio, tft_dc_gpionum, GPIO_PV_LOW);
+    //gpio_set_pin_value(gio, tft_dc_gpionum, GPIO_PV_LOW);
+    gpiohs_set_pin(tft_dc_gpionum, GPIO_PV_LOW);
 }
 
 //------------------------
 static void set_dcx_data()
 {
-    gpio_set_pin_value(gio, tft_dc_gpionum, GPIO_PV_HIGH);
+    //gpio_set_pin_value(gio, tft_dc_gpionum, GPIO_PV_HIGH);
+    gpiohs_set_pin(tft_dc_gpionum, GPIO_PV_HIGH);
 }
 
 //----------------------
@@ -229,124 +252,41 @@ static bool tft_hard_init(void)
     return true;
 }
 
-#if USE_DISPLAY_TASK
-//--------------------------------------
-static void disp_task(void *pvParameter)
-{
-    disp_msg_t msg;
-
-    while (1) {
-        if (xQueueReceive(dispQueue, &msg, portMAX_DELAY) == pdPASS) {
-            if (msg.dc > 0) set_dcx_data();
-            else set_dcx_control();
-
-            switch (msg.type) {
-                case 1:
-                    io_write(spi_dfs8, (const uint8_t *)(msg.data), (size_t)msg.len);
-                    break;
-                case 2:
-                    io_write(spi_dfs16, (const uint8_t *)(msg.data), (size_t)msg.len);
-                    break;
-                case 3:
-                    spi_dev_fill(spi_dfs32, 0, *((uint32_t *)msg.data), *((uint32_t *)msg.data), msg.len);
-                    break;
-                default:
-                    LOGE(TAG, "Unknown msg tyte");
-            }
-        }
-        else {
-            LOGE(TAG, "Queue receive error");
-        }
-    }
-    if (dispQueue) {
-        vQueueDelete(dispQueue);
-        dispQueue = NULL;
-    }
-    disp_task_handle = 0;
-    vTaskDelete(NULL);
-}
-#endif
-
 //----------------------------------------
 static void tft_write_command(uint8_t cmd)
 {
-#if USE_DISPLAY_TASK
-    disp_msg_t msg;
-    msg.dc = 0;
-    msg.type = 1;
-    msg.len = 1;
-    msg.data = (void *)&cmd;
-    xQueueSend(dispQueue, &msg, 1000/portTICK_PERIOD_MS);
-#else
     set_dcx_control();
     io_write(spi_dfs8, (const uint8_t *)(&cmd), 1);
-#endif
 }
 
 //------------------------------------------------------------
 static void tft_write_byte(uint8_t* data_buf, uint32_t length)
 {
-#if USE_DISPLAY_TASK
-    disp_msg_t msg;
-    msg.dc = 1;
-    msg.type = 1;
-    msg.len = length;
-    msg.data = (void *)data_buf;
-    xQueueSend(dispQueue, &msg, 1000/portTICK_PERIOD_MS);
-#else
     set_dcx_data();
     io_write(spi_dfs8, (const uint8_t *)(data_buf), length);
-#endif
 }
 
 //-------------------------------------------------------------
 static void tft_write_half(uint16_t* data_buf, uint32_t length)
 {
-#if USE_DISPLAY_TASK
-    disp_msg_t msg;
-    msg.dc = 1;
-    msg.type = 2;
-    msg.len = length*2;
-    msg.data = (void *)data_buf;
-    xQueueSend(dispQueue, &msg, 1000/portTICK_PERIOD_MS);
-#else
     set_dcx_data();
     io_write(spi_dfs16, (const uint8_t *)(data_buf), length * 2);
-#endif
 }
 
 /*
 //-------------------------------------------------------------
 static void tft_write_word(uint32_t* data_buf, uint32_t length)
 {
-#if USE_DISPLAY_TASK
-    disp_msg_t msg;
-    msg.dc = 1;
-    msg.type = 3;
-    msg.len = length*4;
-    msg.data = (void *)data_buf;
-    xQueueSend(dispQueue, &msg, 1000/portTICK_PERIOD_MS);
-#else
     set_dcx_data();
     io_write(spi_dfs32, (const uint8_t *)data_buf, length * 4);
-#endif
 }
 */
 
 //-------------------------------------------------------
 static void tft_fill_data(uint32_t data, uint32_t length)
 {
-#if USE_DISPLAY_TASK
-    disp_msg_t msg;
-    msg.dc = 1;
-    msg.type = 3;
-    msg.len = length*4-1;
-    msg.data = (void *)&data;
-    xQueueSend(dispQueue, &msg, 1000/portTICK_PERIOD_MS);
-#else
     set_dcx_data();
-    spi_dev_fill(spi_dfs32, 0, data, data, length - 1);
-#endif
+    spi_dev_fill(spi_dfs32, 0, data, data, length/2 - 1);
 }
 
 
@@ -415,71 +355,38 @@ static void disp_spi_transfer_addrwin(uint16_t x1, uint16_t x2, uint16_t y1, uin
     tft_write_command(VERTICAL_ADDRESS_SET);
     tft_write_byte(data, 4);
     tft_write_command(MEMORY_WRITE);
-    //mp_hal_delay_us(50);
-}
-
-// Convert color to gray scale
-//------------------------------------
-static color_t color2gs(color_t color)
-{
-	color_t _color;
-    float gs_clr = GS_FACT_R * color.r + GS_FACT_G * color.g + GS_FACT_B * color.b;
-    if (gs_clr > 255) gs_clr = 255;
-
-    _color.r = (uint8_t)gs_clr;
-    _color.g = (uint8_t)gs_clr;
-    _color.b = (uint8_t)gs_clr;
-
-    return _color;
-}
-
-// Convert color to 16-bit 565 RGB value
-//------------------------------------
-static uint16_t color16(color_t color)
-{
-	uint16_t _color;
-	_color = (uint16_t)(color.b & 0xF8) << 8;
-	_color |= (uint16_t)(color.g & 0xFC) << 3;
-	_color |= (uint16_t)(color.r & 0xF8) >> 3;
-    return _color;
-}
-
-//============================================
-int wait_trans_finish(uint8_t free_line)
-{
-    return 0;
 }
 
 // Set display pixel at given coordinates to given color
 //=================================================
 void drawPixel(int16_t x, int16_t y, color_t color)
 {
-    color_t _color = color;
-	if (gray_scale) _color = color2gs(color);
+	if (use_frame_buffer) {
+	    int pos = y*_width + x;
+	    tft_frame_buffer[pos] = color;
+	    return;
+	}
 
 	disp_spi_transfer_addrwin(x, x, y, y);
 
-	if (bits_per_color == 16) {
-		uint16_t _color16 = color16(_color);
-	    tft_write_half(&_color16, 1);
-	}
-	else {
-	}
+    tft_write_half(&color, 1);
 }
 
 // Write 'len' color data to TFT 'window' (x1,y2),(x2,y2)
 //================================================================================
 void TFT_pushColorRep(int x1, int y1, int x2, int y2, color_t color, uint32_t len)
 {
-    color_t _color;
-    uint16_t  _color16 = 0;
+    if (use_frame_buffer) {
+        for (int y=y1; y<=y2; y++) {
+            for (int x=x1; x<=x2; x++) {
+                int pos = y*_width + x;
+                tft_frame_buffer[pos] = color;
+            }
+        }
+        return;
+    }
 
-    // Prepare fill color
-    if (gray_scale) _color = color2gs(color);
-    else _color = color;
-    _color16 = color16(_color);
-
-    uint32_t data = ((uint32_t)_color16 << 16) | (uint32_t)_color16;
+    uint32_t data = ((uint32_t)color << 16) | (uint32_t)color;
 
     // ** Send address window **
 	disp_spi_transfer_addrwin(x1, x2, y1, y2);
@@ -492,16 +399,17 @@ void TFT_pushColorRep(int x1, int y1, int x2, int y2, color_t color, uint32_t le
 //========================================================================
 void send_data(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf)
 {
-    color_t _color;
-    uint16_t  _color16 = 0;
-    // prepare color buffer
-    uint16_t *cbuf = malloc(len*2);
-
-    for (uint32_t i=0; i<len; i++) {
-        if (gray_scale) _color = color2gs(buf[i]);
-        else _color = buf[i];
-        _color16 = color16(_color);
-        cbuf[i] = _color16;
+    if (use_frame_buffer) {
+        int idx = 0;
+        for (int y=y1; y<y2; y++) {
+            for (int x=x1; x<x2; x++) {
+                int pos = y*_width + x;
+                tft_frame_buffer[pos] = buf[idx];
+                idx++;
+                if (idx >= len) return;
+            }
+        }
+        return;
     }
 
     // ** Send address window **
@@ -510,20 +418,19 @@ void send_data(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf)
     disp_spi_transfer_addrwin(x1, x2, y1, y2);
 
     // Send color buffer
-    tft_write_half(cbuf, len);
-    free(cbuf);
+    tft_write_half(buf, len);
 }
 
-//---------------------------------------------------------------------------
-void send_data16(int x1, int y1, int x2, int y2, uint32_t len, uint16_t *buf)
+//======================
+void send_frame_buffer()
 {
-    // ** Send address window **
-    if (x2 > x1) x2 -= 1;
-    if (y2 > y1) y2 -= 1;
-    disp_spi_transfer_addrwin(x1, x2, y1, y2);
+    if (use_frame_buffer) {
+        // ** Send address window **
+        disp_spi_transfer_addrwin(0, _width, 0, _height);
 
-    // Send color buffer
-    tft_write_half(buf, len);
+        // Send color buffer
+        tft_write_half(tft_frame_buffer, _width*_height);
+    }
 }
 
 //==================================
@@ -619,24 +526,6 @@ void _tft_setRotation(uint8_t rot) {
 
 }
 
-//---------------------------------------
-void bcklOff(display_config_t *dconfig) {
-}
-
-//--------------------------------------
-void bcklOn(display_config_t *dconfig) {
-}
-
-//===========================================
-void _tft_setBitsPerColor(uint8_t bitsperc) {
-}
-
-//----------------------------------------------
-int TFT_spiInit(display_config_t *dconfig)
-{
-	return 0;
-}
-
 //=================================================
 void TFT_display_setvars(display_config_t *dconfig)
 {
@@ -647,7 +536,6 @@ void TFT_display_setvars(display_config_t *dconfig)
     TFT_RGB_BGR = dconfig->bgr;
     gamma_curve = dconfig->gamma;
     spi_speed = dconfig->speed;
-    bits_per_color = dconfig->color_bits;
     invertrot = dconfig->invrot;
     // ===================================================
 }
@@ -656,35 +544,13 @@ void TFT_display_setvars(display_config_t *dconfig)
 // ==================================================
 int TFT_display_init(display_config_t *dconfig)
 {
-#if USE_DISPLAY_TASK
-    if (dispQueue == NULL) {
-        dispQueue = xQueueCreate( 32, sizeof(disp_msg_t) );
-        configASSERT(dispQueue);
-    }
-
-    xTaskCreateAtProcessor(
-            MainTaskProc ^ 1,           // processor
-            disp_task,                  // function entry
-            "display_task",             // task name
-            configMINIMAL_STACK_SIZE,   // stack_deepth
-            NULL,                       // function argument
-            10,                         // task priority
-            &disp_task_handle);         // task handle
-    configASSERT(disp_task_handle);
-#endif
-
     TFT_display_setvars(dconfig);
 
     if (!tft_init(2)) return -1;
     vTaskDelay(100);
 
-    // Clear screen
-    //_tft_setRotation(PORTRAIT);
-    // TFT_pushColorRep(0, 0, _width-1, _height-1, (color_t){0,0,0}, (uint32_t)(_height*_width));
-
-    ///Enable backlight
     return 0;
 }
 
-#endif // CONFIG_MICROPY_USE_DISPLAY
+#endif // MICROPY_USE_DISPLAY
 
