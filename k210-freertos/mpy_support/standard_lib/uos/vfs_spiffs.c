@@ -47,6 +47,7 @@
 #include "w25qxx.h"
 
 int spiffs_dbg_level = 0;
+bool force_erase_fs_flash = false;
 
 #if _MAX_SS == _MIN_SS
 #define SECSIZE(fs) (_MIN_SS)
@@ -56,10 +57,9 @@ int spiffs_dbg_level = 0;
 
 #define mp_obj_spiffs_vfs_t spiffs_user_mount_t
 
-#define FORMAT_FS_FORCE 0
 #define SPIFFS_MAX_OPEN_FILES   4
 
-const mp_obj_type_t mp_spiffs_vfs_type;
+//const mp_obj_type_t mp_spiffs_vfs_type;
 
 static char spiffs_current_dir[SPIFFS_OBJ_NAME_LEN-8] = {'\0'};
 static char spiffs_file_path[SPIFFS_OBJ_NAME_LEN] = {'\0'};
@@ -74,6 +74,8 @@ static SemaphoreHandle_t spiffs_lock = NULL; // FS lock
 static const char* TAG = "[VFS_SPIFFS]";
 
 spiffs_user_mount_t spiffs_user_mount_handle;
+spiffs_user_mount_t* vfs_spiffs = &spiffs_user_mount_handle;
+void *vfs_flashfs = &spiffs_user_mount_handle;
 
 static int *fs_check = NULL;
 
@@ -118,51 +120,6 @@ void spiffs_api_unlock(spiffs *fs)
     xSemaphoreGive(spiffs_lock);
 }
 
-// Create a default 'boot.py' file
-//----------------------------
-void check_boot_py(spiffs *fs)
-{
-    spiffs_file fd;
-    spiffs_stat fno;
-    int res = SPIFFS_stat(fs, "boot.py", &fno);
-    if (res == SPIFFS_OK) {
-        LOGD(TAG, "boot.py already exists");
-        return;
-    }
-
-    fd = SPIFFS_open(fs, "boot.py", SPIFFS_O_RDWR | SPIFFS_O_CREAT, 0);
-    if(fd <= 0) {
-        LOGE(TAG, "Error creating boot.py");
-    }
-    vfs_spiffs_update_meta(fs, fd, SPIFFS_TYPE_FILE);
-    char buf[128] = {'\0'};
-    sprintf(buf, "# This file is executed on every boot\nimport sys\nsys.path.append('/flash/lib')\n");
-    int len = strlen(buf);
-    res = SPIFFS_write(fs, fd, buf, len);
-    if ((res < 0) || (res != len)){
-        SPIFFS_clearerr(fs);
-        LOGE(TAG, "Error writing to boot.py");
-    }
-    res = SPIFFS_close(fs, fd);
-    if (res != SPIFFS_OK) {
-        SPIFFS_clearerr(fs);
-        LOGW(TAG, "Error closing boot.py");
-    }
-    LOGD(TAG, "boot.py created");
-}
-
-// Check if 'main.py' file exists
-//----------------------------
-bool check_main_py(spiffs *fs)
-{
-    spiffs_stat fno;
-    int res = SPIFFS_stat(fs, "boot.py", &fno);
-    if (res == SPIFFS_OK) {
-        return true;
-    }
-    return false;
-}
-
 //---------------------------------------------
 const char *spiffs_local_path(const char *path)
 {
@@ -203,14 +160,13 @@ const char *spiffs_local_path(const char *path)
     return lpath;
 }
 
-//----------------------------------
-MP_NOINLINE bool init_flash_spiffs()
+//--------------------------------------
+MP_NOINLINE bool init_flash_filesystem()
 {
     spiffs_lock = xSemaphoreCreateMutex();
     configASSERT(spiffs_lock);
 
     w25qxx_clear_counters();
-    spiffs_user_mount_t* vfs_spiffs = &spiffs_user_mount_handle;
     vfs_spiffs->flags = SYS_SPIFFS;
     vfs_spiffs->base.type = &mp_spiffs_vfs_type;
     vfs_spiffs->fs.user_data = vfs_spiffs;
@@ -224,6 +180,13 @@ MP_NOINLINE bool init_flash_spiffs()
     vfs_spiffs->cfg.log_block_size = SPIFFS_CFG_LOG_BLOCK_SZ();     // let us not complicate things
     vfs_spiffs->cfg.log_page_size = SPIFFS_CFG_LOG_PAGE_SZ();       // as we said
     #endif
+
+    if (force_erase_fs_flash) {
+        // Erase first 4 blocks (force format)
+        for (int i=MICRO_PY_FLASHFS_START_ADDRESS; i<(MICRO_PY_FLASHFS_START_ADDRESS+4); i++) {
+            sys_spiffs_erase(i, w25qxx_FLASH_SECTOR_SIZE);
+        }
+    }
     LOGD(TAG, "Spiffs mount.");
 
     int res = SPIFFS_mount(&vfs_spiffs->fs,
@@ -239,7 +202,7 @@ MP_NOINLINE bool init_flash_spiffs()
                         0,
 #endif
                         (void *)mp_spiffs_check_cb);
-    if (FORMAT_FS_FORCE || res != SPIFFS_OK || res==SPIFFS_ERR_NOT_A_FS)
+    if (res != SPIFFS_OK || res == SPIFFS_ERR_NOT_A_FS)
     {
         SPIFFS_unmount(&vfs_spiffs->fs);
         LOGD(TAG, "Spiffs Unmount.");
@@ -274,6 +237,7 @@ MP_NOINLINE bool init_flash_spiffs()
     else {
         LOGD(TAG, "Mount successful");
     }
+
     mp_vfs_mount_t *vfs = m_new_obj_maybe(mp_vfs_mount_t);
     if (vfs == NULL) {
         LOGE(TAG, "Cannot create new VFS");
@@ -291,8 +255,6 @@ MP_NOINLINE bool init_flash_spiffs()
     }
     LOGD(TAG, "Flash VFS registered.");
     sprintf(spiffs_current_dir, "%s", "");
-
-    check_boot_py(&vfs_spiffs->fs);
 
     return true;
 }
@@ -922,7 +884,7 @@ STATIC const mp_vfs_proto_t spiffs_vfs_proto = {
 
 const mp_obj_type_t mp_spiffs_vfs_type = {
     { &mp_type_type },
-    .name = MP_QSTR_VfsSpiffs,
+    .name = MP_QSTR_VfsFlashfs,
     .make_new = spiffs_vfs_make_new,
     .protocol = &spiffs_vfs_proto,
     .locals_dict = (mp_obj_dict_t*)&spiffs_vfs_locals_dict,

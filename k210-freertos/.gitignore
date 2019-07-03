@@ -8,6 +8,7 @@
 *.hex
 *.dis
 #*.exe
+*.dump
 
 # Packages 
 ############
@@ -21,6 +22,12 @@
 build/
 
 patches/
+test/
+
+__pycache__/
 
 *.id
+*.old
 qstrdefs.generated.h
+
+MaixPy.*

@@ -173,11 +173,12 @@ typedef struct _uarths
 extern uint32_t uarths_baudrate;
 
 /**
+ * LoBo
  * @brief       Initialization Core UART
  *
- * @return      result
- *     - 0      Success
- *     - Other  Fail
+ * @param[in]   baudrate       Required baudrate
+ * 
+ * @return      result baudrate
  */
 uint32_t uarths_init(uint32_t baudrate);
 

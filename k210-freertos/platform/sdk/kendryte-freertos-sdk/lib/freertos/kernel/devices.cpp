@@ -45,6 +45,13 @@ using namespace sys;
         }                                    \
     }
 
+#define CATCH_ALL           \
+    catch (errno_exception & e) \
+    {                       \
+        errno = e.code();    \
+        return -1;          \
+    }
+
 typedef struct
 {
     object_accessor<object_access> object;
@@ -57,8 +64,7 @@ static const char dummy_driver_name[] = "";
 uintptr_t fft_file_;
 uintptr_t aes_file_;
 uintptr_t sha256_file_;
-
-TaskHandle_t sys_devices_task_handle = NULL;
+uintptr_t kpu_file_;
 
 extern UBaseType_t uxCPUClockRate;
 
@@ -120,6 +126,7 @@ void install_drivers()
     fft_file_ = io_open("/dev/fft0");
     aes_file_ = io_open("/dev/aes0");
     sha256_file_ = io_open("/dev/sha256");
+    kpu_file_ = io_open("/dev/kpu0");
 }
 
 static _file *io_alloc_file(object_accessor<object_access> object)
@@ -194,19 +201,23 @@ static void dma_add_free();
 
 int io_read(handle_t file, uint8_t *buffer, size_t len)
 {
-    configASSERT(file >= HANDLE_OFFSET);
-    _file *rfile = (_file *)handles_[file - HANDLE_OFFSET];
-    /* clang-format off */
-    DEFINE_READ_PROXY(uart_driver)
-    else DEFINE_READ_PROXY(i2c_device_driver)
-    else DEFINE_READ_PROXY(spi_device_driver)
-    else DEFINE_READ_PROXY(filesystem_file)
-    else DEFINE_READ_PROXY(network_socket)
-    else
+    try
     {
-        return -1;
+        configASSERT(file >= HANDLE_OFFSET);
+        _file *rfile = (_file *)handles_[file - HANDLE_OFFSET];
+        /* clang-format off */
+        DEFINE_READ_PROXY(uart_driver)
+        else DEFINE_READ_PROXY(i2c_device_driver)
+        else DEFINE_READ_PROXY(spi_device_driver)
+        else DEFINE_READ_PROXY(filesystem_file)
+        else DEFINE_READ_PROXY(network_socket)
+        else
+        {
+            return -1;
+        }
+        /* clang-format on */
     }
-    /* clang-format on */
+    CATCH_ALL;
 }
 
 static void io_free(_file *file)
@@ -275,27 +286,39 @@ int io_close(handle_t file)
 
 int io_write(handle_t file, const uint8_t *buffer, size_t len)
 {
-    configASSERT(file >= HANDLE_OFFSET);
-    _file *rfile = (_file *)handles_[file - HANDLE_OFFSET];
-    /* clang-format off */
-    DEFINE_WRITE_PROXY(uart_driver)
-    else DEFINE_WRITE_PROXY(i2c_device_driver)
-    else DEFINE_WRITE_PROXY(spi_device_driver)
-    else DEFINE_WRITE_PROXY(filesystem_file)
-    else DEFINE_WRITE_PROXY(network_socket)
-    else
+    try
     {
-        return -1;
+        configASSERT(file >= HANDLE_OFFSET);
+        _file *rfile = (_file *)handles_[file - HANDLE_OFFSET];
+        /* clang-format off */
+        DEFINE_WRITE_PROXY(uart_driver)
+        else DEFINE_WRITE_PROXY(i2c_device_driver)
+        else DEFINE_WRITE_PROXY(spi_device_driver)
+        else DEFINE_WRITE_PROXY(filesystem_file)
+        else DEFINE_WRITE_PROXY(network_socket)
+        else
+        {
+            return -1;
+        }
+        /* clang-format on */
     }
-    /* clang-format on */
+    CATCH_ALL;
 }
 
 int io_control(handle_t file, uint32_t control_code, const uint8_t *write_buffer, size_t write_len, uint8_t *read_buffer, size_t read_len)
 {
-    _file *rfile = (_file *)handles_[file - HANDLE_OFFSET];
-    DEFINE_CONTROL_PROXY(custom)
-
-    return -1;
+    try
+    {
+        configASSERT(file >= HANDLE_OFFSET);
+        _file *rfile = (_file *)handles_[file - HANDLE_OFFSET];
+        DEFINE_CONTROL_PROXY(custom)
+        else
+        {
+            return -1;
+        }
+    }
+    CATCH_ALL;
+    
 }
 
 /* Device IO Implementation Helper Macros */
@@ -318,6 +341,33 @@ void uart_config(handle_t file, uint32_t baud_rate, uint32_t databits, uart_stop
 {
     COMMON_ENTRY(uart);
     uart->config(baud_rate, databits, stopbits, parity);
+}
+
+void uart_set_read_timeout(handle_t file, size_t millisecond)
+{
+    COMMON_ENTRY(uart);
+    uart->set_read_timeout(millisecond);
+}
+
+// LoBo: added functions
+//----------------------------------
+void *uart_get_driver(handle_t file)
+{
+    COMMON_ENTRY(uart);
+    return uart;
+}
+
+handle_t uart_get_handle(void *driver)
+{
+    _file *rfile;
+    for (int i=0; i<MAX_HANDLES; i++) {
+        rfile = (_file *)handles_[i];
+        if (rfile && rfile->object.is<uart_driver>()) {
+            auto t = rfile->object.as<uart_driver>();
+            if (t == driver) return (i + HANDLE_OFFSET);
+        }
+    }
+    return 0;
 }
 
 /* GPIO */
@@ -432,6 +482,19 @@ void i2s_stop(handle_t file)
 }
 
 /* SPI */
+// LoBo: changed function
+void spi_slave_config(handle_t file, size_t data_bit_length, uint8_t *data, uint32_t len, uint32_t ro_len, spi_slave_receive_callback_t callback, spi_slave_csum_callback_t csum_callback, int priority)
+{
+    COMMON_ENTRY(spi);
+    spi->slave_config(data_bit_length, data, len, ro_len, callback, csum_callback, priority);
+}
+
+// LoBo: added function
+void spi_slave_deinit(handle_t file)
+{
+    COMMON_ENTRY(spi);
+    spi->slave_deinit();
+}
 
 handle_t spi_get_device(handle_t file, spi_mode_t mode, spi_frame_format_t frame_format, uint32_t chip_select_mask, uint32_t data_bit_length)
 {
@@ -452,6 +515,20 @@ double spi_dev_set_clock_rate(handle_t file, double clock_rate)
     return spi_device->set_clock_rate(clock_rate);
 }
 
+// LoBo: added function
+bool spi_dev_set_xip_mode(handle_t file, bool enable)
+{
+    COMMON_ENTRY(spi_device);
+    return spi_device->set_xip_mode(enable);
+}
+
+// LoBo: added function
+void spi_dev_master_config_half_duplex(handle_t file, int8_t mosi, int8_t miso)
+{
+    COMMON_ENTRY(spi_device);
+    spi_device->master_config_half_duplex(mosi, miso);
+}
+
 int spi_dev_transfer_full_duplex(handle_t file, const uint8_t *write_buffer, size_t write_len, uint8_t *read_buffer, size_t read_len)
 {
     COMMON_ENTRY(spi_device);
@@ -462,6 +539,12 @@ int spi_dev_transfer_sequential(handle_t file, const uint8_t *write_buffer, size
 {
     COMMON_ENTRY(spi_device);
     return spi_device->transfer_sequential({ write_buffer, std::ptrdiff_t(write_len) }, { read_buffer, std::ptrdiff_t(read_len) });
+}
+
+int spi_dev_transfer_sequential_with_delay(handle_t file, const uint8_t *write_buffer, size_t write_len, uint8_t *read_buffer, size_t read_len, uint16_t delay)
+{
+    COMMON_ENTRY(spi_device);
+    return spi_device->transfer_sequential_with_delay({ write_buffer, std::ptrdiff_t(write_len) }, { read_buffer, std::ptrdiff_t(read_len) }, delay);
 }
 
 void spi_dev_fill(handle_t file, uint32_t instruction, uint32_t address, uint32_t value, size_t count)
@@ -764,6 +847,25 @@ void rtc_set_datetime(handle_t file, const struct tm *datetime)
     rtc->set_datetime(*datetime);
 }
 
+/* KPU */
+handle_t kpu_model_load_from_buffer(uint8_t *buffer)
+{
+    COMMON_ENTRY_FILE(kpu_file_, kpu);
+    return kpu->model_load_from_buffer(buffer);
+}
+
+int kpu_run(handle_t context, const uint8_t *src)
+{
+    COMMON_ENTRY_FILE(kpu_file_, kpu);
+    return kpu->run(context, src);
+}
+
+int kpu_get_output(handle_t context, uint32_t index, uint8_t **data, size_t *size)
+{
+    COMMON_ENTRY_FILE(kpu_file_, kpu);
+    return kpu->get_output(context, index, data, size);
+}
+
 /* HAL */
 
 static uintptr_t pic_file_;
@@ -940,9 +1042,13 @@ object_accessor<object_access> &sys::system_handle_to_object(handle_t file)
     return rfile->object;
 }
 
+// LoBo: changed
 uint32_t system_set_cpu_frequency(uint32_t frequency)
 {
-    sysctl_pll_set_freq(SYSCTL_PLL0, (sysctl->clk_sel0.aclk_divider_sel + 1) * 2 * frequency);
+    sysctl_clock_set_threshold(SYSCTL_THRESHOLD_ACLK, 0);
+
+    sysctl_pll_set_freq(SYSCTL_PLL0, 2 * frequency);
+
     uxCPUClockRate = sysctl_clock_get_freq(SYSCTL_CLOCK_CPU);
     uarths_init(uarths_baudrate);
     return uxCPUClockRate;

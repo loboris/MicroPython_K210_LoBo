@@ -129,6 +129,42 @@ typedef enum _spi_inst_addr_trans_mode
     SPI_AITM_AS_FRAME_FORMAT
 } spi_inst_addr_trans_mode_t;
 
+// LoBo: changed
+typedef enum {
+    SPI_CMD_NO_COMMAND,
+    SPI_CMD_TEST_COMMAND,
+    SPI_CMD_READ_INFO,
+    SPI_CMD_LAST_STATUS,
+    SPI_CMD_WRITE_DATA_BLOCK,
+    SPI_CMD_WRITE_DATA_BLOCK_CSUM,
+    SPI_CMD_READ_DATA_BLOCK,
+    SPI_CMD_READ_DATA_BLOCK_CSUM,
+} spi_slave_command_e;
+
+// LoBo: added
+typedef enum {
+    SPI_CMD_ERR_OK,
+    SPI_CMD_ERR_COMMAND,
+    SPI_CMD_ERR_CSUM,
+    SPI_CMD_ERR_DATA_CSUM,
+    SPI_CMD_ERR_ADDRESS,
+    SPI_CMD_ERR_LENGTH,
+    SPI_CMD_ERR_TIMEOUT,
+    SPI_CMD_ERR_ERROR,
+} spi_slave_command_errors_t;
+
+// Lobo: changed
+typedef struct
+{
+    uint8_t                     cmd;
+    spi_slave_command_errors_t  err;
+    uint32_t                    addr;
+    uint32_t                    len;
+} spi_slave_command_t;
+
+typedef int (*spi_slave_receive_callback_t)(void *ctx);
+typedef uint16_t (*spi_slave_csum_callback_t)(const uint8_t *buf, uint32_t count);
+
 typedef enum _video_format
 {
     VIDEO_FMT_RGB565,
@@ -321,6 +357,19 @@ typedef enum _dhcp_state
     DHCP_TIMEOUT,
     DHCP_FAIL
 } dhcp_state_t;
+
+#define SYS_IOCPARM_MASK    0x7fU           /* parameters must be < 128 bytes */
+#define SYS_IOC_VOID        0x20000000UL    /* no parameters */
+#define SYS_IOC_OUT         0x40000000UL    /* copy out parameters */
+#define SYS_IOC_IN          0x80000000UL    /* copy in parameters */
+#define SYS_IOC_INOUT       (SYS_IOC_IN | SYS_IOC_OUT) /* 0x20000000 distinguishes new & old ioctl's */
+#define SYS_IO(x, y)        (SYS_IOC_VOID | ((x) << 8) | (y))
+
+#define SYS_IOR(x, y, t)    (SYS_IOC_OUT | (((uint32_t)sizeof(t) & SYS_IOCPARM_MASK) << 16) | ((x) << 8) | (y))
+
+#define SYS_IOW(x, y, t)    (SYS_IOC_IN | (((uint32_t)sizeof(t) & SYS_IOCPARM_MASK) << 16) | ((x) << 8) | (y))
+
+#define SYS_FIONBIO         SYS_IOW('f', 126, uint32_t) /* set/clear non-blocking i/o */
 
 #ifdef __cplusplus
 }

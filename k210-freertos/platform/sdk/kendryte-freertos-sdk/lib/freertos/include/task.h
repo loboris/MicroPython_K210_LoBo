@@ -1489,6 +1489,32 @@ UBaseType_t uxTaskGetStackHighWaterMark( TaskHandle_t xTask ) PRIVILEGED_FUNCTIO
  */
 uint8_t* pxTaskGetStackStart( TaskHandle_t xTask) PRIVILEGED_FUNCTION;
 
+/**
+ * Returns the pointer to the location of the last item placed on the tasks stack associated with xTask.
+ *
+ * INCLUDE_pxTaskGetStackStart must be set to 1 in FreeRTOSConfig.h for
+ * this function to be available.
+ *
+ * @param xTask Handle of the task associated with the stack returned.
+ * Set xTask to NULL to return the stack of the calling task.
+ *
+ * @return A pointer to the location of the last item placed on the tasks stack.
+ */
+uint8_t* pxTaskGetStackTop( TaskHandle_t xTask) PRIVILEGED_FUNCTION;
+
+/**
+ * Returns the pointer to the highest valid address for the stack associated with xTask.
+ *
+ * INCLUDE_pxTaskGetStackStart must be set to 1 in FreeRTOSConfig.h for
+ * this function to be available.
+ *
+ * @param xTask Handle of the task associated with the stack returned.
+ * Set xTask to NULL to return the stack of the calling task.
+ *
+ * @return A pointer to highest valid address for the stack.
+ */
+uint8_t* pxTaskGetStackEnd( TaskHandle_t xTask) PRIVILEGED_FUNCTION;
+
 /* When using trace macros it is sometimes necessary to include task.h before
 FreeRTOS.h.  When this is done TaskHookFunction_t will not yet have been defined,
 so the following two prototypes will cause a compilation error.  This can be

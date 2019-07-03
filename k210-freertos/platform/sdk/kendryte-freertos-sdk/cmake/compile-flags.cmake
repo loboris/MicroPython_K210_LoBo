@@ -14,11 +14,15 @@ add_compile_flags(LD
 # C Flags Settings
 add_compile_flags(BOTH
         -mcmodel=medany
-		-march=rv64imafc
+        -mabi=lp64f
+        -march=rv64imafdc
+        -mstrict-align
+        -mfdiv
         -fno-common
         -ffunction-sections
         -fdata-sections
         -fstrict-volatile-bitfields
+        -falign-functions=64
         -O2
         -ggdb
         )

@@ -89,7 +89,7 @@
 #define LETOBE(x)     ((x >> 24) | ((x & 0x00FF0000) >> 8) | ((x & 0x0000FF00) << 8) | (x << 24))
 /* clang-format on */
 
-#define SPI_DEFAULT_CLOCK 16000000
+#define SPI_DEFAULT_CLOCK 25000000
 
 /**
  * @brief      w25qxx operating status enumerate
@@ -102,10 +102,14 @@ enum w25qxx_status_t
 };
 
 extern bool w25qxx_spi_check;
+extern bool w25qxx_debug;
 extern uint32_t w25qxx_flash_speed;
+extern uint32_t w25qxx_actual_speed;
 extern uint8_t work_trans_mode;
+
 void w25qxx_clear_counters();
 void w25qxx_get_counters(uint32_t *r, uint32_t *w, uint32_t *e, uint64_t *time);
+uint32_t w25qxx_max_speed();
 
 uint32_t w25qxx_init(uintptr_t spi_in, uint8_t mode, double clock_rate);
 enum w25qxx_status_t w25qxx_write_data(uint32_t addr, uint8_t* data_buf, uint32_t length);
@@ -114,6 +118,8 @@ enum w25qxx_status_t w25qxx_sector_erase(uint32_t addr);
 enum w25qxx_status_t w25qxx_is_busy(void);
 enum w25qxx_status_t w25qxx_wait_busy();
 enum w25qxx_status_t w25qxx_read_id(uint8_t *manuf_id, uint8_t *device_id);
+enum w25qxx_status_t w25qxx_enable_xip_mode(void);
+enum w25qxx_status_t w25qxx_disable_xip_mode(void);
 
 #endif
 

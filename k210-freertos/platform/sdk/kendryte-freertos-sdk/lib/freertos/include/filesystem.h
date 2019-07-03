@@ -23,6 +23,7 @@ extern "C"
 {
 #endif
 
+// LoBo: used for setting the file timestamp
 extern handle_t filesystem_rtc;
 
 /**

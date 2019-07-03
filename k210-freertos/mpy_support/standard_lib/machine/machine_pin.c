@@ -34,7 +34,12 @@
 #include "modmachine.h"
 #include "mphalport.h"
 
-#define MP_OBJ_IS_METH(o) (MP_OBJ_IS_OBJ(o) && (((mp_obj_base_t*)MP_OBJ_TO_PTR(o))->type->name == MP_QSTR_bound_method))
+typedef struct _task_params_t {
+    void *pin_obj;
+    void *thread_handle;
+} task_params_t;
+
+static task_params_t task_params;
 
 // ---------------------------------------------------------------
 // Each Pin have its own debounce task which runs in high priority
@@ -42,8 +47,14 @@
 //--------------------------------------------
 static void debounce_task(void *pvParameters)
 {
+    task_params_t *task_params = (task_params_t *)pvParameters;
+    // if the task uses some MicroPython functions, we have to save
+    // MicroPython state in local storage pointers
+    vTaskSetThreadLocalStoragePointer(NULL, THREAD_LSP_STATE, pvTaskGetThreadLocalStoragePointer((TaskHandle_t)task_params->thread_handle, THREAD_LSP_STATE));
+    vTaskSetThreadLocalStoragePointer(NULL, THREAD_LSP_ARGS, pvTaskGetThreadLocalStoragePointer((TaskHandle_t)task_params->thread_handle, THREAD_LSP_ARGS));
+
     // on entry, the pin interrupt is still disabled
-    machine_pin_obj_t *self = (machine_pin_obj_t *)pvParameters;
+    machine_pin_obj_t *self = (machine_pin_obj_t *)task_params->pin_obj;
     uint64_t notify_val = 0;
     int notify_res = 0;
     bool irq_passed;
@@ -236,14 +247,15 @@ static void _createDebounceTask( machine_pin_obj_t *self)
 {
     // Create the debounce task if needed
     if ((self->mode == GPIO_DM_INPUT) && (self->irq_debounce > 0) && (self->debounce_task == NULL)) {
+        task_params.pin_obj = (void *)self;
+        task_params.thread_handle = xTaskGetCurrentTaskHandle();
         char dbc_task_name[16];
         sprintf(dbc_task_name, "Pin_%02d_task", self->pin);
-        BaseType_t res = xTaskCreateAtProcessor(
-                MainTaskProc,               // processor
+        BaseType_t res = xTaskCreate(
                 debounce_task,              // function entry
                 dbc_task_name,              // task name
                 configMINIMAL_STACK_SIZE,   // stack_deepth
-                (void *)self,               // function argument
+                (void *)&task_params,        // function argument
                 12,                         // task priority
                 &self->debounce_task);      // task handle
         if (res != pdPASS) self->debounce_task = NULL;
@@ -281,9 +293,7 @@ mp_obj_t mp_pin_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, 
         mp_raise_ValueError("invalid pin");
     }
     if (mp_used_pins[wanted_pin].func != GPIO_FUNC_NONE) {
-        char info[64];
-        sprintf(info, "Pin in use by %s", gpiohs_funcs[mp_used_pins[wanted_pin].func]);
-        mp_raise_ValueError(info);
+        mp_raise_ValueError(gpiohs_funcs_in_use[mp_used_pins[wanted_pin].func]);
     }
     int pio_num = gpiohs_get_free();
     if (pio_num < 0) {
@@ -331,12 +341,14 @@ mp_obj_t mp_pin_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, 
     else gpio_set_drive_mode(gpiohs_handle, self->gpio, self->pull);
 
     mp_used_pins[self->pin].func = GPIO_FUNC_PIN;
+    mp_used_pins[self->pin].usedas = (self->mode == GPIO_DM_OUTPUT) ? GPIO_USEDAS_OUTPUT: GPIO_USEDAS_INPUT;
     mp_used_pins[self->pin].gpio = self->gpio;
     mp_used_pins[self->pin].fpioa_func = FUNC_GPIOHS0 + self->gpio;
 
     // set initial value
     if (self->mode == GPIO_DM_OUTPUT) {
         gpio_set_pin_value(gpiohs_handle, self->gpio, args[ARG_value].u_bool);
+        self->value = args[ARG_value].u_bool;
     }
 
     // Disable gpio interrupt
@@ -357,7 +369,7 @@ mp_obj_t mp_pin_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, 
         self->irq_type = (int8_t)args[ARG_trigger].u_int;
         self->irq_debounce = args[ARG_debounce].u_int;
 
-        if ((MP_OBJ_IS_FUN(args[ARG_handler].u_obj)) || (MP_OBJ_IS_METH(args[ARG_handler].u_obj))) {
+        if ((mp_obj_is_fun(args[ARG_handler].u_obj)) || (mp_obj_is_meth(args[ARG_handler].u_obj))) {
             self->irq_handler = args[ARG_handler].u_obj;
         }
 
@@ -408,11 +420,12 @@ STATIC mp_obj_t machine_pin_obj_init(mp_uint_t n_args, const mp_obj_t *pos_args,
         int pin_io_mode = args[ARG_mode].u_int;
         if ((pin_io_mode == GPIO_DM_INPUT) || (pin_io_mode == GPIO_DM_OUTPUT)) {
             self->mode = pin_io_mode;
+            mp_used_pins[self->pin].usedas = (self->mode == GPIO_DM_OUTPUT) ? GPIO_USEDAS_OUTPUT: GPIO_USEDAS_INPUT;
             if (self->mode == GPIO_DM_OUTPUT) {
                 self->pull = GPIO_DM_INPUT;
                 self->irq_type = GPIO_PE_NONE;
                 self->irq_debounce = 0;
-                self->irq_handler = NULL;
+                self->irq_handler = mp_const_none;
             }
             changed = true;
         }
@@ -433,6 +446,7 @@ STATIC mp_obj_t machine_pin_obj_init(mp_uint_t n_args, const mp_obj_t *pos_args,
             gpio_set_drive_mode(gpiohs_handle, self->gpio, self->mode);
             if (args[ARG_value].u_obj != MP_OBJ_NULL) {
                 gpio_set_pin_value(gpiohs_handle, self->gpio, args[ARG_value].u_bool);
+                self->value = args[ARG_value].u_bool;
             }
         }
         else gpio_set_drive_mode(gpiohs_handle, self->gpio, self->pull);
@@ -443,7 +457,7 @@ STATIC mp_obj_t machine_pin_obj_init(mp_uint_t n_args, const mp_obj_t *pos_args,
                 self->irq_type = (int8_t)args[ARG_trigger].u_int;
         }
 
-        if (((MP_OBJ_IS_FUN(args[ARG_handler].u_obj)) || (MP_OBJ_IS_METH(args[ARG_handler].u_obj))) && (self->irq_handler != args[ARG_handler].u_obj)) {
+        if (((mp_obj_is_fun(args[ARG_handler].u_obj)) || (mp_obj_is_meth(args[ARG_handler].u_obj))) && (self->irq_handler != args[ARG_handler].u_obj)) {
             self->irq_handler = args[ARG_handler].u_obj;
         }
 
@@ -470,7 +484,10 @@ STATIC mp_obj_t machine_pin_call(mp_obj_t self_in, size_t n_args, size_t n_kw, c
     machine_pin_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (n_args == 0) {
         // get pin
-        return mp_obj_new_int(gpio_get_pin_value(gpiohs_handle, self->gpio));
+        int value;
+        if (self->mode == GPIO_DM_OUTPUT) value = self->value;
+        else value = gpio_get_pin_value(gpiohs_handle, self->gpio);
+        return mp_obj_new_int(value);
     }
     else {
         // set pin
@@ -633,5 +650,5 @@ const mp_obj_type_t machine_pin_type = {
     .make_new = mp_pin_make_new,
     .call = machine_pin_call,
     .protocol = &pin_pin_p,
-    .locals_dict = (mp_obj_t)&machine_pin_locals_dict,
+    .locals_dict = (mp_obj_dict_t*)&machine_pin_locals_dict,
 };

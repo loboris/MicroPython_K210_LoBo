@@ -34,6 +34,7 @@ _**The following files were modified:**_
     * `FreeRTOSConfig.h`
   * portable/
     * `port.c`
+    * `portmacro.h`
 * third_party/
   * lwip/
     * src/

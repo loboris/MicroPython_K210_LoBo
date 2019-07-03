@@ -5,7 +5,7 @@
  *
  * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * Permission is hereby granted, vPortFree of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
@@ -209,21 +209,6 @@ int TFT_compare_colors(color_t c1, color_t c2)
 	return (c1 == c2) ? 0 : 1;
 }
 
-//-------------------------------------------------------------------------------------------------
-static void TFT_send_data(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf, uint8_t wait)
-{
-    send_data(x1, y1, x2, y2, len, buf);
-}
-
-// draw color pixel on screen
-//----------------------------------------------------------------------------
-static void TFT_drawPixe(int16_t x, int16_t y, color_t color, uint8_t sel)
-{
-    if ((x < dispWin.x1) || (y < dispWin.y1) || (x > dispWin.x2) || (y > dispWin.y2)) return;
-
-    drawPixel(x, y, color);
-}
-
 //-------------------------------------------------------------------------------------------
 static void TFT_pushRepColor(int x1, int y1, int x2, int y2, color_t color, uint32_t len)
 {
@@ -235,10 +220,13 @@ static void TFT_pushRepColor(int x1, int y1, int x2, int y2, color_t color, uint
 //===========================================================================================
 
 
-//====================================================================
-void TFT_drawPixel(int16_t x, int16_t y, color_t color, uint8_t sel) {
+// Draw color pixel on screen
+//=======================================================
+void TFT_drawPixel(int16_t x, int16_t y, color_t color) {
 
-	TFT_drawPixe(x+dispWin.x1, y+dispWin.y1, color, sel);
+    if ((x < dispWin.x1) || (y < dispWin.y1) || (x > dispWin.x2) || (y > dispWin.y2)) return;
+
+    drawPixel(x, y, color);
 }
 
 //--------------------------------------------------------------------------
@@ -319,7 +307,7 @@ static void _drawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, color_t co
       err -= dy;
       if (err < 0) {
         err += dx;
-        if (dlen == 1) TFT_drawPixe(y0, xs, color, 1);
+        if (dlen == 1) TFT_drawPixel(y0, xs, color);
         else _drawFastVLine(y0, xs, dlen, color);
         dlen = 0; y0 += ystep; xs = x0 + 1;
       }
@@ -333,7 +321,7 @@ static void _drawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, color_t co
       err -= dy;
       if (err < 0) {
         err += dx;
-        if (dlen == 1) TFT_drawPixe(xs, y0, color, 1);
+        if (dlen == 1) TFT_drawPixel(xs, y0, color);
         else _drawFastHLine(xs, y0, dlen, color);
         dlen = 0; y0 += ystep; xs = x0 + 1;
       }
@@ -425,20 +413,20 @@ static void drawCircleHelper(int16_t x0, int16_t y0, int16_t r, uint8_t cornerna
 		ddF_x += 2;
 		f += ddF_x;
 		if (cornername & 0x4) {
-			TFT_drawPixe(x0 + x, y0 + y, color, 0);
-			TFT_drawPixe(x0 + y, y0 + x, color, 0);
+			TFT_drawPixel(x0 + x, y0 + y, color);
+			TFT_drawPixel(x0 + y, y0 + x, color);
 		}
 		if (cornername & 0x2) {
-			TFT_drawPixe(x0 + x, y0 - y, color, 0);
-			TFT_drawPixe(x0 + y, y0 - x, color, 0);
+			TFT_drawPixel(x0 + x, y0 - y, color);
+			TFT_drawPixel(x0 + y, y0 - x, color);
 		}
 		if (cornername & 0x8) {
-			TFT_drawPixe(x0 - y, y0 + x, color, 0);
-			TFT_drawPixe(x0 - x, y0 + y, color, 0);
+			TFT_drawPixel(x0 - y, y0 + x, color);
+			TFT_drawPixel(x0 - x, y0 + y, color);
 		}
 		if (cornername & 0x1) {
-			TFT_drawPixe(x0 - y, y0 - x, color, 0);
-			TFT_drawPixe(x0 - x, y0 - y, color, 0);
+			TFT_drawPixel(x0 - y, y0 - x, color);
+			TFT_drawPixel(x0 - x, y0 - y, color);
 		}
 	}
 }
@@ -662,10 +650,10 @@ void TFT_drawCircle(int16_t x, int16_t y, int radius, color_t color) {
 	int x1 = 0;
 	int y1 = radius;
 
-	TFT_drawPixe(x, y + radius, color, 0);
-	TFT_drawPixe(x, y - radius, color, 0);
-	TFT_drawPixe(x + radius, y, color, 0);
-	TFT_drawPixe(x - radius, y, color, 0);
+	TFT_drawPixel(x, y + radius, color);
+	TFT_drawPixel(x, y - radius, color);
+	TFT_drawPixel(x + radius, y, color);
+	TFT_drawPixel(x - radius, y, color);
 	while(x1 < y1) {
 		if (f >= 0) {
 			y1--;
@@ -675,14 +663,14 @@ void TFT_drawCircle(int16_t x, int16_t y, int radius, color_t color) {
 		x1++;
 		ddF_x += 2;
 		f += ddF_x;
-		TFT_drawPixe(x + x1, y + y1, color, 0);
-		TFT_drawPixe(x - x1, y + y1, color, 0);
-		TFT_drawPixe(x + x1, y - y1, color, 0);
-		TFT_drawPixe(x - x1, y - y1, color, 0);
-		TFT_drawPixe(x + y1, y + x1, color, 0);
-		TFT_drawPixe(x - y1, y + x1, color, 0);
-		TFT_drawPixe(x + y1, y - x1, color, 0);
-		TFT_drawPixe(x - y1, y - x1, color, 0);
+		TFT_drawPixel(x + x1, y + y1, color);
+		TFT_drawPixel(x - x1, y + y1, color);
+		TFT_drawPixel(x + x1, y - y1, color);
+		TFT_drawPixel(x - x1, y - y1, color);
+		TFT_drawPixel(x + y1, y + x1, color);
+		TFT_drawPixel(x - y1, y + x1, color);
+		TFT_drawPixel(x + y1, y - x1, color);
+		TFT_drawPixel(x - y1, y - x1, color);
 	}
 }
 
@@ -699,13 +687,13 @@ void TFT_fillCircle(int16_t x, int16_t y, int radius, color_t color) {
 static void _draw_ellipse_section(uint16_t x, uint16_t y, uint16_t x0, uint16_t y0, color_t color, uint8_t option)
 {
     // upper right
-    if ( option & TFT_ELLIPSE_UPPER_RIGHT ) TFT_drawPixe(x0 + x, y0 - y, color, 0);
+    if ( option & TFT_ELLIPSE_UPPER_RIGHT ) TFT_drawPixel(x0 + x, y0 - y, color);
     // upper left
-    if ( option & TFT_ELLIPSE_UPPER_LEFT ) TFT_drawPixe(x0 - x, y0 - y, color, 0);
+    if ( option & TFT_ELLIPSE_UPPER_LEFT ) TFT_drawPixel(x0 - x, y0 - y, color);
     // lower right
-    if ( option & TFT_ELLIPSE_LOWER_RIGHT ) TFT_drawPixe(x0 + x, y0 + y, color, 0);
+    if ( option & TFT_ELLIPSE_LOWER_RIGHT ) TFT_drawPixel(x0 + x, y0 + y, color);
     // lower left
-    if ( option & TFT_ELLIPSE_LOWER_LEFT ) TFT_drawPixe(x0 - x, y0 + y, color, 0);
+    if ( option & TFT_ELLIPSE_LOWER_LEFT ) TFT_drawPixel(x0 - x, y0 + y, color);
 }
 
 //=====================================================================================================
@@ -933,7 +921,7 @@ static void _fillArcOffsetted(uint16_t cx, uint16_t cy, uint16_t radius, uint16_
 				(y == 0 && start == 0 && x > 0)
 				)
 				)
-				TFT_drawPixe(cx+x, cy+y, color, 0);
+				TFT_drawPixel(cx+x, cy+y, color);
 		}
 	}
 }
@@ -1090,7 +1078,7 @@ static int load_file_font(mp_obj_t fontfile, int info)
 	char err_msg[256] = {'\0'};
 
 	if (userfont != NULL) {
-		free(userfont);
+		vPortFree(userfont);
 		userfont = NULL;
 	}
 
@@ -1121,7 +1109,7 @@ static int load_file_font(mp_obj_t fontfile, int info)
 		goto exit;
 	}
 
-	userfont = malloc(fsize+4);
+	userfont = pvPortMalloc(fsize+4);
 	if (userfont == NULL) {
 		sprintf(err_msg, "Font memory allocation error");
         mp_stream_close(ffd);
@@ -1208,7 +1196,7 @@ static int load_file_font(mp_obj_t fontfile, int info)
 exit:
 	if (err) {
 		if (userfont) {
-			free(userfont);
+			vPortFree(userfont);
 			userfont = NULL;
 		}
 		if (info) mp_printf(&mp_plat_print, "Error: %d [%s]\r\n", err, err_msg);
@@ -1377,7 +1365,7 @@ static int printProportionalChar(int x, int y) {
 
 		// === buffer Glyph data for faster sending ===
 		len = (char_width+1) * cfont.y_size;
-		color_t *color_line = malloc(len*3);
+		color_t *color_line = pvPortMalloc(len*3);
 		if (color_line) {
 			// fill with background color
 			for (int n = 0; n < len; n++) {
@@ -1403,8 +1391,8 @@ static int printProportionalChar(int x, int y) {
 				}
 			}
 			// send to display in one transaction
-			TFT_send_data(x, y, x+char_width+1, y+cfont.y_size, len, color_line, 1);
-			free(color_line);
+			send_data(x, y, x+char_width+1, y+cfont.y_size, len, color_line);
+			vPortFree(color_line);
 
 			return char_width;
 		}
@@ -1424,7 +1412,7 @@ static int printProportionalChar(int x, int y) {
 			if ((ch & mask) !=0) {
 				cx = (uint16_t)(x+fontChar.xOffset+i);
 				cy = (uint16_t)(y+j+fontChar.adjYOffset);
-				TFT_drawPixe(cx, cy, _fg, 0);
+				TFT_drawPixel(cx, cy, _fg);
 			}
 			mask >>= 1;
 		}
@@ -1449,7 +1437,7 @@ static void printChar(uint8_t c, int x, int y) {
 	if ((font_buffered_char) && (!font_transparent)) {
 		// === buffer Glyph data for faster sending ===
 		len = cfont.x_size * cfont.y_size;
-		color_t *color_line = malloc(len*3);
+		color_t *color_line = pvPortMalloc(len*3);
 		if (color_line) {
 			// fill with background color
 			for (int n = 0; n < len; n++) {
@@ -1468,8 +1456,8 @@ static void printChar(uint8_t c, int x, int y) {
 				temp += (fz);
 			}
 			// send to display
-			TFT_send_data(x, y, x+cfont.x_size, y+cfont.y_size, len, color_line, 1);
-			free(color_line);
+			send_data(x, y, x+cfont.x_size, y+cfont.y_size, len, color_line);
+			vPortFree(color_line);
 
 			return;
 		}
@@ -1485,7 +1473,7 @@ static void printChar(uint8_t c, int x, int y) {
 				if ((ch & mask) !=0) {
 					cx = (uint16_t)(x+i+(k*8));
 					cy = (uint16_t)(y+j);
-					TFT_drawPixe(cx, cy, _fg, 0);
+					TFT_drawPixel(cx, cy, _fg);
 				}
 				mask >>= 1;
 			}
@@ -1514,8 +1502,8 @@ static int rotatePropChar(int x, int y, int offset) {
       int newX = (int)(x + (((offset + i) * cos_radian) - ((j+fontChar.adjYOffset)*sin_radian)));
       int newY = (int)(y + (((j+fontChar.adjYOffset) * cos_radian) + ((offset + i) * sin_radian)));
 
-      if ((ch & mask) != 0) TFT_drawPixe(newX,newY,_fg, 0);
-      else if (!font_transparent) TFT_drawPixe(newX,newY,_bg, 0);
+      if ((ch & mask) != 0) TFT_drawPixel(newX,newY,_fg);
+      else if (!font_transparent) TFT_drawPixel(newX,newY,_bg);
 
       mask >>= 1;
     }
@@ -1547,8 +1535,8 @@ static void rotateChar(uint8_t c, int x, int y, int pos) {
         newx=(int)(x+(((i+(zz*8)+(pos*cfont.x_size))*cos_radian)-((j)*sin_radian)));
         newy=(int)(y+(((j)*cos_radian)+((i+(zz*8)+(pos*cfont.x_size))*sin_radian)));
 
-        if ((ch & mask) != 0) TFT_drawPixe(newx,newy,_fg, 0);
-        else if (!font_transparent) TFT_drawPixe(newx,newy,_bg, 0);
+        if ((ch & mask) != 0) TFT_drawPixel(newx,newy,_fg);
+        else if (!font_transparent) TFT_drawPixel(newx,newy,_bg);
         mask >>= 1;
       }
     }
@@ -2227,7 +2215,7 @@ void TFT_jpg_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *buf, in
 
     if (scale > 3) scale = 3;
 
-	work = malloc(sz_work);
+	work = pvPortMalloc(sz_work);
 	if (work) {
         if (image_debug) mp_printf(&mp_plat_print, "Preparing JPG\n");
 		if (dev.membuff) rc = jd_prepare(&jd, tjd_buf_input, (void *)work, sz_work, &dev);
@@ -2249,7 +2237,7 @@ void TFT_jpg_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *buf, in
 			dev.y = y;
 
             if (!use_frame_buffer) {
-                dev.linbuf = malloc(JPG_IMAGE_LINE_BUF_SIZE*2);
+                dev.linbuf = pvPortMalloc(JPG_IMAGE_LINE_BUF_SIZE*2);
                 if (dev.linbuf == NULL) {
                     if (image_debug) mp_printf(&mp_plat_print, "Error allocating line buffer\r\n");
                     goto exit;
@@ -2274,8 +2262,8 @@ void TFT_jpg_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *buf, in
 	}
 
 exit:
-	if (work) free(work);  // free work buffer
-	if (dev.linbuf) free(dev.linbuf);
+	if (work) vPortFree(work);  // vPortFree work buffer
+	if (dev.linbuf) vPortFree(dev.linbuf);
     if (dev.fhndl) mp_stream_close(dev.fhndl);  // close input file
 }
 
@@ -2298,10 +2286,9 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 	uint16_t co[3] = {0,0,0};			// RGB sum
 	uint8_t npix;
 	uint16_t _color;
-	int idx16;
 
 	if (scale > 7) scale = 7;
-	scale_pix = scale+1;	// scale factor ( 1~8 )
+	scale_pix = scale+1;	// scale factor ( 1~6 )
 
     if (fname) {
     	// * File name is given, reading image from file
@@ -2343,7 +2330,6 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 
 	memcpy(&temp, buf+2, 4);				// file size
 	if (temp != size) {
-        printf("file size from file = %u\n", temp);
 	    err=-5;
 	    goto exit;
 	}
@@ -2419,25 +2405,26 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 		goto exit;
 	}
 
-	// ** Allocate memory for 2 lines of image pixels
-	line_buf = malloc(img_xsize*3);
+	// ** Allocate memory for line of image pixels
+	line_buf = pvPortMalloc(img_xsize*3);
+
 	if (line_buf == NULL) {
 	    sprintf(err_buf, "allocating line buffer");
 		err=-12;
 		goto exit;
 	}
 
+    rd_len = (img_xlen -img_xstart) * 3;
 	if (scale) {
+	    rd_len *= scale_pix;
 		// Allocate memory for scale buffer
-		rd_len = img_xlen * 3 * scale_pix;
-		scale_buf = malloc(rd_len*scale_pix);
+		scale_buf = pvPortMalloc(img_xsize*3*scale_pix);
 		if (scale_buf == NULL) {
 			sprintf(err_buf, "allocating scale buffer");
 			err=-14;
 			goto exit;
 		}
 	}
-	else rd_len = img_xlen * 3;
 
 	// ** ***************************************************** **
 	// ** BMP images are stored in file from LAST to FIRST line **
@@ -2455,18 +2442,18 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 		rd_len			length of color data which are read from image line in bytes
 	 */
 
-	// Set position in image to the first color data (beginning of the LAST line)
+	// Set position in image file to the first color data (beginning of the LAST line)
 	img_pos += (img_ystart * (img_xsize*3));
 	if (fhndl != mp_const_none) {
-        if (mp_stream_posix_lseek((void *)fhndl, img_pos, SEEK_CUR) < 0) {
+        if (mp_stream_posix_lseek((void *)fhndl, img_pos, SEEK_SET) < 0) {
 			sprintf(err_buf, "file seek at %d", img_pos);
 			err = -15;
 			goto exit;
 		}
 	}
 
-	if (image_debug) mp_printf(&mp_plat_print, "BMP: image size: (%d,%d) scale: %d disp size: (%d,%d) img xofs: %d img yofs: %d at: %d,%d; line buf: 2* %d scale buf: %d\r\n",
-			img_xsize, img_ysize, scale_pix, img_xlen, img_ylen, img_xstart, img_ystart, disp_xstart, disp_ystart, img_xsize*2, ((scale) ? (rd_len*scale_pix) : 0));
+	if (image_debug) mp_printf(&mp_plat_print, "BMP: image size: (%d,%d) scale: %d disp size: (%d,%d) img xofs: %d img yofs: %d at: %d,%d; line buf: %d scale buf: %d\r\n",
+			img_xsize, img_ysize, scale_pix, img_xlen, img_ylen, img_xstart, img_ystart, disp_xstart, disp_ystart, img_xsize*3, ((scale) ? (rd_len*scale_pix) : 0));
 
 	while ((disp_yend >= disp_ystart) && ((img_pos + (img_xsize*3)) <= size)) {
 		if (img_pos > size) {
@@ -2474,8 +2461,9 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 			err = -16;
 			goto exit;
 		}
+		int idx = 0;
 		if (scale == 0) {
-			// Read the line of color data into color buffer
+			// No scaling, read the line of color data into color buffer
 			if (fhndl != mp_const_none) {
 		        i = mp_stream_posix_read((void *)fhndl, line_buf, img_xsize*3); // read line of BGR pixels from file
 				if (i != (img_xsize*3)) {
@@ -2488,15 +2476,13 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 
 			if (img_xstart > 0)	memmove(line_buf, line_buf+(img_xstart*3), rd_len);
 			// Convert colors BGR-888 (BMP) -> 565color (DISPLAY) ===
-			idx16 = 0;
 			for (i=0; i < rd_len; i += 3) {
                 _color = (uint16_t)(line_buf[i+2] & 0xF8) << 8;  // R
                 _color |= (uint16_t)(line_buf[i+1] & 0xFC) << 3; // G
-                _color |= (uint16_t)(line_buf[i] & 0xF8) >> 3; // B
-                line_buf[idx16] = _color >> 8;
-                idx16++;
-                line_buf[idx16+1] = _color & 0xFF;
-                idx16++;
+                _color |= (uint16_t)(line_buf[i] & 0xF8) >> 3;   // B
+                line_buf[idx] = (uint8_t)(_color & 0xFF);
+                line_buf[idx+1] = (uint8_t)(_color >> 8);
+                idx += 2;
 			}
 			img_pos += (img_xsize*3);
 		}
@@ -2520,8 +2506,7 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
 			}
 
 			// Populate display line buffer
-			idx16 = 0;
-			for (int n=0;n<(img_xlen*3);n += 3) {
+			for (int n=0; n < (rd_len / scale_pix); n += 3) {
 				memset(co, 0, sizeof(co));	// initialize color sum
 				npix = 0;					// initialize number of pixels in scale rectangle
 
@@ -2541,20 +2526,20 @@ int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, 
                 _color = (uint16_t)((uint8_t)(co[0] / npix) & 0xF8) >> 3;   // R
                 _color |= (uint16_t)((uint8_t)(co[1] / npix) & 0xFC) << 3;  // G
                 _color |= (uint16_t)((uint8_t)(co[2] / npix) & 0xF8) << 8;  // B
-                line_buf[idx16] = _color >> 8;
-                line_buf[idx16+1] = _color & 0xFF;
-                idx16 += 2;
+                line_buf[idx+1] = (_color >> 8);
+                line_buf[idx] = (uint8_t)(_color & 0xFF);
+                idx += 2;
 			}
 		}
 
-		send_data(disp_xstart, disp_yend, disp_xend, disp_yend, img_xlen, (color_t *)line_buf);
+		send_data(disp_xstart, disp_yend, disp_xend+1, disp_yend+1, rd_len/scale_pix/3, (color_t *)line_buf);
 
 		disp_yend--;
 	}
 	err = 0;
 exit:
-	if (scale_buf) free(scale_buf);
-	if (line_buf) free(line_buf);
+	if (scale_buf) vPortFree(scale_buf);
+	if (line_buf) vPortFree(line_buf);
     if (fhndl != mp_const_none) mp_stream_close(fhndl);  // close input file
 	if ((err) && (image_debug)) mp_printf(&mp_plat_print, "Error: %d [%s]\r\n", err, err_buf);
 

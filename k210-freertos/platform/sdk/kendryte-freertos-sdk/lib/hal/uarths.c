@@ -19,7 +19,7 @@
 #include "uarths.h"
 
 volatile uarths_t *const uarths = (volatile uarths_t *)UARTHS_BASE_ADDR;
-
+// LoBo: added
 uint32_t uarths_baudrate = 115200;
 
 uint8_t uarths_read_byte()
@@ -68,6 +68,8 @@ size_t uarths_read(uint8_t* buffer, size_t len)
     return read;
 }
 
+// LoBo: this function requires baudrate parameter
+// and returns the baudrate value set
 uint32_t uarths_init(uint32_t baudrate)
 {
     uint32_t freq = sysctl_clock_get_freq(SYSCTL_CLOCK_CPU);

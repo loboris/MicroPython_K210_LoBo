@@ -229,6 +229,7 @@
     asm volatile ("csrrc %0, " #reg ", %1" : "=r"(__tmp) : "r"(bit)); \
   __tmp; })
 
+// LoBo: added reading 64-bit CSR
 #define read_csr64(reg) ({ unsigned long long __tmp; \
   asm volatile ("csrr %0, " #reg : "=r"(__tmp)); \
   __tmp; })

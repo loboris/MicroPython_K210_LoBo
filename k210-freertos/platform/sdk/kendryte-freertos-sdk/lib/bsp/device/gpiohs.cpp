@@ -181,6 +181,7 @@ private:
         {
             set_bit_idx(gpiohs.rise_ie.u32, pin, 0);
             set_bit_idx(gpiohs.rise_ip.u32, pin, 1);
+            // LoBo: handled in callback if exists
             if (pin_context.callback == NULL) set_bit_idx(gpiohs.rise_ie.u32, pin, 1);
         }
 
@@ -188,6 +189,7 @@ private:
         {
             set_bit_idx(gpiohs.fall_ie.u32, pin, 0);
             set_bit_idx(gpiohs.fall_ip.u32, pin, 1);
+            // LoBo: handled in callback if exists
             if (pin_context.callback == NULL) set_bit_idx(gpiohs.fall_ie.u32, pin, 1);
         }
 

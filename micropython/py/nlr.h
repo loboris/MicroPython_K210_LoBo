@@ -4,6 +4,7 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2013, 2014 Damien P. George
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -80,19 +81,13 @@ struct _nlr_buf_t {
     void *regs[MICROPY_NLR_NUM_REGS];
     #endif
 
-    #if MICROPY_ENABLE_PYSTACK
-    void *pystack;
-    #endif
+    void *pystack; // LoBo
 };
 
 // Helper macros to save/restore the pystack state
-#if MICROPY_ENABLE_PYSTACK
+// LoBo
 #define MP_NLR_SAVE_PYSTACK(nlr_buf) (nlr_buf)->pystack = MP_STATE_THREAD(pystack_cur)
 #define MP_NLR_RESTORE_PYSTACK(nlr_buf) MP_STATE_THREAD(pystack_cur) = (nlr_buf)->pystack
-#else
-#define MP_NLR_SAVE_PYSTACK(nlr_buf) (void)nlr_buf
-#define MP_NLR_RESTORE_PYSTACK(nlr_buf) (void)nlr_buf
-#endif
 
 // Helper macro to use at the start of a specific nlr_jump implementation
 #define MP_NLR_JUMP_HEAD(val, top) \

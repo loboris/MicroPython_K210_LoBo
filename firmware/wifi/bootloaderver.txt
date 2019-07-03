@@ -1,0 +1,1 @@
+LoBo ESP8266 Bootloader v1.2.0

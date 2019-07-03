@@ -106,6 +106,7 @@ set(lwipsixlowpan_SRCS
 )
 
 # PPP
+# LoBo: added polarssl sha256
 set(lwipppp_SRCS
     ${LWIP_DIR}/src/netif/ppp/auth.c
     ${LWIP_DIR}/src/netif/ppp/ccp.c
@@ -251,7 +252,7 @@ set(lwipallapps_SRCS
 set(LWIP_INCLUDE_DIRS ${LWIP_DIR}/src/include)
 
 # lwIP libraries
-add_library(lwipcore EXCLUDE_FROM_ALL ${lwipnoapps_SRCS})
+add_library(lwipcore EXCLUDE_FROM_ALL ${lwipnoapps_SRCS} ${lwipallapps_SRCS})
 target_compile_options(lwipcore PRIVATE ${LWIP_COMPILER_FLAGS})
 target_compile_definitions(lwipcore PRIVATE ${LWIP_DEFINITIONS}  ${LWIP_MBEDTLS_DEFINITIONS})
 target_include_directories(lwipcore PUBLIC ${LWIP_INCLUDE_DIRS} ${LWIP_MBEDTLS_INCLUDE_DIRS})

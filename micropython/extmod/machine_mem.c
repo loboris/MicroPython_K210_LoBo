@@ -4,6 +4,7 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2013, 2014 Damien P. George
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -69,21 +70,23 @@ STATIC mp_obj_t machine_mem_subscr(mp_obj_t self_in, mp_obj_t index, mp_obj_t va
     } else if (value == MP_OBJ_SENTINEL) {
         // load
         uintptr_t addr = MICROPY_MACHINE_MEM_GET_READ_ADDR(index, self->elem_size);
-        uint32_t val;
+        uint64_t val;
         switch (self->elem_size) {
             case 1: val = (*(uint8_t*)addr); break;
             case 2: val = (*(uint16_t*)addr); break;
-            default: val = (*(uint32_t*)addr); break;
+            case 4: val = (*(uint32_t*)addr); break;
+            default: val = (*(uint64_t*)addr); break;
         }
         return mp_obj_new_int(val);
     } else {
         // store
         uintptr_t addr = MICROPY_MACHINE_MEM_GET_WRITE_ADDR(index, self->elem_size);
-        uint32_t val = mp_obj_get_int_truncated(value);
+        uint64_t val = mp_obj_get_int_truncated(value);
         switch (self->elem_size) {
             case 1: (*(uint8_t*)addr) = val; break;
             case 2: (*(uint16_t*)addr) = val; break;
-            default: (*(uint32_t*)addr) = val; break;
+            case 4: (*(uint32_t*)addr) = val; break;
+            default: (*(uint64_t*)addr) = val; break;
         }
         return mp_const_none;
     }
@@ -99,5 +102,6 @@ const mp_obj_type_t machine_mem_type = {
 const machine_mem_obj_t machine_mem8_obj = {{&machine_mem_type}, 1};
 const machine_mem_obj_t machine_mem16_obj = {{&machine_mem_type}, 2};
 const machine_mem_obj_t machine_mem32_obj = {{&machine_mem_type}, 4};
+const machine_mem_obj_t machine_mem64_obj = {{&machine_mem_type}, 8};
 
 #endif // MICROPY_PY_MACHINE

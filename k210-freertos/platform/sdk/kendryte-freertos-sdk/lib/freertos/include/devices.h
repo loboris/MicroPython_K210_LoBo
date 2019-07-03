@@ -18,22 +18,11 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "osdefs.h"
-#include "FreeRTOS.h"
-#include "task.h"
-#include <semphr.h>
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
-
-#define SYS_DEVICES_EVENT_DEV_MASK  0xFF00000000000000
-#define SYS_DEVICES_EVENT_DATA_MASK 0x00FFFFFFFFFFFFFF
-#define SYS_DEVICES_EVENT_UART      0x0100000000000000
-
-#define SYS_UART_IRQ_BUFF_SIZE      255
-
-extern TaskHandle_t sys_devices_task_handle;
 
 /**
  * @brief       Open a device
@@ -105,6 +94,33 @@ int io_control(handle_t file, uint32_t control_code, const uint8_t *write_buffer
  * @param[in]   parity          The parity selection
  */
 void uart_config(handle_t file, uint32_t baud_rate, uint32_t databits, uart_stopbits_t stopbits, uart_parity_t parity);
+
+/**
+ * @brief       Set uart read blocking time.
+ *
+ * @param[in]   file            The UART handle
+ * @param[in]   millisecond     Blocking time
+ *
+ */
+void uart_set_read_timeout(handle_t file, size_t millisecond);
+
+/** LoBo
+ * @brief       Get UART driver from handle
+ *
+ * @param[in]   file            The UART handle
+ *
+ * @return      The uart driver pointer
+ */
+void *uart_get_driver(handle_t file);
+
+/** LoBo
+ * @brief       Get UART handle from driver pointer
+ *
+ * @param[in]   driver          The UART driver pointer
+ *
+ * @return      The uart handle
+ */
+handle_t uart_get_handle(void *driver);
 
 /**
  * @brief       Get the pin count of a GPIO controller
@@ -271,6 +287,41 @@ void i2s_start(handle_t file);
 void i2s_stop(handle_t file);
 
 /**
+ * LoBo
+ * @brief       Set spi slave configuration
+ *
+ * @param[in]   file                The SPI controller handle
+ * @param[in]   data_bit_length     Spi data bit length,suport 8/16/32 bit.
+ * @param[in]   data                SPI slave device data buffer pointer.
+ * @param[in]   len                 The length of SPI slave device data buffer.
+ * @param[in]   ro_len              The length of read only area at the end of the data buffer.
+ * @param[in]   callback            Callback of spi slave, called after processing command.
+ * @param[in]   csum_callback       Callback function fo processing the data csum
+ * @param[in]   priority            Internal FreeRTOS task priority.
+ *
+ * @return      Void
+ */
+void spi_slave_config(handle_t file, size_t data_bit_length, uint8_t *data, uint32_t len, uint32_t ro_len, spi_slave_receive_callback_t callback, spi_slave_csum_callback_t csum_callback, int priority);
+
+/**
+ * LoBo
+ * @brief       Deinitialize spi slave
+ *
+ * @param[in]   file                The SPI controller handle
+ *
+ * @return      Void
+ */
+void spi_slave_deinit(handle_t file);
+
+/**
+ * LoBo
+ * @brief       Set spi master configuration
+ *
+ * @return      Void
+ */
+void spi_dev_master_config_half_duplex(handle_t file, int8_t mosi, int8_t miso);
+
+/**
  * @brief       Register and open a SPI device
  *
  * @param[in]   file                    The SPI controller handle
@@ -305,6 +356,16 @@ void spi_dev_config_non_standard(handle_t file, uint32_t instruction_length, uin
  */
 double spi_dev_set_clock_rate(handle_t file, double clock_rate);
 
+/** LoBo
+ * @brief       Set the XIP mode of the SPI3 device
+ *
+ * @param[in]   file            The SPI device handle
+ * @param[in]   enable          enable or disable XIP mode
+ *
+ * @return      success status
+ */
+bool spi_dev_set_xip_mode(handle_t file, bool enable);
+
 /**
  * @brief       Transfer data between a SPI device using full duplex
  *
@@ -330,6 +391,20 @@ int spi_dev_transfer_full_duplex(handle_t file, const uint8_t *write_buffer, siz
  * @return      Actual bytes read
  */
 int spi_dev_transfer_sequential(handle_t file, const uint8_t *write_buffer, size_t write_len, uint8_t *read_buffer, size_t read_len);
+
+/** LoBo
+ * @brief       Write to then read from a SPI device
+ *
+ * @param[in]   file                The SPI device handle
+ * @param[in]   write_buffer        The source buffer
+ * @param[in]   write_len           Bytes to write
+ * @param[in]   read_buffer         The destination buffer
+ * @param[in]   read_len            Maximum bytes to read
+ * @param[in]   delay               Delay between write and read in us
+ *
+ * @return      Actual bytes read
+ */
+int spi_dev_transfer_sequential_with_delay(handle_t file, const uint8_t *write_buffer, size_t write_len, uint8_t *read_buffer, size_t read_len, uint16_t delay);
 
 /**
  * @brief       Fill a sequence of idential frame to a SPI device
@@ -833,6 +908,43 @@ void rtc_get_datetime(handle_t file, struct tm *datetime);
  * @param[out]  datetime        The datatime to be set
  */
 void rtc_set_datetime(handle_t file, const struct tm *datetime);
+
+/**
+ * @brief       Load model from buffer
+ *
+ * @param[in]   buffer      model data
+ *
+ * @return      result
+ *     - 0      Fail
+ *     - other  The kpu context handle
+ */
+handle_t kpu_model_load_from_buffer(uint8_t *buffer);
+
+/**
+ * @brief       KPU run.
+ *
+ * @param[in]   context         The kpu context handle
+ * @param[in]   src             The src data
+ *
+ * @return      result
+ *     - 0      Success
+ *     - other  Fail
+ */
+int kpu_run(handle_t context, const uint8_t *src);
+
+/**
+ * @brief       Get output data.
+ *
+ * @param[in]   context         The kpu context handle
+ * @param[in]   index           The output index.
+ * @param[out]  data            The address of the kpu output data address.
+ * @param[out]  size            The address of output data size
+ *
+ * @return      result
+ *     - 0      Success
+ *     - other  Fail
+ */
+int kpu_get_output(handle_t context, uint32_t index, uint8_t **data, size_t *size);
 
 #ifdef __cplusplus
 }

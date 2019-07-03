@@ -68,26 +68,12 @@
 #define ABORT1                  (0x41)  /* 'A' == 0x41, abort by user */
 #define ABORT2                  (0x61)  /* 'a' == 0x61, abort by user */
 
-#define NAK_TIMEOUT             (1000) // 1 second timeout
+#define NAK_TIMEOUT             (3000) // 1 second timeout
 #define MAX_ERRORS              (200)
 
 #define YM_MAX_FILESIZE         (10*1024*1024)
 
-static volatile uarths_t *const uarths = (volatile uarths_t *)UARTHS_BASE_ADDR;
 static char err_msg[128] = {'\0'};
-
-static recv_block_t recv_data = { NULL, 0, 0, false };
-
-//------------------------
-static void uart_consume()
-{
-    uarths_rxdata_t recv = uarths->rxdata;
-    //uint8_t c;
-    while (!recv.empty) {
-        //c = recv.data;
-        recv = uarths->rxdata;
-    }
-}
 
 //----------------------------
 static void send_CA ( void ) {
@@ -166,7 +152,7 @@ static int32_t Receive_Packet (uint8_t *data, int *length, uint32_t timeout)
     	return -2;
     default:
         mp_hal_delay_ms(100);
-    	uart_consume();
+        mp_hal_purge_uart_buffer();
     	return -1;
   }
 

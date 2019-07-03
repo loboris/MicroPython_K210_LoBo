@@ -4,6 +4,8 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2013, 2014 Damien P. George
+ * Copyright (c) 2014 Paul Sokolovsky
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -34,11 +36,13 @@
 #if MICROPY_ENABLE_GC
 
 #if MICROPY_DEBUG_VERBOSE // print debugging info
+extern const mp_print_t mp_debug_print;
 #define DEBUG_PRINT (1)
 #define DEBUG_printf DEBUG_printf
 #else // don't print debugging info
 #define DEBUG_PRINT (0)
 #define DEBUG_printf(...) (void)0
+//#define DEBUG_printf(f_, ...) printf((f_), ##__VA_ARGS__)
 #endif
 
 // make this 1 to dump the heap each time it changes
@@ -108,7 +112,7 @@
 void gc_init(void *start, void *end) {
     // align end pointer on block boundary
     end = (void*)((uintptr_t)end & (~(BYTES_PER_BLOCK - 1)));
-    DEBUG_printf("Initializing GC heap: %p..%p = " UINT_FMT " bytes\n", start, end, (byte*)end - (byte*)start);
+    DEBUG_GC_printf("Initializing GC heap: %p..%p = " UINT_FMT " bytes\r\n", start, end, (byte*)end - (byte*)start);
 
     // calculate parameters for GC (T=total, A=alloc table, F=finaliser table, P=pool; all in bytes):
     // T = A + F + P
@@ -164,12 +168,12 @@ void gc_init(void *start, void *end) {
     mp_thread_mutex_init(&MP_STATE_MEM(gc_mutex));
     #endif
 
-    DEBUG_printf("GC layout:\n");
-    DEBUG_printf("  alloc table at %p, length " UINT_FMT " bytes, " UINT_FMT " blocks\n", MP_STATE_MEM(gc_alloc_table_start), MP_STATE_MEM(gc_alloc_table_byte_len), MP_STATE_MEM(gc_alloc_table_byte_len) * BLOCKS_PER_ATB);
+    DEBUG_GC_printf("GC layout:\r\n");
+    DEBUG_GC_printf("      alloc table at %p, length " UINT_FMT " bytes, " UINT_FMT " blocks\r\n", MP_STATE_MEM(gc_alloc_table_start), MP_STATE_MEM(gc_alloc_table_byte_len), MP_STATE_MEM(gc_alloc_table_byte_len) * BLOCKS_PER_ATB);
 #if MICROPY_ENABLE_FINALISER
-    DEBUG_printf("  finaliser table at %p, length " UINT_FMT " bytes, " UINT_FMT " blocks\n", MP_STATE_MEM(gc_finaliser_table_start), gc_finaliser_table_byte_len, gc_finaliser_table_byte_len * BLOCKS_PER_FTB);
+    DEBUG_GC_printf("  finaliser table at %p, length " UINT_FMT " bytes, " UINT_FMT " blocks\r\n", MP_STATE_MEM(gc_finaliser_table_start), gc_finaliser_table_byte_len, gc_finaliser_table_byte_len * BLOCKS_PER_FTB);
 #endif
-    DEBUG_printf("  pool at %p, length " UINT_FMT " bytes, " UINT_FMT " blocks\n", MP_STATE_MEM(gc_pool_start), gc_pool_block_len * BYTES_PER_BLOCK, gc_pool_block_len);
+    DEBUG_GC_printf("             pool at %p, length " UINT_FMT " bytes, " UINT_FMT " blocks\r\n", MP_STATE_MEM(gc_pool_start), gc_pool_block_len * BYTES_PER_BLOCK, gc_pool_block_len);
 }
 
 void gc_lock(void) {
@@ -197,9 +201,10 @@ bool gc_is_locked(void) {
 
 #ifndef TRACE_MARK
 #if DEBUG_PRINT
-#define TRACE_MARK(block, ptr) DEBUG_printf("gc_mark(%p)\n", ptr)
+#define TRACE_MARK(block, ptr) DEBUG_printf("gc_mark(%p)\r\n", ptr)
 #else
-#define TRACE_MARK(block, ptr)
+//#define TRACE_MARK(block, ptr)
+#define TRACE_MARK(block, ptr) DEBUG_GC_printf("     trace: gc_mark(%p)\r\n", ptr)
 #endif
 #endif
 
@@ -293,7 +298,7 @@ STATIC void gc_sweep(void) {
                 }
 #endif
                 free_tail = 1;
-                DEBUG_printf("gc_sweep(%p)\n", PTR_FROM_BLOCK(block));
+                DEBUG_GC_printf("gc_sweep [HEAD] (%p)\r\n", (void *)PTR_FROM_BLOCK(block));
                 #if MICROPY_PY_GC_COLLECT_RETVAL
                 MP_STATE_MEM(gc_collected)++;
                 #endif
@@ -301,6 +306,7 @@ STATIC void gc_sweep(void) {
 
             case AT_TAIL:
                 if (free_tail) {
+                    DEBUG_GC_printf("gc_sweep [FREE TAIL] (%p)\r\n", (void *)PTR_FROM_BLOCK(block));
                     ATB_ANY_TO_FREE(block);
                     #if CLEAR_ON_SWEEP
                     memset((void*)PTR_FROM_BLOCK(block), 0, BYTES_PER_BLOCK);
@@ -309,6 +315,7 @@ STATIC void gc_sweep(void) {
                 break;
 
             case AT_MARK:
+                DEBUG_GC_printf("gc_sweep [MARK] (%p)\r\n", (void *)PTR_FROM_BLOCK(block));
                 ATB_MARK_TO_HEAD(block);
                 free_tail = 0;
                 break;
@@ -324,27 +331,44 @@ void gc_collect_start(void) {
     #endif
     MP_STATE_MEM(gc_stack_overflow) = 0;
 
-    // Trace root pointers.  This relies on the root pointers being organised
+    // Trace root pointers.  This relies on the root pointers being organized
     // correctly in the mp_state_ctx structure.  We scan nlr_top, dict_locals,
     // dict_globals, then the root pointer section of mp_state_vm.
-    void **ptrs = (void**)(void*)&mp_state_ctx;
+
+    //void **ptrs = (void**)(void*)&mp_state_ctx;
+    // LoBo: this is needed to get the correct MP state for the running thread
+    void **ptrs = (void**)(void*)MP_STATE_STATE();
     size_t root_start = offsetof(mp_state_ctx_t, thread.dict_locals);
     size_t root_end = offsetof(mp_state_ctx_t, vm.qstr_last_chunk);
+
+    DEBUG_GC_printf("[GC_COLLECT] root pointers\r\n");
     gc_collect_root(ptrs + root_start / sizeof(void*), (root_end - root_start) / sizeof(void*));
 
-    #if MICROPY_ENABLE_PYSTACK
-    // Trace root pointers from the Python stack.
-    ptrs = (void**)(void*)MP_STATE_THREAD(pystack_start);
-    gc_collect_root(ptrs, (MP_STATE_THREAD(pystack_cur) - MP_STATE_THREAD(pystack_start)) / sizeof(void*));
-    #endif
+    mp_obj_t args = MP_GET_ARGS();
+    if (args) {
+        DEBUG_GC_printf("[GC_COLLECT] arguments\r\n");
+        ptrs = (void**)(void*)args;
+        gc_collect_root(ptrs, 1);
+    }
+
+    if (MP_STATE_THREAD(pystack_enabled)) {
+        // Trace root pointers from the Python stack.
+        DEBUG_GC_printf("[GC_COLLECT] pystack\r\n");
+        ptrs = (void**)(void*)MP_STATE_THREAD(pystack_start);
+        gc_collect_root(ptrs, (MP_STATE_THREAD(pystack_cur) - MP_STATE_THREAD(pystack_start)) / sizeof(void*));
+    }
 }
 
 void gc_collect_root(void **ptrs, size_t len) {
+    DEBUG_GC_printf("  --> root at %p, size: %lu (%lu)\r\n", ptrs, len, len*sizeof(void *));
+    size_t n = 0;
     for (size_t i = 0; i < len; i++) {
         void *ptr = ptrs[i];
         if (VERIFY_PTR(ptr)) {
             size_t block = BLOCK_FROM_PTR(ptr);
             if (ATB_GET_KIND(block) == AT_HEAD) {
+                n++;
+                DEBUG_GC_printf("     %2lu %p\r\n", n, ptr);
                 // An unmarked head: mark it, and mark all its children
                 TRACE_MARK(block, ptr);
                 ATB_HEAD_TO_MARK(block);
@@ -436,7 +460,7 @@ void gc_info(gc_info_t *info) {
 void *gc_alloc(size_t n_bytes, unsigned int alloc_flags) {
     bool has_finaliser = alloc_flags & GC_ALLOC_FLAG_HAS_FINALISER;
     size_t n_blocks = ((n_bytes + BYTES_PER_BLOCK - 1) & (~(BYTES_PER_BLOCK - 1))) / BYTES_PER_BLOCK;
-    DEBUG_printf("gc_alloc(" UINT_FMT " bytes -> " UINT_FMT " blocks)\n", n_bytes, n_blocks);
+    DEBUG_printf("gc_alloc(" UINT_FMT " bytes -> " UINT_FMT " blocks)\r\n", n_bytes, n_blocks);
 
     // check for 0 allocation
     if (n_blocks == 0) {
@@ -483,7 +507,7 @@ void *gc_alloc(size_t n_bytes, unsigned int alloc_flags) {
         if (collected) {
             return NULL;
         }
-        DEBUG_printf("gc_alloc(" UINT_FMT "): no free mem, triggering GC\n", n_bytes);
+        DEBUG_printf("gc_alloc(" UINT_FMT "): no free mem, triggering GC\r\n", n_bytes);
         gc_collect();
         collected = 1;
         GC_ENTER();
@@ -516,7 +540,7 @@ found:
     // get pointer to first block
     // we must create this pointer before unlocking the GC so a collection can find it
     void *ret_ptr = (void*)(MP_STATE_MEM(gc_pool_start) + start_block * BYTES_PER_BLOCK);
-    DEBUG_printf("gc_alloc(%p)\n", ret_ptr);
+    DEBUG_printf("gc_alloc(%p)\r\n", ret_ptr);
 
     #if MICROPY_GC_ALLOC_THRESHOLD
     MP_STATE_MEM(gc_alloc_amount) += n_blocks;
@@ -576,7 +600,7 @@ void gc_free(void *ptr) {
         return;
     }
 
-    DEBUG_printf("gc_free(%p)\n", ptr);
+    DEBUG_printf("gc_free(%p)\r\n", ptr);
 
     if (ptr == NULL) {
         GC_EXIT();
@@ -786,7 +810,7 @@ void *gc_realloc(void *ptr_in, size_t n_bytes, bool allow_move) {
         return NULL;
     }
 
-    DEBUG_printf("gc_realloc(%p -> %p)\n", ptr_in, ptr_out);
+    DEBUG_printf("gc_realloc(%p -> %p)\r\n", ptr_in, ptr_out);
     memcpy(ptr_out, ptr_in, n_blocks * BYTES_PER_BLOCK);
     gc_free(ptr_in);
     return ptr_out;

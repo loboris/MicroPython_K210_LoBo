@@ -132,7 +132,7 @@ uint8_t TFT_RGB_BGR = 0;
 uint8_t gamma_curve = 0;
 uint32_t spi_speed = 4000000;
 
-uint16_t tft_frame_buffer[DEFAULT_TFT_DISPLAY_WIDTH*DEFAULT_TFT_DISPLAY_HEIGHT] = {0};
+uint16_t *tft_frame_buffer = NULL;
 // ====================================================
 
 //static const char TAG[] = "[TFTSPI]";
@@ -202,10 +202,10 @@ static bool tft_hard_init(void)
             return false;
         }
 
-        disp_pin_func[0] = (mp_fpioa_cfg_item_t){tft_dc_gpionum, DCX_IO, FUNC_GPIOHS0 + tft_dc_gpionum};
-        disp_pin_func[1] = (mp_fpioa_cfg_item_t){-1, 36, FUNC_SPI0_SS3};
-        disp_pin_func[2] = (mp_fpioa_cfg_item_t){-1, 39, FUNC_SPI0_SCLK};
-        disp_pin_func[3] = (mp_fpioa_cfg_item_t){tft_rst_gpionum, TFT_RST, FUNC_GPIOHS0 + tft_rst_gpionum};
+        disp_pin_func[0] = (mp_fpioa_cfg_item_t){tft_dc_gpionum, DCX_IO, GPIO_USEDAS_DCX, FUNC_GPIOHS0 + tft_dc_gpionum};
+        disp_pin_func[1] = (mp_fpioa_cfg_item_t){-1, 36, GPIO_USEDAS_CS, FUNC_SPI0_SS3};
+        disp_pin_func[2] = (mp_fpioa_cfg_item_t){-1, 39, GPIO_USEDAS_CLK, FUNC_SPI0_SCLK};
+        disp_pin_func[3] = (mp_fpioa_cfg_item_t){tft_rst_gpionum, TFT_RST, GPIO_USEDAS_RST, FUNC_GPIOHS0 + tft_rst_gpionum};
 
         if (!fpioa_check_pins(DISP_NUM_FUNC, disp_pin_func, GPIO_FUNC_DISP)) {
             gpiohs_set_free(tft_dc_gpionum);
@@ -362,8 +362,10 @@ static void disp_spi_transfer_addrwin(uint16_t x1, uint16_t x2, uint16_t y1, uin
 void drawPixel(int16_t x, int16_t y, color_t color)
 {
 	if (use_frame_buffer) {
-	    int pos = y*_width + x;
-	    tft_frame_buffer[pos] = color;
+        if ((y < _height) && (x < _width)) {
+            int pos = y*_width + x;
+            tft_frame_buffer[pos] = color;
+        }
 	    return;
 	}
 
@@ -379,8 +381,10 @@ void TFT_pushColorRep(int x1, int y1, int x2, int y2, color_t color, uint32_t le
     if (use_frame_buffer) {
         for (int y=y1; y<=y2; y++) {
             for (int x=x1; x<=x2; x++) {
-                int pos = y*_width + x;
-                tft_frame_buffer[pos] = color;
+                if ((y < _height) && (x < _width)) {
+                    int pos = y*_width + x;
+                    tft_frame_buffer[pos] = color;
+                }
             }
         }
         return;
@@ -403,8 +407,10 @@ void send_data(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf)
         int idx = 0;
         for (int y=y1; y<y2; y++) {
             for (int x=x1; x<x2; x++) {
-                int pos = y*_width + x;
-                tft_frame_buffer[pos] = buf[idx];
+                if ((y < _height) && (x < _width)) {
+                    int pos = y*_width + x;
+                    tft_frame_buffer[pos] = buf[idx];
+                }
                 idx++;
                 if (idx >= len) return;
             }
@@ -421,15 +427,43 @@ void send_data(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf)
     tft_write_half(buf, len);
 }
 
+//=============================================================================
+int get_framebuffer(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf)
+{
+    if (use_frame_buffer) {
+        int idx = 0;
+        for (int y=y1; y<y2; y++) {
+            for (int x=x1; x<x2; x++) {
+                if ((y < _height) && (x < _width)) {
+                    int pos = y*_width + x;
+                    buf[idx] = tft_frame_buffer[pos];
+                }
+                else buf[idx] = 0;
+                idx++;
+                if (idx >= len) return idx;
+            }
+        }
+        return idx;
+    }
+    return -1;
+}
+
+// ToDo: Why SPI drive cannot send more than ~120 KB at once !?
 //======================
 void send_frame_buffer()
 {
-    if (use_frame_buffer) {
+    if ((use_frame_buffer) && tft_frame_buffer) {
+        /*
         // ** Send address window **
-        disp_spi_transfer_addrwin(0, _width, 0, _height);
-
+        disp_spi_transfer_addrwin(0, _width-1, 0, _height-1);
         // Send color buffer
-        tft_write_half(tft_frame_buffer, _width*_height);
+        tft_write_half(tft_frame_buffer, 0xFC00);
+        */
+        // ** Send address window **
+        disp_spi_transfer_addrwin(0, _width-1, 0, _height/2-1);
+        tft_write_half(tft_frame_buffer, _width*_height/2);
+        disp_spi_transfer_addrwin(0, _width-1, _height/2, _height-1);
+        tft_write_half(tft_frame_buffer+(_width*_height/2), _width*_height/2);
     }
 }
 

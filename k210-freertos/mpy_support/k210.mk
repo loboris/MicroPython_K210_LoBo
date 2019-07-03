@@ -9,11 +9,15 @@ CFLAGS = \
 	-D__riscv64 \
 	-mcmodel=medany \
 	-march=rv64imafdc \
+	-mabi=lp64f \
+	-mstrict-align \
+	-mfdiv \
 	-fno-common \
 	-ffunction-sections \
 	-fdata-sections \
 	-fstrict-volatile-bitfields \
 	-fno-zero-initialized-in-bss \
+	-falign-functions=64 \
 	-O2 \
 	-ggdb \
 	-std=gnu11 \
@@ -46,11 +50,15 @@ CXXFLAGS := \
 	-D__riscv64 \
 	-mcmodel=medany \
 	-march=rv64imafdc \
+	-mabi=lp64f \
+	-mstrict-align \
+	-mfdiv \
 	-fno-common \
 	-ffunction-sections \
 	-fdata-sections \
 	-fstrict-volatile-bitfields \
 	-fno-zero-initialized-in-bss \
+	-falign-functions=64 \
 	-O2 \
 	-ggdb \
 	-std=gnu++17 \

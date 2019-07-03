@@ -37,6 +37,8 @@
 #include "sleep.h"
 #include "rtc.h"
 #include <devices.h>
+#include "syslog.h"
+#include "lwip/apps/sntp.h"
 
 #include "py/runtime.h"
 #include "extmod/utime_mphal.h"
@@ -46,6 +48,45 @@
 handle_t mp_rtc_rtc0;
 
 static time_t time_base = 0;
+
+//---------------------------------------------
+void _set_sys_time(struct tm *tm_inf, int zone)
+{
+    int tz = 0;
+    char tzs[16];
+
+    // time zone
+    if ((zone >= -11) && (zone <= 12)) {
+        tz = zone * -1;
+        if (tz >= 0) sprintf(tzs, "UTC+%d", tz);
+        else sprintf(tzs, "UTC%d", tz);
+    }
+    else {
+        sprintf(tzs, "UTC+0");
+    }
+
+    time_t seconds = mktime(tm_inf);
+    seconds += ((tz * -1) * 3600);
+    setenv("TZ", tzs, 1);
+    //tzset();
+
+    // Set system time
+    rtc_set_datetime(mp_rtc_rtc0, tm_inf); // set RTC time
+
+    /*
+    struct timeval tv;
+    struct timezone tzz;
+    tv.tv_sec = seconds;
+    tv.tv_usec = 0;
+    tzz.tz_minuteswest = tz * 60;
+    tzz.tz_dsttime = 0;
+    settimeofday(&tv, &tzz);
+    */
+
+    time_t rtc_seconds;
+    time(&rtc_seconds);                 // get system time
+    time_base = seconds-rtc_seconds;    // set time correction variable
+}
 
 /*
  * The time can be get either using the POSIX 'time()' function
@@ -183,7 +224,7 @@ STATIC mp_obj_t time_mktime(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    if (!MP_OBJ_IS_TYPE(args[0].u_obj, &mp_type_tuple)) {
+    if (!mp_obj_is_type(args[0].u_obj, &mp_type_tuple)) {
         mp_raise_TypeError("expected time tuple");
     }
 
@@ -191,24 +232,17 @@ STATIC mp_obj_t time_mktime(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t
     mp_obj_t *time_items;
     size_t n_items = 0;
     int tz = 0;
-    char tzs[16];
 
     mp_obj_get_array(args[0].u_obj, &n_items, &time_items);
     if (n_items < 6) {
         mp_raise_ValueError("expected at least 6-item time tuple");
     }
 
-    if (MP_OBJ_IS_INT(args[1].u_obj)) {
+    if (mp_obj_is_int(args[1].u_obj)) {
+        // time zone
         tz = mp_obj_get_int(args[1].u_obj);
-        if ((tz < -11) || (tz > 12)) {
-            mp_raise_ValueError("tz must be >= -11 and <= +12");
-        }
-        if (tz >= 0) sprintf(tzs, "UTC+%d", tz);
-        else sprintf(tzs, "UTC%d", tz);
     }
-    else {
-        sprintf(tzs, "UTC+0");
-    }
+
     tm_inf.tm_year = mp_obj_get_int(time_items[0]) - 1900;
     tm_inf.tm_mon = mp_obj_get_int(time_items[1]) - 1;
     tm_inf.tm_mday = mp_obj_get_int(time_items[2]);
@@ -218,20 +252,12 @@ STATIC mp_obj_t time_mktime(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t
     tm_inf.tm_wday = 0;
     tm_inf.tm_yday = 0;
 
-    time_t seconds = mktime(&tm_inf);
-    seconds += (tz * 3600);
-    setenv("TZ", tzs, 1);
-    //tzset();
-
     if (args[2].u_bool) {
         // Set system time
-        rtc_set_datetime(mp_rtc_rtc0, &tm_inf); // set RTC time
-
-        time_t rtc_seconds;
-        time(&rtc_seconds);                 // get system time
-        time_base = seconds-rtc_seconds;    // set time correction variable
+        _set_sys_time(&tm_inf, tz);
     }
 
+    time_t seconds = mktime(&tm_inf);
     return mp_obj_new_int(seconds);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(time_mktime_obj, 1, time_mktime);
@@ -247,7 +273,7 @@ STATIC mp_obj_t time_mktime(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    if (!MP_OBJ_IS_TYPE(args[0].u_obj, &mp_type_tuple)) {
+    if (!mp_obj_is_type(args[0].u_obj, &mp_type_tuple)) {
         mp_raise_TypeError("expected time tuple");
     }
 
@@ -261,7 +287,7 @@ STATIC mp_obj_t time_mktime(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t
         mp_raise_ValueError("expected at least 6-item time tuple");
     }
 
-    if (MP_OBJ_IS_STR(args[1].u_obj)) {
+    if (mp_obj_is_str(args[1].u_obj)) {
         tz = mp_obj_str_get_str(args[1].u_obj);
     }
     tm_inf.tm_year = mp_obj_get_int(time_items[0]) - 1900;

@@ -34,7 +34,7 @@
  * PPP_SUPPORT==1: Enable PPP.
  */
 #ifndef PPP_SUPPORT
-#define PPP_SUPPORT                     1
+#define PPP_SUPPORT                     1 // LoBo
 #endif
 
 /**
@@ -202,7 +202,7 @@
  * PAP_SUPPORT==1: Support PAP.
  */
 #ifndef PAP_SUPPORT
-#define PAP_SUPPORT                     0
+#define PAP_SUPPORT                     1
 #endif
 
 /**

@@ -31,7 +31,7 @@
 
 #if MICROPY_PY_FRAMEBUF
 
-#include "ports/stm32/font_petme128_8x8.h"
+#include "font_petme128_8x8.h"
 
 typedef struct _mp_obj_framebuf_t {
     mp_obj_base_t base;
@@ -244,6 +244,12 @@ static inline uint32_t getpixel(const mp_obj_framebuf_t *fb, int x, int y) {
     return formats[fb->format].getpixel(fb, x, y);
 }
 
+static void _setpixel(const mp_obj_framebuf_t *fb, int x, int y, uint32_t col) {
+    if (0 <= x && x < fb->width && 0 <= y && y < fb->height) {
+        setpixel(fb, x, y, col);
+    }
+}
+
 STATIC void fill_rect(const mp_obj_framebuf_t *fb, int x, int y, int w, int h, uint32_t col) {
     if (h < 1 || w < 1 || x + w <= 0 || y + h <= 0 || y >= fb->height || x >= fb->width) {
         // No operation needed.
@@ -444,11 +450,11 @@ STATIC mp_obj_t framebuf_line(size_t n_args, const mp_obj_t *args) {
     for (mp_int_t i = 0; i < dx; ++i) {
         if (steep) {
             if (0 <= y1 && y1 < self->width && 0 <= x1 && x1 < self->height) {
-                setpixel(self, y1, x1, col);
+                _setpixel(self, y1, x1, col);
             }
         } else {
             if (0 <= x1 && x1 < self->width && 0 <= y1 && y1 < self->height) {
-                setpixel(self, x1, y1, col);
+                _setpixel(self, x1, y1, col);
             }
         }
         while (e >= 0) {
@@ -460,12 +466,101 @@ STATIC mp_obj_t framebuf_line(size_t n_args, const mp_obj_t *args) {
     }
 
     if (0 <= x2 && x2 < self->width && 0 <= y2 && y2 < self->height) {
-        setpixel(self, x2, y2, col);
+        _setpixel(self, x2, y2, col);
     }
 
     return mp_const_none;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(framebuf_line_obj, 6, 6, framebuf_line);
+
+
+STATIC mp_obj_t framebuf_circle(size_t n_args, const mp_obj_t *args) {
+    (void)n_args;
+
+    mp_obj_framebuf_t *self = MP_OBJ_TO_PTR(args[0]);
+    mp_int_t x = mp_obj_get_int(args[1]);
+    mp_int_t y = mp_obj_get_int(args[2]);
+    mp_int_t radius = mp_obj_get_int(args[3]);
+    mp_int_t col = mp_obj_get_int(args[4]);
+
+    int f = 1 - radius;
+    int ddF_x = 1;
+    int ddF_y = -2 * radius;
+    int x1 = 0;
+    int y1 = radius;
+
+    _setpixel(self, y1, x1, col);
+    _setpixel(self, x, y + radius, col);
+    _setpixel(self, x, y - radius, col);
+    _setpixel(self, x + radius, y, col);
+    _setpixel(self, x - radius, y, col);
+    while(x1 < y1) {
+        if (f >= 0) {
+            y1--;
+            ddF_y += 2;
+            f += ddF_y;
+        }
+        x1++;
+        ddF_x += 2;
+        f += ddF_x;
+        _setpixel(self, x + x1, y + y1, col);
+        _setpixel(self, x - x1, y + y1, col);
+        _setpixel(self, x + x1, y - y1, col);
+        _setpixel(self, x - x1, y - y1, col);
+        _setpixel(self, x + y1, y + x1, col);
+        _setpixel(self, x - y1, y + x1, col);
+        _setpixel(self, x + y1, y - x1, col);
+        _setpixel(self, x - y1, y - x1, col);
+    }
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(framebuf_circle_obj, 5, 5, framebuf_circle);
+
+//-------------------------------------------------------------------------------------------------------------------------
+static void fillCircleHelper(mp_obj_framebuf_t *self, int x0, int y0, int r, uint8_t cornername, int delta, uint32_t color)
+{
+    int16_t f = 1 - r;
+    int16_t ddF_x = 1;
+    int16_t ddF_y = -2 * r;
+    int16_t x = 0;
+    int16_t y = r;
+    int16_t ylm = x0 - r;
+
+    while (x < y) {
+        if (f >= 0) {
+            if (cornername & 0x1) fill_rect(self, x0 + y, y0 - x, 1, 2 * x + 1 + delta, color);
+            if (cornername & 0x2) fill_rect(self, x0 - y, y0 - x, 1, 2 * x + 1 + delta, color);
+            ylm = x0 - y;
+            y--;
+            ddF_y += 2;
+            f += ddF_y;
+        }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        if ((x0 - x) > ylm) {
+            if (cornername & 0x1) fill_rect(self, x0 + x, y0 - y, 1, 2 * y + 1 + delta, color);
+            if (cornername & 0x2) fill_rect(self, x0 - x, y0 - y, 1, 2 * y + 1 + delta, color);
+        }
+    }
+}
+
+STATIC mp_obj_t framebuf_fillcircle(size_t n_args, const mp_obj_t *args) {
+    (void)n_args;
+
+    mp_obj_framebuf_t *self = MP_OBJ_TO_PTR(args[0]);
+    mp_int_t x = mp_obj_get_int(args[1]);
+    mp_int_t y = mp_obj_get_int(args[2]);
+    mp_int_t radius = mp_obj_get_int(args[3]);
+    mp_int_t col = mp_obj_get_int(args[4]);
+
+    fill_rect(self, x, y-radius, 1, 2*radius+1, col);
+    fillCircleHelper(self, x, y, radius, 3, 0, col);
+
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(framebuf_fillcircle_obj, 5, 5, framebuf_fillcircle);
 
 STATIC mp_obj_t framebuf_blit(size_t n_args, const mp_obj_t *args) {
     mp_obj_framebuf_t *self = MP_OBJ_TO_PTR(args[0]);
@@ -588,6 +683,8 @@ STATIC const mp_rom_map_elem_t framebuf_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_vline), MP_ROM_PTR(&framebuf_vline_obj) },
     { MP_ROM_QSTR(MP_QSTR_rect), MP_ROM_PTR(&framebuf_rect_obj) },
     { MP_ROM_QSTR(MP_QSTR_line), MP_ROM_PTR(&framebuf_line_obj) },
+    { MP_ROM_QSTR(MP_QSTR_circle), MP_ROM_PTR(&framebuf_circle_obj) },
+    { MP_ROM_QSTR(MP_QSTR_fill_circle), MP_ROM_PTR(&framebuf_fillcircle_obj) },
     { MP_ROM_QSTR(MP_QSTR_blit), MP_ROM_PTR(&framebuf_blit_obj) },
     { MP_ROM_QSTR(MP_QSTR_scroll), MP_ROM_PTR(&framebuf_scroll_obj) },
     { MP_ROM_QSTR(MP_QSTR_text), MP_ROM_PTR(&framebuf_text_obj) },

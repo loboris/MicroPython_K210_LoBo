@@ -100,10 +100,42 @@ public:
         COMMON_ENTRY;
         setup_device(device);
 
+        return _read(device, buffer);
+    }
+
+    int write(k_i2c_device_driver &device, gsl::span<const uint8_t> buffer)
+    {
+        COMMON_ENTRY;
+        setup_device(device);
+
+        return _write(device, buffer, true);
+    }
+
+    int transfer_sequential(k_i2c_device_driver &device, gsl::span<const uint8_t> write_buffer, gsl::span<uint8_t> read_buffer)
+    {
+        COMMON_ENTRY;
+        setup_device(device);
+
+        int ret = 0;
+
+        if (write_buffer.size() > 0) ret = _write(device, write_buffer, (read_buffer.size() == 0));
+        if (read_buffer.size() > 0) ret = _read(device, read_buffer);
+
+        return ret;
+    }
+
+private:
+    void setup_device(k_i2c_device_driver &device);
+
+    int _read(k_i2c_device_driver &device, gsl::span<uint8_t> buffer)
+    {
+        i2c_.clr_tx_abrt = i2c_.clr_tx_abrt;
+
         uint8_t fifo_len, index;
         size_t len = buffer.size();
         size_t rx_len = len;
         size_t read = 0;
+        int abrt = 0;
         auto it = buffer.begin();
 
         fifo_len = rx_len < 7 ? rx_len : 7;
@@ -122,66 +154,46 @@ public:
             fifo_len = len < fifo_len ? len : fifo_len;
             for (index = 0; index < fifo_len; index++)
                 i2c_.data_cmd = I2C_DATA_CMD_CMD;
-            if (i2c_.tx_abrt_source != 0)
+            abrt = i2c_.tx_abrt_source;
+            if ((abrt != 0) && (read == 0)) {
+                return (abrt * -1);
+            }
+            else if (abrt != 0) {
                 return read;
+            }
             len -= fifo_len;
         }
 
         return read;
     }
 
-    int write(k_i2c_device_driver &device, gsl::span<const uint8_t> buffer)
+    int _write(k_i2c_device_driver &device, gsl::span<const uint8_t> buffer, bool stop)
     {
-        COMMON_ENTRY;
-        setup_device(device);
-
-        uintptr_t dma_write = dma_open_free();
-
-        dma_set_request_source(dma_write, dma_req_ + 1);
-        dma_transmit(dma_write, buffer.data(), &i2c_.data_cmd, 1, 0, 1, buffer.size(), 4);
-        dma_close(dma_write);
-
-        while (i2c_.status & I2C_STATUS_ACTIVITY)
+        size_t fifo_len, index;
+        i2c_.clr_tx_abrt = i2c_.clr_tx_abrt;
+        size_t send_buf_len = buffer.size();
+        auto it = buffer.begin();
+        int abrt = 0;
+        while (send_buf_len)
         {
-            if (i2c_.tx_abrt_source != 0)
-                configASSERT(!"source abort");
+            fifo_len = 8 - i2c_.txflr;
+            fifo_len = send_buf_len < fifo_len ? send_buf_len : fifo_len;
+            for (index = 0; index < fifo_len; index++)
+                i2c_.data_cmd = I2C_DATA_CMD_DATA(*it++);
+            abrt = i2c_.tx_abrt_source;
+            if (abrt != 0) return (abrt * -1);
+            send_buf_len -= fifo_len;
+        }
+        if (stop) {
+            // generate stop condition
+            while ((i2c_.status & I2C_STATUS_ACTIVITY) || !(i2c_.status & I2C_STATUS_TFE))
+                ;
+
+            abrt = i2c_.tx_abrt_source;
+            if (abrt != 0) return (abrt * -1);
         }
         return buffer.size();
     }
-
-    int transfer_sequential(k_i2c_device_driver &device, gsl::span<const uint8_t> write_buffer, gsl::span<uint8_t> read_buffer)
-    {
-        COMMON_ENTRY;
-        setup_device(device);
-
-        auto write_cmd = std::make_unique<uint32_t[]>(write_buffer.size() + read_buffer.size());
-        size_t i;
-        for (i = 0; i < write_buffer.size(); i++)
-            write_cmd[i] = write_buffer[i];
-        for (i = 0; i < read_buffer.size(); i++)
-            write_cmd[i + write_buffer.size()] = I2C_DATA_CMD_CMD;
-
-        uintptr_t dma_write = dma_open_free();
-        uintptr_t dma_read = dma_open_free();
-        SemaphoreHandle_t event_read = xSemaphoreCreateBinary(), event_write = xSemaphoreCreateBinary();
-
-        dma_set_request_source(dma_write, dma_req_ + 1);
-        dma_set_request_source(dma_read, dma_req_);
-
-        dma_transmit_async(dma_read, &i2c_.data_cmd, read_buffer.data(), 0, 1, 1, read_buffer.size(), 1, event_read);
-        dma_transmit_async(dma_write, write_cmd.get(), &i2c_.data_cmd, 1, 0, sizeof(uint32_t), write_buffer.size() + read_buffer.size(), 4, event_write);
-
-        configASSERT(xSemaphoreTake(event_read, portMAX_DELAY) == pdTRUE && xSemaphoreTake(event_write, portMAX_DELAY) == pdTRUE);
-
-        dma_close(dma_write);
-        dma_close(dma_read);
-        vSemaphoreDelete(event_read);
-        vSemaphoreDelete(event_write);
-        return read_buffer.size();
-    }
-
-private:
-    void setup_device(k_i2c_device_driver &device);
 
     double i2c_get_hlcnt(double clock_rate, uint32_t &hcnt, uint32_t &lcnt)
     {

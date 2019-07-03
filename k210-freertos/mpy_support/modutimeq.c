@@ -30,6 +30,7 @@
  */
 
 #include <string.h>
+#include <stdlib.h>
 #include <math.h>
 #include "py/objlist.h"
 #include "py/runtime.h"
@@ -63,7 +64,7 @@ STATIC mp_obj_utimeq_t *get_heap(mp_obj_t heap_in) {
 //----------------------------------------------------------------
 STATIC int compare_times(const void * item, const void * parent) {
     int ret = 0;
-    mp_uint_t res = ((struct qentry *)parent)->time - ((struct qentry *)item)->time;
+    mp_int_t res = ((struct qentry *)parent)->time - ((struct qentry *)item)->time;
 	ret = (res < 0) ? -1 : 1;
     if (res == 0) {
     	ret = (((struct qentry *)parent)->id - ((struct qentry *)item)->id);
@@ -140,7 +141,7 @@ STATIC mp_obj_t mod_utimeq_heappop(mp_obj_t heap_in, mp_obj_t list_ref) {
         nlr_raise(mp_obj_new_exception_msg(&mp_type_IndexError, "empty heap"));
     }
     mp_obj_list_t *ret = MP_OBJ_TO_PTR(list_ref);
-    if (!MP_OBJ_IS_TYPE(list_ref, &mp_type_list) || ret->len < 3) {
+    if (!mp_obj_is_type(list_ref, &mp_type_list) || ret->len < 3) {
         mp_raise_TypeError(NULL);
     }
 
@@ -173,7 +174,7 @@ STATIC mp_obj_t mod_utimeq_heappeek(mp_obj_t heap_in, mp_obj_t idx_in, mp_obj_t 
         nlr_raise(mp_obj_new_exception_msg(&mp_type_IndexError, "wrong heap index"));
 	}
     mp_obj_list_t *ret = MP_OBJ_TO_PTR(list_ref);
-    if (!MP_OBJ_IS_TYPE(list_ref, &mp_type_list) || ret->len < 3) {
+    if (!mp_obj_is_type(list_ref, &mp_type_list) || ret->len < 3) {
         mp_raise_TypeError(NULL);
     }
 
@@ -208,12 +209,12 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_utimeq_peektime_obj, 1, 2, mod_ut
 //------------------------------------------------
 STATIC mp_obj_t mod_utimeq_len(mp_obj_t heap_in) {
     mp_obj_utimeq_t *heap = get_heap(heap_in);
-    mp_obj_tuple_t *t = mp_obj_new_tuple(2, NULL);
+    mp_obj_t tuple[3];
 
-    t->items[0] = mp_obj_new_int(heap->len);
-	t->items[1] = mp_obj_new_int(heap->alloc);
+    tuple[0] = mp_obj_new_int(heap->len);
+	tuple[1] = mp_obj_new_int(heap->alloc);
 
-    return t;
+    return mp_obj_new_tuple(2, tuple);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_utimeq_len_obj, mod_utimeq_len);
 

@@ -37,14 +37,9 @@
 #include <mpthreadport.h>
 #endif
 
-struct _mp_state_thread_t;
-
-extern struct _mp_state_thread_t *mp_thread_get_state(void);
-extern void mp_thread_set_state(void *state);
-extern void *mp_thread_create(void *entry, void *arg, size_t task_stack_size, size_t pystack_size, char *name, bool same_core, int priority);
-extern void mp_thread_start(void);
-extern void mp_thread_finish(void);
-extern void mp_thread_remove_thread();
+//struct _mp_state_thread_t;
+void mp_thread_finish(void);
+void mp_thread_remove_thread();
 
 #endif // MICROPY_PY_THREAD
 

@@ -4,6 +4,7 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2015 Damien P. George
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -38,6 +39,7 @@ extern const mp_obj_type_t machine_mem_type;
 extern const machine_mem_obj_t machine_mem8_obj;
 extern const machine_mem_obj_t machine_mem16_obj;
 extern const machine_mem_obj_t machine_mem32_obj;
+extern const machine_mem_obj_t machine_mem64_obj;
 
 #if defined(MICROPY_MACHINE_MEM_GET_READ_ADDR)
 uintptr_t MICROPY_MACHINE_MEM_GET_READ_ADDR(mp_obj_t addr_o, uint align);

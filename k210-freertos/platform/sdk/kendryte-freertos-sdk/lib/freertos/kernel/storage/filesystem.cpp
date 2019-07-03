@@ -20,12 +20,14 @@
 #include <cstring>
 #include <diskio.h>
 #include <ff.h>
+// LoBo: needed for set timestamp
 #include "rtc.h"
 
 using namespace sys;
 
 #define MAX_FILE_SYSTEMS 16
 
+// LoBo: added for set timestamp
 handle_t filesystem_rtc = 0;
 
 static void check_fatfs_error(FRESULT result)
@@ -429,6 +431,7 @@ extern "C"
         return RES_OK;
     }
 
+    // LoBo: set timestamp from RTC
     DWORD get_fattime(void)
     {
         if (filesystem_rtc == 0) return 0;

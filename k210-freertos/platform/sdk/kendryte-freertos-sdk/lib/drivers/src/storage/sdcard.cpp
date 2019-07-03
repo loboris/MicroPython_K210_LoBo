@@ -50,7 +50,7 @@ using namespace sys;
 #define SD_CMD59 59 /*!< CMD59 = 0x59 */
 
 #define SD_SPI_LOW_CLOCK_RATE 200000U
-#define SD_SPI_HIGH_CLOCK_RATE 25000000U
+#define SD_SPI_HIGH_CLOCK_RATE 25000000U // LoBo
 #define SPI_SLAVE_SELECT 3
 
 /** 

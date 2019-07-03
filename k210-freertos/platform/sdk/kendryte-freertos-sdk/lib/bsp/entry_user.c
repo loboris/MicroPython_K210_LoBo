@@ -46,6 +46,7 @@ void _init_bsp()
     /* Setup clocks */
     setup_clocks();
     /* Init UART */
+    // LoBo: uarths_init requires baudrate
     uarths_init(uarths_baudrate);
 
     exit(os_entry(main));

@@ -1,9 +1,9 @@
 /*
- * This file is part of the MicroPython project, http://micropython.org/
+ * This file is part of the MicroPython K210 project, https://github.com/loboris/MicroPython_K210_LoBo
  *
  * The MIT License (MIT)
  *
- * Copyright (c) 2013, 2014 Damien P. George
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,8 +25,8 @@
  */
 
 #include "py/mpconfig.h"
-#if MICROPY_VFS && MICROPY_VFS_SPIFFS
 
+#if MICROPY_VFS && MICROPY_VFS_SPIFFS
 
 #include <stdio.h>
 #include <time.h>
@@ -311,6 +311,7 @@ STATIC mp_obj_t file_open(spiffs_user_mount_t *vfs, const mp_obj_type_t *type, m
 
 	fp.fs = &vfs->fs;
     if(fp.fd <= 0) {
+        m_del_obj(spiffs_file_obj_t, o);
         mp_raise_OSError(SPIFFS_errno_table[SPIFFS_ERR_NOT_FOUND]);
     }
     o->fp = fp;

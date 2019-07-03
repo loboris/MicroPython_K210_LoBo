@@ -12,6 +12,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+// LoBo: various changes added
 #ifndef _SYSLOG_H
 #define _SYSLOG_H
 
@@ -20,6 +21,8 @@
 #include <printf.h>
 #include <encoding.h>
 #include "sysctl.h"
+#include "FreeRTOS.h"
+#include "semphr.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -88,35 +91,58 @@ enum kendryte_log_level_e
 #define LOG_COLOR_BLUE    "34"
 #define LOG_COLOR_PURPLE  "35"
 #define LOG_COLOR_CYAN    "36"
-#define LOG_COLOR(COLOR)  "\033[0;" COLOR "m"
-#define LOG_BOLD(COLOR)   "\033[1;" COLOR "m"
+//#define LOG_COLOR(COLOR)  "\033[0;" COLOR "m"
+//#define LOG_BOLD(COLOR)   "\033[1;" COLOR "m"
+//#define LOG_RESET_COLOR   "\033[0m"
+#define LOG_COLOR(COLOR)  "\033[" COLOR "m"
+#define LOG_BOLD(COLOR)   "\033[" COLOR ";1m"
 #define LOG_RESET_COLOR   "\033[0m"
+
 #define LOG_COLOR_E       LOG_COLOR(LOG_COLOR_RED)
+#define LOG_COLOR_e       LOG_BOLD(LOG_COLOR_RED)
 #define LOG_COLOR_W       LOG_COLOR(LOG_COLOR_BROWN)
 #define LOG_COLOR_I       LOG_COLOR(LOG_COLOR_GREEN)
 #define LOG_COLOR_D
 #define LOG_COLOR_V
 #define LOG_COLOR_M       LOG_COLOR(LOG_COLOR_CYAN)
+#define LOG_COLOR_Q       LOG_BOLD(LOG_COLOR_PURPLE)
+#define LOG_COLOR_Y       LOG_BOLD(LOG_COLOR_BROWN)
 #else /* CONFIG_LOG_COLORS */
 #define LOG_COLOR_E
+#define LOG_COLOR_e
 #define LOG_COLOR_W
 #define LOG_COLOR_I
 #define LOG_COLOR_D
 #define LOG_COLOR_V
 #define LOG_COLOR_M
+#define LOG_COLOR_Q
+#define LOG_COLOR_Y
 #define LOG_RESET_COLOR
 #endif /* CONFIG_LOG_COLORS */
 /* clang-format on */
 
-#define LOG_FORMAT(letter, format)  LOG_COLOR_ ## letter #letter " (%llu) %s: " format LOG_RESET_COLOR "\r\n"
+#define LOG_FORMAT(letter, format)  LOG_COLOR_ ## letter #letter " (%lu) %s: " format LOG_RESET_COLOR "\r\n"
 
 #ifdef LOG_LEVEL
 #undef CONFIG_LOG_LEVEL
 #define CONFIG_LOG_LEVEL LOG_LEVEL
 #endif
 
+/*
+ * LoBo:
+ *   print log time as micro seconds
+ *   make syslog level configurable during run time
+ *   add syslog mutex
+ *   enable filtering of non-printable characters
+ */
+//------------------------------------
 extern uint32_t user_log_level;
-extern uint64_t log_divisor;
+extern uint64_t mp_hal_ticks_us(void);
+extern QueueHandle_t syslog_mutex;
+extern int kprint_filter_nonprint;
+extern char kprint_nonprint_char;
+extern uint8_t kprint_cr_lf;
+//------------------------------------
 
 #ifdef LOG_KERNEL
 #define LOG_PRINTF printk
@@ -125,18 +151,25 @@ extern uint64_t log_divisor;
 #endif
 
 #ifdef CONFIG_LOG_ENABLE
-#define LOGE(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   LOG_PRINTF(LOG_FORMAT(E, format), read_csr64(mcycle)/log_divisor, tag, ##__VA_ARGS__); } while (0)
-#define LOGW(tag, format, ...)  do {if (user_log_level >= LOG_WARN)    LOG_PRINTF(LOG_FORMAT(W, format), read_csr64(mcycle)/log_divisor, tag, ##__VA_ARGS__); } while (0)
-#define LOGI(tag, format, ...)  do {if (user_log_level >= LOG_INFO)    LOG_PRINTF(LOG_FORMAT(I, format), read_csr64(mcycle)/log_divisor, tag, ##__VA_ARGS__); } while (0)
-#define LOGD(tag, format, ...)  do {if (user_log_level >= LOG_DEBUG)   LOG_PRINTF(LOG_FORMAT(D, format), read_csr64(mcycle)/log_divisor, tag, ##__VA_ARGS__); } while (0)
-#define LOGV(tag, format, ...)  do {if (user_log_level >= LOG_VERBOSE) LOG_PRINTF(LOG_FORMAT(V, format), read_csr64(mcycle)/log_divisor, tag, ##__VA_ARGS__); } while (0)
-#define LOGM(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   LOG_PRINTF(LOG_FORMAT(M, format), read_csr64(mcycle)/log_divisor, tag, ##__VA_ARGS__); } while (0)
+#define LOGE(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   LOG_PRINTF(LOG_FORMAT(E, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); } while (0)
+#define LOGe(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   LOG_PRINTF(LOG_FORMAT(e, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); } while (0)
+#define LOGW(tag, format, ...)  do {if (user_log_level >= LOG_WARN)    LOG_PRINTF(LOG_FORMAT(W, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); } while (0)
+#define LOGI(tag, format, ...)  do {if (user_log_level >= LOG_INFO)    LOG_PRINTF(LOG_FORMAT(I, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); } while (0)
+#define LOGD(tag, format, ...)  do {if (user_log_level >= LOG_DEBUG)   LOG_PRINTF(LOG_FORMAT(D, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); } while (0)
+#define LOGV(tag, format, ...)  do {if (user_log_level >= LOG_VERBOSE) LOG_PRINTF(LOG_FORMAT(V, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); } while (0)
+#define LOGM(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   LOG_PRINTF(LOG_FORMAT(M, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); } while (0)
+#define LOGQ(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   LOG_PRINTF(LOG_FORMAT(Q, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); } while (0)
+#define LOGY(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   LOG_PRINTF(LOG_FORMAT(Y, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); } while (0)
 #else
 #define LOGE(tag, format, ...)
+#define LOGe(tag, format, ...)
 #define LOGW(tag, format, ...)
 #define LOGI(tag, format, ...)
 #define LOGD(tag, format, ...)
 #define LOGV(tag, format, ...)
+#define LOGM(tag, format, ...)
+#define LOGQ(tag, format, ...)
+#define LOGY(tag, format, ...)
 #endif  /* LOG_ENABLE */
 
 #ifdef __cplusplus

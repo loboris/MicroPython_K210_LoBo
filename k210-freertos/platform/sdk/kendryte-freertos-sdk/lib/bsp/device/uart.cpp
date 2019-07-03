@@ -12,20 +12,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <FreeRTOS.h>
 #include <hal.h>
 #include <kernel/driver_impl.hpp>
 #include <plic.h>
+#include <semphr.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sysctl.h>
 #include <uart.h>
-#include <devices.h>
 
 using namespace sys;
 
 #define UART_BRATE_CONST 16
-#define RINGBUFF_LEN SYS_UART_IRQ_BUFF_SIZE
+#define RINGBUFF_LEN 64
 
+//-----------------------------------------------
+// LoBo: enable using external uart irq handler
+//-----------------------------------------------
+pic_irq_handler_t extern_uart_irq_handler = NULL;
+void *extern_uart_irq_userdata = NULL;
+//-----------------------------------------------
 
 typedef struct
 {
@@ -45,6 +52,7 @@ public:
 
     virtual void install() override
     {
+        receive_event_ = xSemaphoreCreateBinary();
         sysctl_clock_disable(clock_);
     }
 
@@ -57,7 +65,11 @@ public:
         ring_buff->tail = 0;
         ring_buff->length = 0;
         recv_buf_ = ring_buff;
-        pic_set_irq_handler(irq_, on_irq_apbuart_recv, this);
+        // LoBo
+        if (extern_uart_irq_handler == NULL) pic_set_irq_handler(irq_, on_irq_apbuart_recv, this);
+        else {
+            pic_set_irq_handler(irq_, extern_uart_irq_handler, extern_uart_irq_userdata);
+        }
         pic_set_irq_priority(irq_, 1);
         pic_set_irq_enable(irq_, 1);
     }
@@ -130,11 +142,16 @@ public:
         int write = 0;
         while (write < buffer.size())
         {
-            uart_putc((char)*it++);
+            uart_putc(*it++);
             write++;
         }
 
         return write;
+    }
+
+    virtual void set_read_timeout(size_t millisecond) override
+    {
+        read_timeout_ = millisecond / portTICK_PERIOD_MS;
     }
 
 private:
@@ -163,12 +180,27 @@ private:
     {
         ringbuffer_t *ring_buff = recv_buf_;
         size_t cnt = 0;
-        while ((len--) && ring_buff->length)
+        while (len)
         {
-            *(rData++) = ring_buff->ring_buffer[ring_buff->head];
-            ring_buff->head = (ring_buff->head + 1) % RINGBUFF_LEN;
-            ring_buff->length--;
-            cnt++;
+            if(ring_buff->length)
+            {
+                *(rData++) = ring_buff->ring_buffer[ring_buff->head];
+                ring_buff->head = (ring_buff->head + 1) % RINGBUFF_LEN;
+                ring_buff->length--;
+                cnt++;
+                len--;
+            }
+            else
+            {
+                if(xSemaphoreTake(receive_event_, read_timeout_) == pdTRUE)
+                {
+                    continue;
+                }
+                else
+                {
+                    return -1;
+                }
+            }
         }
 
         return cnt;
@@ -178,13 +210,16 @@ private:
     {
         auto &driver = *reinterpret_cast<k_uart_driver *>(userdata);
         auto &uart = driver.uart_;
-        auto &ring_buff = driver.recv_buf_;
 
-        while (uart.LSR & 1) {
+        while (uart.LSR & 1)
+        {
             driver.write_ringbuff(((uint8_t)(uart.RBR & 0xff)));
         }
-        if ((ring_buff->length) && (sys_devices_task_handle != NULL)) {
-            xTaskNotifyFromISR(sys_devices_task_handle, SYS_DEVICES_EVENT_UART | ring_buff->length, eSetValueWithOverwrite, NULL);
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        xSemaphoreGiveFromISR(driver.receive_event_, &xHigherPriorityTaskWoken);
+        if (xHigherPriorityTaskWoken)
+        {
+            portYIELD_FROM_ISR();
         }
     }
 
@@ -192,8 +227,10 @@ private:
     volatile uart_t &uart_;
     sysctl_clock_t clock_;
     plic_irq_t irq_;
+    SemaphoreHandle_t receive_event_;
 
     ringbuffer_t *recv_buf_;
+    size_t read_timeout_ = portMAX_DELAY;
 };
 
 static k_uart_driver dev0_driver(UART1_BASE_ADDR, SYSCTL_CLOCK_UART1, IRQN_UART1_INTERRUPT);

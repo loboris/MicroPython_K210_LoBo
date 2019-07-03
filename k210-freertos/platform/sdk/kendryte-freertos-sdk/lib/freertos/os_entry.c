@@ -36,6 +36,7 @@ static StackType_t s_idle_task_stack[portNUM_PROCESSORS][configMINIMAL_STACK_SIZ
 static StaticTask_t s_timer_task[portNUM_PROCESSORS];
 static StackType_t s_timer_task_stack[portNUM_PROCESSORS][configMINIMAL_STACK_SIZE];
 
+// LoBo: comented because not used
 //void start_scheduler(int core_id);
 
 int __attribute__((weak)) configure_fpioa()

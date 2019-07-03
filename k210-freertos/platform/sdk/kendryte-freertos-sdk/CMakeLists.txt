@@ -2,6 +2,7 @@
 
 # set this will supress some warnings
 set(BUILDING_SDK "yes" CACHE INTERNAL "")
+# LoBo: do not show all messages
 set_property(GLOBAL PROPERTY RULE_MESSAGES OFF)
 
 # basic config
@@ -21,6 +22,6 @@ header_directories(${SDK_ROOT}/lib)
 add_subdirectory(lib SDK)
 add_subdirectory(third_party)
 
-# compile project
+# LoBo: do not compile project
 #add_source_files(src/${PROJ}/*.c src/${PROJ}/*.s src/${PROJ}/*.S src/${PROJ}/*.cpp)
 #include(./cmake/executable.cmake)

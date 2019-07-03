@@ -53,7 +53,10 @@
  * NTP timestamps instead.
  */
 #if !defined SNTP_SET_SYSTEM_TIME || defined __DOXYGEN__
-#define SNTP_SET_SYSTEM_TIME(sec)   LWIP_UNUSED_ARG(sec)
+//#define SNTP_SET_SYSTEM_TIME(sec)   LWIP_UNUSED_ARG(sec)
+// LoBo
+extern void set_rtc_time_from_seconds(time_t seconds);
+#define SNTP_SET_SYSTEM_TIME(sec)   set_rtc_time_from_seconds(sec)
 #endif
 
 /** The maximum number of SNTP servers that can be set */
@@ -72,7 +75,7 @@
  * \#define SNTP_SERVER_ADDRESS "pool.ntp.org"
  */
 #if !defined SNTP_SERVER_DNS || defined __DOXYGEN__
-#define SNTP_SERVER_DNS            0
+#define SNTP_SERVER_DNS            1
 #endif
 
 /**

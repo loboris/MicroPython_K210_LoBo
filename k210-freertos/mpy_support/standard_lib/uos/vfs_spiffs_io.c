@@ -9,6 +9,8 @@
 #include "w25qxx.h"
 #include "sleep.h"
 
+#if MICROPY_VFS && MICROPY_VFS_SPIFFS
+
 #include "spiffs_config.h"
 
 static const char* TAG = "[VFS_SPIFFS_IO]";
@@ -77,3 +79,5 @@ s32_t sys_spiffs_erase(int addr, int size)
     }
     return W25QXX_OK;
 }
+
+#endif

@@ -4,6 +4,7 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2017 Damien P. George
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -32,9 +33,7 @@
 // consistent with amounts that were previously allocated.
 #define MP_PYSTACK_DEBUG (0)
 
-#if MICROPY_ENABLE_PYSTACK
-
-void mp_pystack_init(void *start, void *end);
+void mp_pystack_init(void *start, void *end, bool enabled);
 void *mp_pystack_alloc(size_t n_bytes);
 
 // This function can free multiple continuous blocks at once: just pass the
@@ -71,53 +70,34 @@ static inline size_t mp_pystack_limit(void) {
     return MP_STATE_THREAD(pystack_end) - MP_STATE_THREAD(pystack_start);
 }
 
-#endif
 
-#if !MICROPY_ENABLE_PYSTACK
-
-#define mp_local_alloc(n_bytes) alloca(n_bytes)
+static inline void *mp_local_alloc(size_t n_bytes) {
+    if (MP_STATE_THREAD(pystack_enabled)) return mp_pystack_alloc(n_bytes);
+    return alloca(n_bytes);
+}
 
 static inline void mp_local_free(void *ptr) {
-    (void)ptr;
+    if (MP_STATE_THREAD(pystack_enabled)) mp_pystack_free(ptr);
+    return (void)ptr;
 }
 
 static inline void *mp_nonlocal_alloc(size_t n_bytes) {
+    if (MP_STATE_THREAD(pystack_enabled)) return mp_pystack_alloc(n_bytes);
     return m_new(uint8_t, n_bytes);
 }
 
 static inline void *mp_nonlocal_realloc(void *ptr, size_t old_n_bytes, size_t new_n_bytes) {
+    if (MP_STATE_THREAD(pystack_enabled)) {
+        (void)old_n_bytes;
+        mp_pystack_realloc(ptr, new_n_bytes);
+        return ptr;
+    }
     return m_renew(uint8_t, ptr, old_n_bytes, new_n_bytes);
 }
 
 static inline void mp_nonlocal_free(void *ptr, size_t n_bytes) {
-    m_del(uint8_t, ptr, n_bytes);
+    if (MP_STATE_THREAD(pystack_enabled)) mp_pystack_free(ptr);
+    return m_del(uint8_t, ptr, n_bytes);
 }
-
-#else
-
-static inline void *mp_local_alloc(size_t n_bytes) {
-    return mp_pystack_alloc(n_bytes);
-}
-
-static inline void mp_local_free(void *ptr) {
-    mp_pystack_free(ptr);
-}
-
-static inline void *mp_nonlocal_alloc(size_t n_bytes) {
-    return mp_pystack_alloc(n_bytes);
-}
-
-static inline void *mp_nonlocal_realloc(void *ptr, size_t old_n_bytes, size_t new_n_bytes) {
-    (void)old_n_bytes;
-    mp_pystack_realloc(ptr, new_n_bytes);
-    return ptr;
-}
-
-static inline void mp_nonlocal_free(void *ptr, size_t n_bytes) {
-    (void)n_bytes;
-    mp_pystack_free(ptr);
-}
-
-#endif
 
 #endif // MICROPY_INCLUDED_PY_PYSTACK_H

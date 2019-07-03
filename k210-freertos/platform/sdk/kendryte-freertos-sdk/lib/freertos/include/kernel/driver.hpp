@@ -60,6 +60,23 @@ MAKE_ENUM_CLASS_BITMASK_TYPE(file_access_t);
 MAKE_ENUM_CLASS_BITMASK_TYPE(file_mode_t);
 MAKE_ENUM_CLASS_BITMASK_TYPE(socket_message_flag_t);
 
+class errno_exception : public std::runtime_error
+{
+public:
+    explicit errno_exception(const char *msg, int code) noexcept
+        : runtime_error(msg), code_(code)
+    {
+    }
+
+    int code() const noexcept
+    {
+        return code_;
+    }
+
+private:
+    int code_;
+};
+
 class object_access : public virtual object
 {
 public:
@@ -179,6 +196,7 @@ public:
     virtual void config(uint32_t baud_rate, uint32_t databits, uart_stopbits_t stopbits, uart_parity_t parity) = 0;
     virtual int read(gsl::span<uint8_t> buffer) = 0;
     virtual int write(gsl::span<const uint8_t> buffer) = 0;
+    virtual void set_read_timeout(size_t millisecond) = 0;
 };
 
 class gpio_driver : public driver
@@ -230,12 +248,18 @@ public:
     virtual int transfer_full_duplex(gsl::span<const uint8_t> write_buffer, gsl::span<uint8_t> read_buffer) = 0;
     virtual int transfer_sequential(gsl::span<const uint8_t> write_buffer, gsl::span<uint8_t> read_buffer) = 0;
     virtual void fill(uint32_t instruction, uint32_t address, uint32_t value, size_t count) = 0;
+    // LoBo
+    virtual bool set_xip_mode(bool enable) = 0;
+    virtual int transfer_sequential_with_delay(gsl::span<const uint8_t> write_buffer, gsl::span<uint8_t> read_buffer, uint16_t delay) = 0;
+    virtual void master_config_half_duplex(int8_t mosi, int8_t miso) = 0;
 };
 
 class spi_driver : public driver
 {
 public:
     virtual object_ptr<spi_device_driver> get_device(spi_mode_t mode, spi_frame_format_t frame_format, uint32_t chip_select_mask, uint32_t data_bit_length) = 0;
+    virtual void slave_config(size_t data_bit_length, uint8_t *data, uint32_t len, uint32_t ro_len, spi_slave_receive_callback_t callback, spi_slave_csum_callback_t csum_callback, int priority) = 0;
+    virtual void slave_deinit() = 0;
 };
 
 class dvp_driver : public driver
@@ -334,6 +358,14 @@ public:
     virtual void set_datetime(const struct tm &datetime) = 0;
 };
 
+class kpu_driver : public driver
+{
+public:
+    virtual handle_t model_load_from_buffer(uint8_t *buffer) = 0;
+    virtual int run(handle_t context, const uint8_t *src) = 0;
+    virtual int get_output(handle_t context, uint32_t index, uint8_t **data, size_t *size) = 0;
+};
+
 class custom_driver : public driver
 {
 public:
@@ -409,7 +441,7 @@ public:
     virtual void end_receive() = 0;
 };
 
-class network_socket : public virtual object_access
+class network_socket : public virtual custom_driver, public virtual object_access
 {
 public:
     virtual object_accessor<network_socket> accept(socket_address_t *remote_address) = 0;
@@ -423,6 +455,8 @@ public:
     virtual size_t receive_from(gsl::span<uint8_t> buffer, socket_message_flag_t flags, socket_address_t *from) = 0;
     virtual size_t read(gsl::span<uint8_t> buffer) = 0;
     virtual size_t write(gsl::span<const uint8_t> buffer) = 0;
+    virtual int fcntl(int cmd, int val) = 0;
+    virtual void select(fd_set *readset, fd_set *writeset, fd_set *exceptset, struct timeval *timeout) = 0;
 };
 
 extern driver_registry_t g_hal_drivers[];

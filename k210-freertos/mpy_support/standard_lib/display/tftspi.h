@@ -118,7 +118,8 @@ extern uint8_t tft_touch_type;
 extern uint8_t gamma_curve;
 extern uint32_t spi_speed;
 
-extern uint16_t tft_frame_buffer[DEFAULT_TFT_DISPLAY_WIDTH*DEFAULT_TFT_DISPLAY_HEIGHT];
+extern uint16_t *tft_frame_buffer;
+
 // ##############################################################
 
 /* clang-format off */
@@ -221,6 +222,7 @@ void TFT_pushColorRep(int x1, int y1, int x2, int y2, color_t data, uint32_t len
 void send_frame_buffer();
 void TFT_display_setvars(display_config_t *dconfig);
 uint32_t tft_set_speed();
+int get_framebuffer(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf);
 
 // Change the screen rotation.
 // Input: m new rotation value (0 to 3)
@@ -234,6 +236,6 @@ int  TFT_display_init(display_config_t *display_config);
 
 // ===============================================================================
 
-#endif // CONFIG_MICROPY_USE_DISPLAY
+#endif // MICROPY_USE_DISPLAY
 
 #endif

@@ -9,6 +9,7 @@ class LS:
         return ""
 
     def __call__(self, path="."):
+        time.sleep_ms(3)
         if path == "/":
             l = os.listdir('/')
             for f in l:
@@ -92,17 +93,18 @@ class CP:
         return ""
 
     def __call__(self, srcf, destf):
+        time.sleep_ms(3)
         if srcf == destf:
             print("Destination file must be different than source")
             return
         try:
             st = os.stat(srcf)
         except:
-            print("Source not found")
+            print("Source not found", srcf)
             return
         try:
             st = os.stat(destf)
-            print("Dest file exists")
+            print("Dest file exists", destf)
             return
         except:
             pass
@@ -146,6 +148,7 @@ rm = os.remove
 rmdir = os.rmdir
 
 def head(f, n=10):
+    time.sleep_ms(3)
     with open(f) as f:
         for i in range(n):
             l = f.readline()
@@ -156,6 +159,7 @@ def cat(f):
     head(f, 1 << 30)
 
 def newfile(path):
+    time.sleep_ms(3)
     print("Type file contents line by line, finish with EOF (Ctrl+D).")
     with open(path, "w") as f:
         while 1:

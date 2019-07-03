@@ -39,6 +39,10 @@
 * 1 tab == 4 spaces!
 */
 
+/*
+ * LoBo: various changes for use with MicroPython
+ * 
+*/
 
 #ifndef FREERTOS_CONFIG_H
 #define FREERTOS_CONFIG_H
@@ -57,15 +61,17 @@
 #include <stdint.h>
 
 /* clock */
-#define configCPU_CLOCK_HZ					uxPortGetCPUClock()
-#define configTICK_CLOCK_HZ					( configCPU_CLOCK_HZ / 50 )
-#define configTICK_RATE_HZ					( ( TickType_t ) 1000 )
+#define configCPU_CLOCK_HZ					    sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)
+#define configTICK_CLOCK_HZ					    ( configCPU_CLOCK_HZ / 50 )
+#define configTICK_RATE_HZ					    ( ( TickType_t ) 1000 )
 
 /* multithreading */
 #define configUSE_NEWLIB_REENTRANT				1
 
 #define configUSE_PREEMPTION					1
-#define configUSE_PORT_OPTIMISED_TASK_SELECTION	0
+#ifndef configUSE_PORT_OPTIMISED_TASK_SELECTION
+#define configUSE_PORT_OPTIMISED_TASK_SELECTION	1   //ToDo: set to 1 ?
+#endif
 #define configMAX_PRIORITIES					( 16 )
 #define configMAX_TASK_NAME_LEN					( 16 )
 #define configUSE_TRACE_FACILITY				1
@@ -79,7 +85,7 @@ enum
     PTHREAD_TLS_INDEX = 0
 };
 
-#define configNUM_THREAD_LOCAL_STORAGE_POINTERS 1
+#define configNUM_THREAD_LOCAL_STORAGE_POINTERS 2
 
 /* mutex */
 #define configUSE_MUTEXES						1
@@ -92,8 +98,8 @@ enum
 #define configUSE_DAEMON_TASK_STARTUP_HOOK		0
 
 /* memory */
-#define configMINIMAL_STACK_SIZE			( ( unsigned short ) 1024 )
-#define configTOTAL_HEAP_SIZE				( ( size_t ) ( 1024 * 1024 ) )
+#define configTOTAL_HEAP_SIZE                   ( ( size_t ) ( 15 * 256 * 1024 ) )
+#define configMINIMAL_STACK_SIZE			    ( ( unsigned short ) 1024 )
 #define configSUPPORT_STATIC_ALLOCATION			1
 #define configSUPPORT_DYNAMIC_ALLOCATION		1
 
@@ -138,6 +144,8 @@ extern uint64_t vGetRunTimeCounterValue();
 #define INCLUDE_xTimerPendFunctionCall          0
 #define INCLUDE_uxTaskGetStackHighWaterMark     1
 #define INCLUDE_pxTaskGetStackStart             1
+
+#define configRECORD_STACK_HIGH_ADDRESS         1
 
 #define INCLUDE_xSemaphoreGetMutexHolder        1
 

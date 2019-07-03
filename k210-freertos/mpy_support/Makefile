@@ -22,9 +22,13 @@ OUTPUT_STATIC_LIB := $(LIB_NAME).a
 CXX ?= $(CROSS_COMPILE)c++
 AR ?= $(CROSS_COMPILE)AR
 
+#  ## Set this if 'MICROPY_OPT_CACHE_MAP_LOOKUP_IN_BYTECODE' is defined as 1 ##
+#MPY_CROSS_FLAGS = -mcache-lookup-bc
+
 ###############################################################################
 # MPY OPTIONS
-# include ../../../py/mkenv.mk需要比较靠前
+# Need to be more advanced
+# include ../../../py/mkenv.mk
 include ../../micropython/py/mkenv.mk
 # qstr definitions (must come before including py.mk)
 QSTR_DEFS = qstrdefsport.h

@@ -4,6 +4,7 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2013, 2014 Damien P. George
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -53,7 +54,6 @@ STATIC bool repl_display_debugging_info = 0;
 #define EXEC_FLAG_SOURCE_IS_RAW_CODE (8)
 #define EXEC_FLAG_SOURCE_IS_VSTR (16)
 #define EXEC_FLAG_SOURCE_IS_FILENAME (32)
-#define EXEC_FLAG_SOURCE_IS_STR (64)
 
 // parses, compiles and executes the code in the lexer
 // frees the lexer before returning
@@ -62,7 +62,7 @@ STATIC bool repl_display_debugging_info = 0;
 // EXEC_FLAG_IS_REPL is used for REPL inputs (flag passed on to mp_compile)
 STATIC int parse_compile_execute(const void *source, mp_parse_input_kind_t input_kind, int exec_flags) {
     int ret = 0;
-    uint32_t start = 0;
+    volatile uint32_t start = 0;
 
     // by default a SystemExit exception returns 0
     pyexec_system_exit = 0;
@@ -82,8 +82,6 @@ STATIC int parse_compile_execute(const void *source, mp_parse_input_kind_t input
             if (exec_flags & EXEC_FLAG_SOURCE_IS_VSTR) {
                 const vstr_t *vstr = source;
                 lex = mp_lexer_new_from_str_len(MP_QSTR__lt_stdin_gt_, vstr->buf, vstr->len, 0);
-            } else if (exec_flags & EXEC_FLAG_SOURCE_IS_STR) {
-                lex = mp_lexer_new_from_str_len(MP_QSTR__lt_stdin_gt_, (char *)source, strlen((char *)source), 0);
             } else if (exec_flags & EXEC_FLAG_SOURCE_IS_FILENAME) {
                 lex = mp_lexer_new_from_file(source);
             } else {
@@ -163,6 +161,7 @@ typedef struct _repl_t {
     // will be added later.
     //vstr_t line;
     bool cont_line;
+    bool paste_mode;
 } repl_t;
 
 repl_t repl;
@@ -173,6 +172,7 @@ STATIC int pyexec_friendly_repl_process_char(int c);
 void pyexec_event_repl_init(void) {
     MP_STATE_VM(repl_line) = vstr_new(32);
     repl.cont_line = false;
+    repl.paste_mode = false;
     // no prompt before printing friendly REPL banner or entering raw REPL
     readline_init(MP_STATE_VM(repl_line), "");
     if (pyexec_mode_kind == PYEXEC_MODE_RAW_REPL) {
@@ -192,6 +192,7 @@ STATIC int pyexec_raw_repl_process_char(int c) {
         pyexec_mode_kind = PYEXEC_MODE_FRIENDLY_REPL;
         vstr_reset(MP_STATE_VM(repl_line));
         repl.cont_line = false;
+        repl.paste_mode = false;
         pyexec_friendly_repl_process_char(CHAR_CTRL_B);
         return 0;
     } else if (c == CHAR_CTRL_C) {
@@ -229,6 +230,32 @@ reset:
 }
 
 STATIC int pyexec_friendly_repl_process_char(int c) {
+    if (repl.paste_mode) {
+        if (c == CHAR_CTRL_C) {
+            // cancel everything
+            mp_hal_stdout_tx_str("\r\n");
+            goto input_restart;
+        } else if (c == CHAR_CTRL_D) {
+            // end of input
+            mp_hal_stdout_tx_str("\r\n");
+            int ret = parse_compile_execute(MP_STATE_VM(repl_line), MP_PARSE_FILE_INPUT, EXEC_FLAG_ALLOW_DEBUGGING | EXEC_FLAG_IS_REPL | EXEC_FLAG_SOURCE_IS_VSTR);
+            if (ret & PYEXEC_FORCED_EXIT) {
+                return ret;
+            }
+            goto input_restart;
+        } else {
+            // add char to buffer and echo
+            vstr_add_byte(MP_STATE_VM(repl_line), c);
+            if (c == '\r') {
+                mp_hal_stdout_tx_str("\r\n=== ");
+            } else {
+                char buf[1] = {c};
+                mp_hal_stdout_tx_strn(buf, 1);
+            }
+            return 0;
+        }
+    }
+
     int ret = readline_process_char(c);
 
     if (!repl.cont_line) {
@@ -242,7 +269,7 @@ STATIC int pyexec_friendly_repl_process_char(int c) {
         } else if (ret == CHAR_CTRL_B) {
             // reset friendly REPL
             mp_hal_stdout_tx_str("\r\n");
-            mp_hal_stdout_tx_str("MicroPython " MICROPY_GIT_TAG " on " MICROPY_BUILD_DATE "; " MICROPY_HW_BOARD_NAME " with " MICROPY_HW_MCU_NAME "\r\n");
+            mp_hal_stdout_tx_str("MicroPython " MICROPY_PY_LOBO_VERSION " (" MICROPY_GIT_TAG ") built on " MICROPY_BUILD_DATE "; " MICROPY_HW_BOARD_NAME " with " MICROPY_HW_MCU_NAME "\r\n");
             #if MICROPY_PY_BUILTINS_HELP
             mp_hal_stdout_tx_str("Type \"help()\" for more information.\r\n");
             #endif
@@ -256,6 +283,12 @@ STATIC int pyexec_friendly_repl_process_char(int c) {
             mp_hal_stdout_tx_str("\r\n");
             vstr_clear(MP_STATE_VM(repl_line));
             return PYEXEC_FORCED_EXIT;
+        } else if (ret == CHAR_CTRL_E) {
+            // paste mode
+            mp_hal_stdout_tx_str("\r\npaste mode; Ctrl-C to cancel, Ctrl-D to finish\r\n=== ");
+            vstr_reset(MP_STATE_VM(repl_line));
+            repl.paste_mode = true;
+            return 0;
         }
 
         if (ret < 0) {
@@ -302,6 +335,7 @@ exec: ;
 input_restart:
         vstr_reset(MP_STATE_VM(repl_line));
         repl.cont_line = false;
+        repl.paste_mode = false;
         readline_init(MP_STATE_VM(repl_line), ">>> ");
         return 0;
     }
@@ -383,8 +417,7 @@ int pyexec_friendly_repl(void) {
 #endif
 
 friendly_repl_reset:
-
-    mp_hal_stdout_tx_str("MicroPython " MICROPY_GIT_TAG " on " MICROPY_BUILD_DATE "; " MICROPY_HW_BOARD_NAME " with " MICROPY_HW_MCU_NAME "\r\n");
+    mp_hal_stdout_tx_str("MicroPython " MICROPY_PY_LOBO_VERSION " (" MICROPY_GIT_TAG ") built on " MICROPY_BUILD_DATE "; " MICROPY_HW_BOARD_NAME " with " MICROPY_HW_MCU_NAME "\r\n");
     #if MICROPY_PY_BUILTINS_HELP
     mp_hal_stdout_tx_str("Type \"help()\" for more information.\r\n");
     #endif
@@ -418,7 +451,7 @@ friendly_repl_reset:
             // do the user a favor and reenable interrupts.
             if (query_irq() == IRQ_STATE_DISABLED) {
                 enable_irq(IRQ_STATE_ENABLED);
-                mp_hal_stdout_tx_str("PYB: enabling IRQs\r\n");
+                mp_hal_stdout_tx_str("MPY: enabling IRQs\r\n");
             }
         }
         #endif
@@ -509,8 +542,16 @@ int pyexec_file(const char *filename) {
     return parse_compile_execute(filename, MP_PARSE_FILE_INPUT, EXEC_FLAG_SOURCE_IS_FILENAME);
 }
 
-int pyexec_string(const char *buff) {
-    return parse_compile_execute(buff, MP_PARSE_FILE_INPUT, EXEC_FLAG_SOURCE_IS_STR);
+int pyexec_file_if_exists(const char *filename) {
+    #if MICROPY_MODULE_FROZEN
+    if (mp_frozen_stat(filename) == MP_IMPORT_STAT_FILE) {
+        return pyexec_frozen_module(filename);
+    }
+    #endif
+    if (mp_import_stat(filename) != MP_IMPORT_STAT_FILE) {
+        return 1; // success (no file is the same as an empty file executing without fail)
+    }
+    return pyexec_file(filename);
 }
 
 #if MICROPY_MODULE_FROZEN

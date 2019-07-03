@@ -4,6 +4,7 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2013, 2014 Damien P. George
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -63,7 +64,11 @@ MP_DECLARE_CONST_FUN_OBJ_1(mp_builtin_len_obj);
 MP_DECLARE_CONST_FUN_OBJ_0(mp_builtin_locals_obj);
 MP_DECLARE_CONST_FUN_OBJ_KW(mp_builtin_max_obj);
 MP_DECLARE_CONST_FUN_OBJ_KW(mp_builtin_min_obj);
+#if MICROPY_PY_BUILTINS_NEXT2
+MP_DECLARE_CONST_FUN_OBJ_VAR_BETWEEN(mp_builtin_next_obj);
+#else
 MP_DECLARE_CONST_FUN_OBJ_1(mp_builtin_next_obj);
+#endif
 MP_DECLARE_CONST_FUN_OBJ_1(mp_builtin_oct_obj);
 MP_DECLARE_CONST_FUN_OBJ_1(mp_builtin_ord_obj);
 MP_DECLARE_CONST_FUN_OBJ_VAR_BETWEEN(mp_builtin_pow_obj);
@@ -83,7 +88,7 @@ MP_DECLARE_CONST_FUN_OBJ_2(mp_op_getitem_obj);
 MP_DECLARE_CONST_FUN_OBJ_3(mp_op_setitem_obj);
 MP_DECLARE_CONST_FUN_OBJ_2(mp_op_delitem_obj);
 
-extern const mp_obj_module_t mp_module___main__;
+extern mp_obj_module_t mp_module___main__;  // LoBo: 'mp_module___main__' is not constant
 extern const mp_obj_module_t mp_module_builtins;
 extern const mp_obj_module_t mp_module_array;
 extern const mp_obj_module_t mp_module_collections;
@@ -114,7 +119,7 @@ extern const mp_obj_module_t mp_module_ussl;
 extern const mp_obj_module_t mp_module_utimeq;
 extern const mp_obj_module_t mp_module_machine;
 extern const mp_obj_module_t mp_module_lwip;
-extern const mp_obj_module_t mp_module_websocket;
+extern const mp_obj_module_t mp_module_uwebsocket;
 extern const mp_obj_module_t mp_module_webrepl;
 extern const mp_obj_module_t mp_module_framebuf;
 extern const mp_obj_module_t mp_module_btree;

@@ -15,6 +15,8 @@
 #include <stddef.h>
 #include <unistd.h>
 #include "syslog.h"
+
+#include "mpconfigport.h"
 #include "py/mpprint.h"
 
 extern int spiffs_dbg_level;
@@ -65,14 +67,18 @@ extern void spiffs_api_unlock(struct spiffs_t *fs);
 // Parts of configuration must be defined below instead of at time of mount.
 #define SPIFFS_SINGLETON 1
 
-#define FS_PATCH_LENGTH                     (SPIFFS_OBJ_NAME_LEN*20+20)
-#define FLASH_CHIP_SIZE                     (16*1024*1024)
+//#define FS_PATCH_LENGTH                     (SPIFFS_OBJ_NAME_LEN*20+20)
+#define FLASH_CHIP_SIZE                     MICRO_PY_FLASH_SIZE
 
-#define SPIFFS_CFG_PHYS_SZ(ignore)          (4 * 1024 * 1024)
-#define SPIFFS_CFG_PHYS_ERASE_SZ(ignore)    (4 * 1024)
-#define SPIFFS_CFG_PHYS_ADDR(ignore)        (0x600000)
+#define SPIFFS_CFG_PHYS_SZ(ignore)          MICRO_PY_FLASHFS_SIZE
+#define SPIFFS_CFG_PHYS_ERASE_SZ(ignore)    MICRO_PY_FLASH_ERASE_SECTOR_SIZE
+#define SPIFFS_CFG_PHYS_ADDR(ignore)        MICRO_PY_FLASHFS_START_ADDRESS
 
+#if MICRO_PY_FLASHFS_USED == MICRO_PY_FLASHFS_SPIFFS
+#define SPIFFS_CFG_LOG_BLOCK_SZ(ignore)     MICRO_PY_SPIFFS_LOG_BLOCK_SIZE
+#else
 #define SPIFFS_CFG_LOG_BLOCK_SZ(ignore)     (4*1024)
+#endif
 #define SPIFFS_CFG_LOG_PAGE_SZ(ignore)      (SPIFFS_CFG_LOG_BLOCK_SZ(ignore)/16)
 
 // By default SPIFFS in some cases relies on the property of NOR flash that bits

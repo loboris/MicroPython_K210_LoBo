@@ -47,44 +47,104 @@
 #include "syslog.h"
 #include "hal.h"
 #include "wdt.h"
+#include "w25qxx.h"
 #include "mpthreadport.h"
 #include "modmachine.h"
+#include "machine_uart.h"
 
-extern int MainTaskProc;
 
-handle_t mpy_wdt;
-TaskHandle_t mp_hal_tick_handle = 0;
-static uint8_t stdin_ringbuf_array[MICRO_PY_UARTHS_BUFFER_SIZE];
-ringbuf_t stdin_ringbuf = {stdin_ringbuf_array, sizeof(stdin_ringbuf_array), 0, 0};
-
-#if MICROPY_USE_TWO_MAIN_TASKS
-uint32_t ipc_request = 0;
-char *ipc_cmd_buff = NULL;
-char *ipc_response_buff = NULL;
-uint32_t ipc_cmd_buff_size = 0;
-uint32_t ipc_response_buff_size = 0;
-uint32_t ipc_response_buff_idx = 0;
-SemaphoreHandle_t inter_proc_mutex = NULL;
-QueueSetMemberHandle_t inter_proc_semaphore = NULL;
-#endif
-
+static handle_t mpy_wdt = 0;
+static handle_t mpy_wdt1 = 0;
+static TaskHandle_t mp_hal_tick_handle = 0;
 static QueueSetMemberHandle_t mp_hal_uart_semaphore = NULL;
 static volatile uarths_t *const uarths = (volatile uarths_t *)UARTHS_BASE_ADDR;
+static uint64_t sys_us_counter = 0;
+static volatile bool mp_hall_kbd_irq = false;
+static QueueSetMemberHandle_t inter_proc_semaphore = NULL;
+static uint8_t stdin_ringbuf_array[MICRO_PY_UARTHS_BUFFER_SIZE];
 
-//static volatile wdt_t *wdt_;
-static volatile int wdt_count = 0;
-static uint64_t rtos_rt_counter = 0;
+ringbuf_t stdin_ringbuf = {stdin_ringbuf_array, sizeof(stdin_ringbuf_array), 0, 0};
+mp_obj_t main_task_callback = 0;
+bool use_vm_hook = USE_MICROPY_VM_HOOK_LOOP;
+bool wdt_reset_in_vm_hook = false;
+task_ipc_t task_ipc = { 0 };
+SemaphoreHandle_t inter_proc_mutex = NULL;
+mp_obj_t ipc_callback_1 = 0;
+uint64_t sys_us_counter_cpu = 0;
+uint32_t system_status = 0;
+uintptr_t sys_rambuf_ptr = 0;
+
+
+
+// ===================================
+// === MicroPython ticks functions ===
+// ===================================
+
+//------------------------------
+mp_uint_t mp_hal_ticks_cpu(void)
+{
+    return read_csr64(mcycle);
+}
+
+//-----------------------------
+mp_uint_t mp_hal_ticks_us(void)
+{
+    return ((read_csr64(mcycle) - sys_us_counter_cpu) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000)) + sys_us_counter;
+}
+
+//-----------------------------
+mp_uint_t mp_hal_ticks_ms(void)
+{
+    return mp_hal_ticks_us() / 1000;
+}
+
+//------------------------------------------
+void mp_hal_set_cpu_frequency(uint32_t freq)
+{
+    uint64_t count_us = mp_hal_ticks_us();
+    sys_us_counter_cpu = read_csr64(mcycle);
+    sys_us_counter = count_us;
+
+    system_set_cpu_frequency(freq);
+    mp_hal_usdelay(1000);
+    if (flash_spi > 0) {
+        // Flash SPI speed needs to be adjusted depending on frequency (PLL0) set
+        w25qxx_init(flash_spi, SPI_FF_QUAD, w25qxx_max_speed());
+    }
+}
 
 
 #if USE_MICROPY_VM_HOOK_LOOP
 
-static volatile bool mp_hall_kbd_irq = false;
-
 // -------------------------------------------------
 // The function is executed from MicroPython VM loop
+// -------------------------------------------------
 //=================
 void vm_loop_hook()
 {
+    if (!use_vm_hook) return;
+
+    if (wdt_reset_in_vm_hook) wdt_restart_counter(mpy_wdt);
+
+    if (mpy_config.config.use_two_main_tasks) {
+        if (uxPortGetProcessorId() != MAIN_TASK_PROC) {
+            if (task_ipc.irq) {
+                // On 2nd MicroPython instance check for break condition
+                // instead of keyboard interrupt
+                xSemaphoreTake(inter_proc_mutex, 100 / portTICK_PERIOD_MS);
+                task_ipc.irq = false;
+                xSemaphoreGive(inter_proc_mutex);
+                // inline version of mp_keyboard_interrupt();
+                MP_STATE_VM(mp_pending_exception) = MP_OBJ_FROM_PTR(&MP_STATE_VM(mp_kbd_exception));
+                #if MICROPY_ENABLE_SCHEDULER
+                if (MP_STATE_VM(sched_state) == MP_SCHED_IDLE) {
+                    MP_STATE_VM(sched_state) = MP_SCHED_PENDING;
+                }
+                #endif
+            }
+            return;
+        }
+    }
     if (mp_hall_kbd_irq) {
         mp_hall_kbd_irq = false;
         // inline version of mp_keyboard_interrupt();
@@ -103,13 +163,13 @@ void vm_loop_hook()
 //=========================================
 void vConfigureTimerForRunTimeStats( void )
 {
-    rtos_rt_counter = 0;
+    return;
 }
 
 //================================
 uint64_t vGetRunTimeCounterValue()
 {
-    return (read_csr64(mcycle) - rtos_rt_counter) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000);
+    return mp_hal_ticks_us();
 }
 #endif
 // ===========================================================
@@ -119,28 +179,9 @@ uint64_t vGetRunTimeCounterValue()
 //------------------------------------------
 static void sys_tick_task(void *pvParameter)
 {
-    //uint64_t notify_val = 0;
-    //int notify_res = 0;
     while (1) {
         wdt_restart_counter(mpy_wdt);
-        wdt_count = 0;
         vTaskDelay(1000 / portTICK_PERIOD_MS);
-        /*
-        //ToDo: Workaround for issue with creating the task on different processor
-        notify_res = xTaskNotifyWait(0, ULONG_MAX, &notify_val, 1000 / portTICK_RATE_MS);
-        if (notify_res != pdPASS) continue;
-        if (notify_val == 0) break; // Terminate task requested
-        create_task_params_t *params = (create_task_params_t *)notify_val;
-        int res = xTaskCreateAtProcessor(
-                params->uxProcessor,    // processor
-                params->pxTaskCode,     // function entry
-                params->pcName,         // task name
-                params->usStackDepth,   // stack_deepth
-                params->pvParameters,   // function argument
-                params->uxPriority,     // task priority
-                params->pxCreatedTask); // task handle
-        if ((params->pxCreatedTask != NULL) && (res != pdPASS)) *params->pxCreatedTask = NULL;
-        */
     }
     vTaskDelete(NULL);
 }
@@ -156,18 +197,19 @@ static void on_irq_haluart_recv(void *userdata)
     if (!recv.empty) {
         c = (int)recv.data;
         if ((mp_interrupt_char >= 0) && (c == mp_interrupt_char)) {
-            #if USE_MICROPY_VM_HOOK_LOOP
-            // Notify the main MicroPython thread about keyboard interrupt character
-            mp_hall_kbd_irq = true;
-            #else
-            // inline version of mp_keyboard_interrupt();
-            MP_STATE_VM(mp_pending_exception) = MP_OBJ_FROM_PTR(&MP_STATE_VM(mp_kbd_exception));
-            #if MICROPY_ENABLE_SCHEDULER
-            if (MP_STATE_VM(sched_state) == MP_SCHED_IDLE) {
-                MP_STATE_VM(sched_state) = MP_SCHED_PENDING;
+            if (use_vm_hook) {
+                // ** Notify the main MicroPython thread about keyboard interrupt character
+                mp_hall_kbd_irq = true;
             }
-            #endif
-            #endif
+            else {
+                // inline version of mp_keyboard_interrupt();
+                MP_STATE_VM(mp_pending_exception) = MP_OBJ_FROM_PTR(&MP_STATE_VM(mp_kbd_exception));
+                #if MICROPY_ENABLE_SCHEDULER
+                if (MP_STATE_VM(sched_state) == MP_SCHED_IDLE) {
+                    MP_STATE_VM(sched_state) = MP_SCHED_PENDING;
+                }
+                #endif
+            }
         }
         else {
             // Push the character to the uart buffer
@@ -202,21 +244,6 @@ static void on_irq_haluart_recv2(void *userdata)
     }
 }
 
-// WDT interrupt handler
-//=======================================
-static int on_wdt_timeout(void *userdata)
-{
-    wdt_restart_counter(mpy_wdt);
-    wdt_count++;
-    LOGW("[WDT]", "Watchdog timeout occurred (%d)", wdt_count);
-    if (wdt_count > 10) {
-        LOGE("[WDT]", "System reset\n");
-        mp_hal_usdelay(500);
-        sysctl->soft_reset.soft_reset = 1;
-    }
-    return 0;
-}
-
 //----------------------------------------------------------------
 void mp_hal_uarths_setirqhandle(void *irq_handler, void *userdata)
 {
@@ -247,63 +274,123 @@ void mp_hal_uarths_setirq_ymodem()
     mp_hal_uarths_setirqhandle(on_irq_haluart_recv2, NULL);
 }
 
+// WDT interrupt handler
+//=======================================
+static int on_wdt_timeout(void *userdata)
+{
+    wdt_set_enable(mpy_wdt, false);
+    wdt_restart_counter(mpy_wdt);
+    LOGe("[RESET]", "Watchdog reset)\r\n");
+    mp_hal_usdelay(2000);
+    sysctl->soft_reset.soft_reset = 1;
+    while (1) {
+        ;
+    }
+    return 0;
+}
+
+//-----------------------------------------
+void mp_hal_wtd_enable(bool en, size_t tmo)
+{
+    if (tmo > 0) {
+        wdt_set_enable(mpy_wdt, false);
+        wdt_set_timeout(mpy_wdt, tmo * 1e9);
+        wdt_restart_counter(mpy_wdt);
+        wdt_set_enable(mpy_wdt, en);
+    }
+}
+
+//---------------------
+void mp_hal_wdt_reset()
+{
+    wdt_restart_counter(mpy_wdt);
+}
+
+//---------------------------------------------
+void mp_hal_wtd1_enable(bool en, size_t tmo_ms)
+{
+    if (tmo_ms > 0) {
+        wdt_set_enable(mpy_wdt1, false);
+        wdt_set_timeout(mpy_wdt1, tmo_ms * 1e6);
+        wdt_restart_counter(mpy_wdt1);
+        wdt_set_enable(mpy_wdt1, en);
+    }
+}
+
+//---------------------
+void mp_hal_wdt1_reset()
+{
+    wdt_restart_counter(mpy_wdt1);
+}
+
+// --------------------------------------------------
 // This function is called only once, on system start
+// --------------------------------------------------
 //====================
 void mp_hal_init(void)
 {
-    // Set the PU clock
-    system_set_cpu_frequency(MICRO_PY_DEFAULT_CPU_CLOCK);
-    log_divisor = (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000);
+    sys_us_counter = 0;
+
+    // Set the CPU clock
+    mp_hal_set_cpu_frequency(mpy_config.config.cpu_clock);
 
     // Set the REPL uart baudrate and configure uarths
-    uarths_baudrate = uarths_init(MICRO_PY_DEFAULT_BAUDRATE);
+    uarths_baudrate = uarths_init(mpy_config.config.repl_bdr);
 
     mp_fpioa_cfg_item_t functions[2];
-    functions[0] = (mp_fpioa_cfg_item_t){-1, 4, FUNC_UARTHS_RX};
-    functions[1] = (mp_fpioa_cfg_item_t){-1, 5, FUNC_UARTHS_TX};
+    functions[0] = (mp_fpioa_cfg_item_t){-1, 4, GPIO_USEDAS_RX, FUNC_UARTHS_RX};
+    functions[1] = (mp_fpioa_cfg_item_t){-1, 5, GPIO_USEDAS_TX, FUNC_UARTHS_TX};
     fpioa_setused_pins(2, functions, GPIO_FUNC_ISP_UART);
 
     //LOGM("[HAL]", "Config");
     mp_hal_set_interrupt_char(-1);
 
     // Setup semaphores and mutexes
+    if (syslog_mutex == NULL) {
+        syslog_mutex = xSemaphoreCreateMutex();
+        configASSERT(syslog_mutex);
+    }
     if (mp_hal_uart_semaphore == NULL) {
         mp_hal_uart_semaphore = xSemaphoreCreateBinary();
         configASSERT(mp_hal_uart_semaphore);
     }
-    #if MICROPY_USE_TWO_MAIN_TASKS
-    if (inter_proc_mutex == NULL) {
-        inter_proc_mutex = xSemaphoreCreateMutex();
-        configASSERT(inter_proc_mutex);
-        inter_proc_semaphore = xSemaphoreCreateBinary();
-        configASSERT(inter_proc_semaphore);
+    if (mpy_config.config.use_two_main_tasks) {
+        if (inter_proc_mutex == NULL) {
+            inter_proc_mutex = xSemaphoreCreateMutex();
+            configASSERT(inter_proc_mutex);
+            inter_proc_semaphore = xSemaphoreCreateBinary();
+            configASSERT(inter_proc_semaphore);
+        }
     }
-    #endif
 
     // Configure Watchdog
     mpy_wdt = io_open("/dev/wdt0");
+    mpy_wdt1 = io_open("/dev/wdt1");
     configASSERT(mpy_wdt);
+    configASSERT(mpy_wdt1);
     wdt_set_enable(mpy_wdt, 0);
+    wdt_set_enable(mpy_wdt1, 0);
 
-    wdt_set_response_mode(mpy_wdt, /*WDT_RESP_RESET*/ WDT_RESP_INTERRUPT);
-    wdt_set_timeout(mpy_wdt, 6*1e9); //6sec
+    //wdt_set_response_mode(mpy_wdt, WDT_RESP_INTERRUPT);
+    wdt_set_response_mode(mpy_wdt, WDT_RESP_RESET);
     wdt_set_on_timeout(mpy_wdt, on_wdt_timeout, NULL);
-    wdt_set_enable(mpy_wdt, 1);
+    mp_hal_wtd_enable(true, 6);
+
+    wdt_set_response_mode(mpy_wdt1, WDT_RESP_RESET);
+    wdt_set_on_timeout(mpy_wdt1, NULL, NULL);
 
     // Configure uarths (stdio uart) for interrupts
     mp_hal_uarths_setirq_default();
 
-    // Create systick task with lowest priority
+    // Create systick task with lowest priority on proc 0
     xTaskCreate(
             sys_tick_task,              // function entry
             "hal_tick_task",            // task name
             configMINIMAL_STACK_SIZE,   // stack_deepth
             NULL,                       // function argument
-            0,                          // task priority
+            1,                          // task priority
             &mp_hal_tick_handle);       // task handle
     configASSERT(mp_hal_tick_handle);
-
-    //LOGM("[HAL]", "Initialized");
 }
 
 // ===================================
@@ -315,12 +402,33 @@ void mp_hal_init(void)
 //---------------------------
 int mp_hal_stdin_rx_chr(void)
 {
-    #if MICROPY_USE_TWO_MAIN_TASKS
-    if (uxPortGetProcessorId() != MainTaskProc) return -1;
-    #endif
+    if ((mpy_config.config.use_two_main_tasks) && (uxPortGetProcessorId() != MAIN_TASK_PROC)) {
+        // The 2ns MicroPython instance does not process UART
+        return -1;
+    }
     int c = -1;
 
     for (;;) {
+        if (mp_interrupt_char >= 0) {
+            thread_msg_t msg;
+            // === Check for main thread messages, only process while keyboard interrupt is enabled ===
+            if ((uxPortGetProcessorId() == MAIN_TASK_PROC) && (xQueueReceive(thread_entry0.threadQueue, &msg, 0) == pdTRUE)) {
+                if (main_task_callback) {
+                    if ((msg.type == THREAD_MSG_TYPE_INTEGER) || (msg.type == THREAD_MSG_TYPE_STRING)) {
+                        mp_obj_t tuple[4];
+                        tuple[0] = mp_obj_new_int(msg.type);
+                        tuple[1] = mp_obj_new_int((uintptr_t)msg.sender_id);
+                        tuple[2] = mp_obj_new_int(msg.intdata);
+                        if (msg.type == THREAD_MSG_TYPE_STRING) tuple[3] = mp_obj_new_str((const char*)msg.strdata, msg.strlen);
+                        else tuple[3] = mp_const_none;
+                        mp_sched_schedule(main_task_callback, mp_obj_new_tuple(4, tuple));
+                    }
+                }
+                if (msg.strdata) vPortFree(msg.strdata);
+            }
+        }
+
+        // Process received character, if any
         uarths->ie.rxwm = 0;
         c = ringbuf_get(&stdin_ringbuf);
         uarths->ie.rxwm = 1;
@@ -355,36 +463,63 @@ void mp_hal_debug_tx_strn_cooked(void *env, const char *str, size_t len);
 //--------------------------------------------------------------------
 const mp_print_t mp_debug_print = {NULL, mp_hal_debug_tx_strn_cooked};
 
+
 // Send string of given length
 //-----------------------------------------------------
 void mp_hal_stdout_tx_strn(const char *str, size_t len)
 {
-    #if MICROPY_USE_TWO_MAIN_TASKS
-    if (uxPortGetProcessorId() != MainTaskProc) {
-        if (ipc_response_buff == NULL) {
-            ipc_response_buff = calloc((len > 1024) ? len : 1024, 1);
-            if (ipc_response_buff) {
-                ipc_response_buff_size = 1024;
-                ipc_response_buff_idx = 0;
+    if ((mpy_config.config.use_two_main_tasks) && (uxPortGetProcessorId() != MAIN_TASK_PROC)) {
+        xSemaphoreTake(inter_proc_mutex, portMAX_DELAY);
+        if (task_ipc.ipc_response_buff == NULL) {
+            task_ipc.ipc_response_buff = pvPortMalloc((len > 1024) ? len : 1024);
+            if (task_ipc.ipc_response_buff) {
+                task_ipc.ipc_response_buff[0] = '\0';
+                task_ipc.ipc_response_buff_size = 1024;
+                task_ipc.ipc_response_buff_idx = 0;
             }
         }
-        if (ipc_response_buff) {
-            if ((ipc_response_buff_size-ipc_response_buff_idx) > len) {
-                memcpy(ipc_response_buff+ipc_response_buff_idx, str, len);
-                ipc_response_buff_idx += len;
+        if (task_ipc.ipc_response_buff) {
+            if ((task_ipc.ipc_response_buff_size-task_ipc.ipc_response_buff_idx) > len) {
+                memcpy(task_ipc.ipc_response_buff+task_ipc.ipc_response_buff_idx, str, len);
+                task_ipc.ipc_response_buff_idx += len;
+                task_ipc.ipc_response_buff[task_ipc.ipc_response_buff_idx] = '\0';
+            }
+            else {
+                // expand response buffer
+                int new_size = task_ipc.ipc_response_buff_size + 1024;
+                while ((new_size-task_ipc.ipc_response_buff_idx) <= len) {
+                    new_size += 1024;
+                }
+                if (new_size <= TASK_IPC_RESP_BUF_MAX_SIZE) {
+                    char *tmp_buff = pvPortMalloc(new_size);
+                    if (tmp_buff) {
+                        memcpy(tmp_buff, task_ipc.ipc_response_buff, task_ipc.ipc_response_buff_idx);
+                        vPortFree(task_ipc.ipc_response_buff);
+                        task_ipc.ipc_response_buff = tmp_buff;
+                        memcpy(task_ipc.ipc_response_buff+task_ipc.ipc_response_buff_idx, str, len);
+                        task_ipc.ipc_response_buff_idx += len;
+                        task_ipc.ipc_response_buff[task_ipc.ipc_response_buff_idx] = '\0';
+                    }
+                }
             }
         }
+        xSemaphoreGive(inter_proc_mutex);
         return;
     }
-    #endif
 
     // Only release the GIL if many characters are being sent
     bool release_gil = len > 20;
     if (release_gil) {
         MP_THREAD_GIL_EXIT();
     }
+    if (syslog_mutex) {
+        xSemaphoreTake(syslog_mutex, 100 / portTICK_RATE_MS);
+    }
     for (uint32_t i = 0; i < len; ++i) {
         uarths_write_byte(str[i]);
+    }
+    if (syslog_mutex) {
+        xSemaphoreGive(syslog_mutex);
     }
     if (release_gil) {
         MP_THREAD_GIL_ENTER();
@@ -396,17 +531,21 @@ void mp_hal_stdout_tx_strn(const char *str, size_t len)
 void mp_hal_debug_tx_strn_cooked(void *env, const char *str, size_t len)
 {
     (void)env;
-    #if MICROPY_USE_TWO_MAIN_TASKS
-    if (uxPortGetProcessorId() != MainTaskProc) return;
-    #endif
+    if ((mpy_config.config.use_two_main_tasks) && (uxPortGetProcessorId() != MAIN_TASK_PROC)) return;
 
     char prev = '\0';
+    if (syslog_mutex) {
+        xSemaphoreTake(syslog_mutex, 100 / portTICK_RATE_MS);
+    }
     while (len--) {
         if ((*str == '\n') && (prev != '\r')) {
             uarths_write_byte('\r');
         }
         uarths_write_byte(*str++);
         prev = *str;
+    }
+    if (syslog_mutex) {
+        xSemaphoreGive(syslog_mutex);
     }
 }
 
@@ -456,19 +595,38 @@ void mp_hal_send_byte(char c)
 //-------------------------------------------------------
 uint16_t mp_hal_crc16(const uint8_t *buf, uint32_t count)
 {
-    uint16_t crc = 0;
+    uint16_t crc = 0xFFFF;
     int i;
     const uint8_t *pbuf = buf;
 
-    while(count--) {
+    while (count--) {
         crc = crc ^ *pbuf++ << 8;
-
         for (i=0; i<8; i++) {
             if (crc & 0x8000) crc = crc << 1 ^ 0x1021;
             else crc = crc << 1;
         }
     }
     return crc;
+}
+
+//-------------------------------------------------------
+uint32_t mp_hal_crc32(const uint8_t *buf, uint32_t count)
+{
+   int32_t i, j;
+   uint32_t crc, mask;
+   const uint8_t *pbuf = buf;
+
+   i = 0;
+   crc = 0xFFFFFFFF;
+   while (count--) {
+      crc = crc ^ (uint32_t)*pbuf++;
+      for (j = 7; j >= 0; j--) {
+         mask = -(crc & 1);
+         crc = (crc >> 1) ^ (0xEDB88320 & mask);
+      }
+      i = i + 1;
+   }
+   return ~crc;
 }
 
 //-------------------------------------------------------
@@ -529,7 +687,7 @@ int mp_hal_get_file_block(uint8_t *buff, int size)
         cfg.done = false;
         mp_hal_uarths_setirqhandle(on_irq_haluart_recv_block, (void *)&cfg);
         if (ntry == 0) uarths_write_byte(BLOCK_CTRL_READY);
-        mp_hal_delay_ms(50);
+        mp_hal_delay_ms(10);
 
         // receive data block
         tend = mp_hal_ticks_ms() + 2000;
@@ -550,7 +708,7 @@ int mp_hal_get_file_block(uint8_t *buff, int size)
                 break;
             }
             // bad crc, repeat block receive
-            mp_hal_delay_ms(50);
+            mp_hal_delay_ms(10);
             ntry++;
             if (ntry < 4) uarths_write_byte(BLOCK_CTRL_REPEAT);
             else {
@@ -570,12 +728,41 @@ int mp_hal_get_file_block(uint8_t *buff, int size)
     }
 
     mp_hal_uarths_setirq_default();
-    if (res != 0) mp_hal_delay_ms(100);
+    if (res != 0) mp_hal_delay_ms(20);
     return res;
 }
 
-//-------------------------------------------------------------
-int mp_hal_send_file_block(uint8_t *buff, int size, bool docrc)
+//--------------------------------------------
+char wait_key(const char *prompt, int timeout)
+{
+    uint8_t key = 0;
+    recv_block_t cfg;
+    uint64_t tend;
+
+    mp_hal_uarths_setirqhandle(NULL, NULL);
+    xSemaphoreTake(mp_hal_uart_semaphore, 0);
+
+    mp_hal_send_bytes((char *)prompt, strlen(prompt));
+    mp_hal_purge_uart_buffer();
+
+    cfg.buf = &key;
+    cfg.len = 1;
+    cfg.pos = 0;
+    cfg.done = false;
+    tend = mp_hal_ticks_ms() + timeout;
+
+    mp_hal_uarths_setirqhandle(on_irq_haluart_recv_block, (void *)&cfg);
+    while (mp_hal_ticks_ms() < tend) {
+        vTaskDelay(1);
+        if (cfg.done) break;
+    }
+
+    mp_hal_uarths_setirq_default();
+    return (char)key;
+}
+
+//------------------------------------------------------------------------
+int mp_hal_send_file_block(uint8_t *buff, int size, bool docrc, int fsize)
 {
     int res;
     uint16_t crc;
@@ -596,6 +783,45 @@ int mp_hal_send_file_block(uint8_t *buff, int size, bool docrc)
         buff[size+1] = (uint8_t)(crc & 0xFF);
     }
 
+    if (fsize > 0) {
+
+        // send file size first
+        mp_hal_uarths_setirqhandle(on_irq_haluart_recv_block, (void *)&cfg);
+        uint8_t fs_buf[8];
+        fs_buf[0] = 0x06;
+        fs_buf[1] = 0x5B;
+        fs_buf[2] = fsize & 0xff;
+        fs_buf[3] = (fsize >> 8) & 0xff;
+        fs_buf[4] = (fsize >> 16) & 0xff;
+        fs_buf[5] = (fsize >> 24) & 0xff;
+        crc = mp_hal_crc16(fs_buf, 6);
+        fs_buf[6] = (uint8_t)(crc >> 8);
+        fs_buf[7] = (uint8_t)(crc & 0xFF);
+
+        mp_hal_send_bytes((char *)fs_buf, 8);
+
+        // wait for acknowledge, max 2 seconds
+        tend = mp_hal_ticks_ms() + 2000;
+        while (mp_hal_ticks_ms() < tend) {
+            vTaskDelay(1);
+            if (cfg.done) break;
+        }
+        if (cfg.done) {
+            mp_hal_uarths_setirqhandle(NULL, NULL);
+            // ack received
+            if (ack != BLOCK_CTRL_READY) {
+                mp_hal_uarths_setirq_default();
+                return -3;
+            }
+            vTaskDelay(50);
+        }
+        else {
+            // ack not received, timeout
+            mp_hal_uarths_setirq_default();
+            return -3;
+        }
+    }
+
     while (1) {
         cfg.pos = 0;
         cfg.done = false;
@@ -604,7 +830,7 @@ int mp_hal_send_file_block(uint8_t *buff, int size, bool docrc)
         mp_hal_send_bytes((char *)buff, size+2);
 
         // wait for acknowledge, max 2 seconds
-        tend = mp_hal_ticks_ms() + 4000;
+        tend = mp_hal_ticks_ms() + 2000;
         while (mp_hal_ticks_ms() < tend) {
             vTaskDelay(1);
             if (cfg.done) break;
@@ -638,27 +864,9 @@ int mp_hal_send_file_block(uint8_t *buff, int size, bool docrc)
     return res;
 }
 
-// ===========================================
-// === MicroPython ticks & sleep functions ===
-// ===========================================
-
-//------------------------------
-mp_uint_t mp_hal_ticks_cpu(void)
-{
-    return read_csr64(mcycle);
-}
-
-//-----------------------------
-mp_uint_t mp_hal_ticks_us(void)
-{
-	return (read_csr64(mcycle) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000));
-}
-
-//-----------------------------
-mp_uint_t mp_hal_ticks_ms(void)
-{
-    return (read_csr64(mcycle) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000));
-}
+// ===================================
+// === MicroPython sleep functions ===
+// ===================================
 
 //------------------------------
 void mp_hal_usdelay(uint16_t us)

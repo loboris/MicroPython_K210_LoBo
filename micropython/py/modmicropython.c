@@ -4,6 +4,7 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2013, 2014 Damien P. George
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -69,15 +70,20 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_0(mp_micropython_mem_peak_obj, mp_micropython_mem
 mp_obj_t mp_micropython_mem_info(size_t n_args, const mp_obj_t *args) {
     (void)args;
 #if MICROPY_MEM_STATS
-    mp_printf(&mp_plat_print, "mem: total=" UINT_FMT ", current=" UINT_FMT ", peak=" UINT_FMT "\n",
+    mp_printf(&mp_plat_print, "    Mem: total=" UINT_FMT ", current=" UINT_FMT ", peak=" UINT_FMT "\n",
         (mp_uint_t)m_get_total_bytes_allocated(), (mp_uint_t)m_get_current_bytes_allocated(), (mp_uint_t)m_get_peak_bytes_allocated());
 #endif
 #if MICROPY_STACK_CHECK
-    mp_printf(&mp_plat_print, "stack: " UINT_FMT " out of " UINT_FMT "\n",
+    mp_printf(&mp_plat_print, "  Stack: " UINT_FMT " out of " UINT_FMT "\n",
         mp_stack_usage(), (mp_uint_t)MP_STATE_THREAD(stack_limit));
 #else
-    mp_printf(&mp_plat_print, "stack: " UINT_FMT "\n", mp_stack_usage());
+    mp_printf(&mp_plat_print, "  Stack: " UINT_FMT "\n", mp_stack_usage());
 #endif
+    // LoBo: added PyStack info
+    if (MP_STATE_THREAD(pystack_enabled)) {
+        mp_printf(&mp_plat_print, "PyStack: " UINT_FMT " out of " UINT_FMT "\n",
+            MP_STATE_THREAD(pystack_end)-MP_STATE_THREAD(pystack_cur), MP_STATE_THREAD(pystack_end)-MP_STATE_THREAD(pystack_start));
+    }
 #if MICROPY_ENABLE_GC
     gc_dump_info();
     if (n_args == 1) {
@@ -114,12 +120,10 @@ STATIC mp_obj_t mp_micropython_stack_use(void) {
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(mp_micropython_stack_use_obj, mp_micropython_stack_use);
 #endif
 
-#if MICROPY_ENABLE_PYSTACK
 STATIC mp_obj_t mp_micropython_pystack_use(void) {
     return MP_OBJ_NEW_SMALL_INT(mp_pystack_usage());
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(mp_micropython_pystack_use_obj, mp_micropython_pystack_use);
-#endif
 
 #if MICROPY_ENABLE_GC
 STATIC mp_obj_t mp_micropython_heap_lock(void) {
@@ -178,9 +182,7 @@ STATIC const mp_rom_map_elem_t mp_module_micropython_globals_table[] = {
 #if MICROPY_ENABLE_EMERGENCY_EXCEPTION_BUF && (MICROPY_EMERGENCY_EXCEPTION_BUF_SIZE == 0)
     { MP_ROM_QSTR(MP_QSTR_alloc_emergency_exception_buf), MP_ROM_PTR(&mp_alloc_emergency_exception_buf_obj) },
 #endif
-    #if MICROPY_ENABLE_PYSTACK
     { MP_ROM_QSTR(MP_QSTR_pystack_use), MP_ROM_PTR(&mp_micropython_pystack_use_obj) },
-    #endif
     #if MICROPY_ENABLE_GC
     { MP_ROM_QSTR(MP_QSTR_heap_lock), MP_ROM_PTR(&mp_micropython_heap_lock_obj) },
     { MP_ROM_QSTR(MP_QSTR_heap_unlock), MP_ROM_PTR(&mp_micropython_heap_unlock_obj) },

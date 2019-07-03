@@ -1,9 +1,9 @@
 /*
- * This file is part of the MicroPython project, http://micropython.org/
+ * This file is part of the MicroPython K210 project, https://github.com/loboris/MicroPython_K210_LoBo
  *
  * The MIT License (MIT)
  *
- * Copyright (c) 2013, 2014 Damien P. George
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,17 +23,20 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #ifndef MICROPY_INCLUDED_EXTMOD_VFS_SPIFFS_H
 #define MICROPY_INCLUDED_EXTMOD_VFS_SPIFFS_H
+
+#if MICROPY_VFS_SPIFFS
 
 #include "py/lexer.h"
 #include "py/obj.h"
 #include "extmod/vfs.h"
 #include "spiffs.h"
 // these are the values for fs_user_mount_t.flags
-#define MODULE_SPIFFS       (0x0001) // readblocks[2]/writeblocks[2] contain native func
-#define SYS_SPIFFS     (0x0002) // fs_user_mount_t obj should be freed on umount
-#define FSUSER_HAVE_IOCTL   (0x0004) // new protocol with ioctl
+#define MODULE_SPIFFS        (0x0001) // readblocks[2]/writeblocks[2] contain native func
+#define SYS_SPIFFS           (0x0002) // fs_user_mount_t obj should be freed on umount
+#define FSUSER_HAVE_IOCTL    (0x0004) // new protocol with ioctl
 #define FSUSER_NO_FILESYSTEM (0x0008) // the block device has no filesystem on it
 
 #define GET_ERR_CODE(res) ((-res)-10000+1)
@@ -112,10 +115,12 @@ typedef struct {
 
 extern spiffs_user_mount_t spiffs_user_mount_handle;
 
+extern bool force_erase_fs_flash;
 extern const byte SPIFFS_errno_table[43];
 extern const mp_obj_type_t mp_spiffs_vfs_type;
 extern const mp_obj_type_t mp_type_vfs_spiffs_fileio;
 extern const mp_obj_type_t mp_type_vfs_spiffs_textio;
+extern void *vfs_flashfs;
 
 #if SPIFFS_HAL_CALLBACK_EXTRA
 s32_t sys_spiffs_read(spiffs* fs, int addr, int size, char *buf);
@@ -130,10 +135,11 @@ s32_t sys_spiffs_erase(int addr, int size);
 bool vfs_spiffs_update_meta(spiffs *fs, spiffs_file fd, uint8_t type);
 int mp_module_spiffs_mount(spiffs* fs,spiffs_config* cfg);
 int mp_module_spiffs_format(spiffs* fs);
-MP_NOINLINE bool init_flash_spiffs();
+MP_NOINLINE bool init_flash_filesystem();
 const char *spiffs_local_path(const char *path);
-bool check_main_py(spiffs *fs);
 
 MP_DECLARE_CONST_FUN_OBJ_3(spiffs_vfs_open_obj);
 
-#endif // MICROPY_INCLUDED_EXTMOD_VFS_FAT_H
+#endif
+
+#endif

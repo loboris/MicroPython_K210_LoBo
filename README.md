@@ -1,9 +1,9 @@
 # MicroPython for Kendryte K210
 
 
-> This MicroPython port is now in **beta stage**. Some bugs and issues can be expected.<br>
+> This MicroPython port is now in a stable phase, but some bugs and issues can be expected, please report<br>
 > All standard MicroPython functionality and modules are implemented, as well as advanced thread support, file system support and display module.<br>
-> *Modules providing support for K210 peripherals (Pin, UART, I2C, SPI, Camera, PWM, etc) will be implemented soon*
+> *Modules providing support for still unsupported K210 peripherals will be implemented soon*
 > 
 
 <br>
@@ -11,21 +11,27 @@
 This implementation is based on [**MaixPy**](https://github.com/sipeed/MaixPy)<br>
 Based on *kendryte-freertos-sdk* (modified to include some needed features not yet implemented) it brings many new features:
 
-* MicroPython core based on latest build from [main Micropython repository](https://github.com/micropython/micropython), unchanged except for the thread support.
+* MicroPython core based on latest release build from [main Micropython repository](https://github.com/micropython/micropython), unchanged except for the thread support and other changes needed to work with 64-bit RISC-V.
+* Running **two** independent Micropython instances on two K210 cores is supported.<br>Data exchange between instances is supported.
 * Refactored **_thread** module with many new features, based on my [MicroPython for ESP32](https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/wiki/thread) _thread module
-* Full support for SPIFFS file system on internal Flash(with directories support) and Fat32 file system on external SD Card
-* Full filesystem timestamp support for both SPIFFS and Fat32
+* Full support for **LittleFS** on internal Flash.<br>SPIFFS is also supported (with directories support) and can be selected when building.
+* Full support for Fat32 file system on external SD Card
+* Full filesystem timestamp support for LittleFS, SPIFFS and Fat32
 * **ymodem** module for file transfer to/from K210 board using ymodem protocol is provided
 * **uhashlib** and **ucryptolib** using K210 hardware AES are implemented
-* Display module ported from my [MicroPython for ESP32](https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/wiki/display) display module
+* **Display** module ported from my [MicroPython for ESP32]
+(https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/wiki/display) display module
+* Full **network** support for **WiFi** (based on ESP8266/ESP8285) and **GSM** modules.
 * **pye**, full screen file editor (as python frozen module) is provided
-* **Eclipse** project files included. To include it into Eclipse goto File->Import->Existing Projects into Workspace->Select root directory->[select *MicroPython_K210_LoBo* directory]->Finish. **Rebuild index**.
-* Porting most of the modules from my [MicroPython for ESP32](https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/wiki) port is planned.
-* More to come soon ...
+* **MPyTerm**, serial terminal emulator specially designed for MicroPython is provided.<br>
+Included are commands to syncronize MicroPython time from PC, change the REPL baudrate, transfer files to/from MicroPython filesystem (including transfering whole directories).<br>Fast block file transfer is used, protected with CRC.
+* **Eclipse** project files included.<br>To include it into Eclipse goto `File->Import->Existing Projects into Workspace->Select root directory->[select *MicroPython_K210_LoBo* directory]->Finish`. **Rebuild index**.
+* Many modules from my [MicroPython for ESP32](https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/wiki) port are already ported, porting some others is planned.
+* _More to come soon ..._
 
 <br>
 
-Full Wiki pages with detailed instructions for build and usage will be available soon.
+**Wiki pages** with detailed instructions for build and usage are provided.<br>_Missing documentation will be available soon._
 
 ---
 
@@ -48,7 +54,7 @@ You will not be able to use `git pull` to update the repository, but otherwise t
 ## Build the MicroPython firmware
 <br>
 
-> *Kendryte toolchain will be automatically downloaded and unpacked on* **first run** *of* **BUILD.sh** *script*<br>
+> *Kendryte toolchain will be automatically downloaded and unpacked on* **first run** *of* **BUILD.sh** *script. It can take some time on slow Internet connection (~32 MB will be downloaded).*<br>
 > *kendryte-freertos-sdk* is included in the repository
 
 
@@ -69,8 +75,8 @@ Change */dev/ttyUSB0* to the port used to connect to the your board if needed.
 ---
 
 ```
-I (188995) w25qxx_init: manuf_id:0xc8, device_id:0x17
-
+M (1371) [MAIXPY]: Configuration loaded from flash
+M (9298) [MAIXPY]: Heaps: FreeRTOS=3840 KB (1196 KB free), MPy=2560 KB, other=379 KB
 
  __  __              _____  __   __  _____   __     __ 
 |  \/  |     /\     |_   _| \ \ / / |  __ \  \ \   / /
@@ -80,92 +86,167 @@ I (188995) w25qxx_init: manuf_id:0xc8, device_id:0x17
 |_|  |_| /_/    \_\ |_____| /_/ \_\ |_|         |_|
 ------------------------------------------------------
 
-I (228135) [MAIXPY]: Stack:  min: 8065
-I (232617) [MAIXPY]:  Pll0: freq: 780000000
-I (237391) [MAIXPY]:  Pll1: freq: 159714285
-I (242165) [MAIXPY]:   Cpu: freq: 390000000
-I (246938) [MAIXPY]: Flash:   ID: [0xc8:0x17]
-I (535090) [VFS_SPIFFS]: Flash VFS registered.
-
-MaixPy-FreeRTOS by LoBo v1.0.1
-------------------------------
-MicroPython 76eeec7-dirty on 2019-01-24; Sipeed_board with Kendryte-K210
+MaixPy-FreeRTOS by LoBo v1.11.3
+-------------------------------
+MicroPython 1.11.3 (c593f64-dirty) built on 2019-07-03; Sipeed_board with Kendryte-K210
 Type "help()" for more information.
 >>> 
->>> 
 >>> help('modules')
-__main__          gc                ucollections      urandom
-_thread           machine           ucryptolib        ure
-array             math              uctypes           ustruct
-binascii          micropython       uerrno            utime
-board             os                uhashlib          utimeq
-builtins          pye               uheapq            uzlib
-cmath             re                uio               websocket
-collections       sys               ujson             ymodem
-display           ubinascii         uos
+__main__          io                sys               upip_utarfile
+_thread           json              time              upysh
+array             machine           ubinascii         urandom
+binascii          math              ucollections      ure
+board             microWebSocket    ucryptolib        uselect
+builtins          microWebSrv       uctypes           usocket
+cmath             microWebTemplate  uerrno            ustruct
+collections       micropython       uftpserver        utime
+display           network           uhashlib          utimeq
+font10            os                uheapq            uzlib
+font6             pye               uio               writer
+framebuf          re                ujson             ymodem
+freesans20        socket            uos
+gc                ssd1306           upip
 Plus any modules on the filesystem
 >>> 
->>> import machine, uos, utime, _thread
->>> def test():
-...     cnt = 0
-...     machine.initleds()
-...     while 1:
-...         machine.setled(machine.LEDR, False)
-...         machine.setled(machine.LEDB, False)
-...         if (cnt % 2):
-...             machine.setled(machine.LEDR, True)
-...         else:
-...             machine.setled(machine.LEDB, True)
-...         cnt += 1
-...         utime.sleep_ms(500)
-...
 >>> 
->>> th = _thread.start_new_thread("TestLED", test, ())
+paste mode; Ctrl-C to cancel, Ctrl-D to finish
+=== import _thread, utime, machine, gc, micropython, os
+=== 
+=== def test(led, sleep_time=3000):
+===     notif_exit = 4718
+===     ld = machine.Pin(led, machine.Pin.OUT)
+===     ld.value(1)
+===     while 1:
+===         notif = _thread.getnotification()
+===         if notif == notif_exit:
+===             print("[{}] Exiting".format(_thread.getSelfName()))
+===             ld.value(1)
+===             utime.sleep_ms(100)
+===             return
+===         elif notif == 777:
+===             print("[{}] Forced EXCEPTION".format(_thread.getSelfName()))
+===             ld.value(1)
+===             utime.sleep_ms(1000)
+===             zz = 234 / 0
+===         utime.sleep_ms(sleep_time)
+===         ld.value(0)
+===         utime.sleep_ms(200)
+===         ld.value(1)
+=== 
+=== th1 = _thread.start_new_thread("Test1", test, (machine.Pin.LEDR, 2000))
+=== #utime.sleep_ms(1000)
+=== th2 = _thread.start_new_thread("Test2", test, (machine.Pin.LEDG, 2500))
+=== #utime.sleep_ms(1000)
+=== th3 = _thread.start_new_thread("Test3", test, (machine.Pin.LEDB, 3300))
+=== 
+>>> 
 >>> _thread.list()
 
-Total system run time: 880.221 s, Tasks run time: 880.221 s, numTasks=5
+Total system run time: 144.678 s, number of tasks running: 7
 MicroPython threads:
------------------------------------------------------------------------------------------------------
-ID(handle) Proc             Name     State  Stack MaxUsed PyStack    Type Priority Run time (s)   (%)
------------------------------------------------------------------------------------------------------
-2148287848    0          TestLED   running  16016    1232    2048  PYTHON        8        0.354  0.04
-2148402616    0       MainThread   running  31600    1256    4096    MAIN        8        4.000  0.45
+-------------------------------------------------------------------------------------------------------------------
+ID(handle) Proc             Name      State  Stack  Used MaxUsed PyStack   Used    Type Priority Run time (s)   (%)
+-------------------------------------------------------------------------------------------------------------------
+2148930632    0            Test3    running   8192  3216    3464    4096    128  PYTHON        8        0.346  0.24
+2148915528    0            Test2    running   8192  3216    3464    4096    128  PYTHON        8        0.353  0.24
+2148900424    0            Test1    running   8192  3216    3576    4096    128  PYTHON        8        0.363  0.25
+2151627528    0       MainThread*   running  32768  2080    2664    4096     64    MAIN        8        0.709  0.49
 
 FreeRTOS tasks running:
 -------------------------------------------------------------------------------
 ID(handle) Proc             Name     State MinStack Priority Run time (s)   (%)
 -------------------------------------------------------------------------------
-2148402616    0          mp_task   Running    30344       15        4.000  0.45
-2148287848    0          TestLED     Ready    14784        8        0.354  0.04
-2148355008    0             IDLE     Ready     7320        0      875.613 99.48
-2148357096    1             IDLE     Ready     7416        0      880.183100.00
-2148367744    1    hal_tick_task   Blocked     7432        0        0.008  0.00
+2151627528    0     main_mp_task   Running    30104       15        0.709  0.49
+2148915528    0            Test2     Ready     4728        8        0.353  0.24
+2148900424    0            Test1     Ready     4616        8        0.363  0.25
+2148930632    0            Test3     Ready     4728        8        0.346  0.24
+2152821640    0             IDLE     Ready     7416        0      142.885 98.76
+2152823752    1             IDLE     Ready     7416        0        0.000  0.00
+2148967032    0    hal_tick_task   Blocked     7432        1        0.001  0.00
+-------------------------------------------------------------------------------
+FreeRTOS heap: Size: 3932160, Free: 1210808, Min free: 1189024
 
 >>> 
+>>> machine.mpy_config()
+
+Current MicroPython configuration:
+----------------------------------
+ MPy version code: 011103
+Two MPy instances: False
+     PyStack used: True
+  MPy#1 heap size: 2560 KB
+  MPy#2 heap size: 0 KB
+     PyStack size: 4096 B
+   MPy stack size: 32768 B
+    CPU frequency: 400 MHz
+    REPL baudrate: 115200 bd
+     But menu pin: 17
+Default log level: 2 (LOG_WARN)
+       VM divisor: 32
+(False, True, 2621440, 0, 4096, 32768, 400000000, 115200, 17, 2, 32)
+>>> 
+>>> machine.reset_reason()
+(8, 'External pin reset')
 >>> 
 >>> 
->>> sd = uos.VfsSDCard()
->>> uos.mount(sd, '/sd')
->>> uos.listdir('/sd')
-['test1.avi', 'test.txt', 'test1.txt', 'Picture', 'Video', 'Audio', 'VideoCall', 'Money.wav', 'Wall1.raw', 'TEST_F~1.TXT', 'test_syscalls.tx
-t', 'test_filesystem.txt']
+--[mpTerm command: synctime
+OK.
+back to device ]--
+
+>>> os.mkdir('/flash/www')
 >>> 
->>> uos.statvfs('/sd')
-(4096, 4096, 1936436, 1925131, 1925131, 0, 0, 0, 0, 255)
+--[mpTerm command: senddir mpy_support/examples/webserver/www /flash/www
+Sending local file mpy_support/examples/webserver/www/index.html to /flash/www/index.html
+
+--> 100.00%
+OK, took 0.271 seconds, 4.040 KB/s
+Sending local file mpy_support/examples/webserver/www/pdf-sample.pdf to /flash/www/pdf-sample.pdf
+
+--> 100.00%
+OK, took 1.884 seconds, 4.118 KB/s
+Sending local file mpy_support/examples/webserver/www/pdf.png to /flash/www/pdf.png
+
+--> 100.00%
+OK, took 1.060 seconds, 4.192 KB/s
+Sending local file mpy_support/examples/webserver/www/style.css to /flash/www/style.css
+
+--> 100.00%
+OK, took 0.025 seconds, 18.044 KB/s
+Sending local file mpy_support/examples/webserver/www/wstest.html to /flash/www/wstest.html
+
+--> 100.00%
+OK, took 0.539 seconds, 3.858 KB/s
+Sending local file mpy_support/examples/webserver/www/test.pyhtml to /flash/www/test.pyhtml
+
+--> 100.00%
+OK, took 0.044 seconds, 14.650 KB/s
+Sending local file mpy_support/examples/webserver/www/python.ico to /flash/www/python.ico
+
+--> 100.00%
+OK, took 1.049 seconds, 3.991 KB/s
+Sending local file mpy_support/examples/webserver/www/favicon.ico to /flash/www/favicon.ico
+
+--> 100.00%
+OK, took 0.455 seconds, 4.801 KB/s
+back to device ]--
+
 >>> 
->>> import display
->>> tft = display.TFT()
->>> tft.init(0)
->>> tft.circle(160,120,80,tft.RED,tft.BLUE)
->>> tft.image(0,0,'/flash/test1.jpg')
->>> 
->>> import micropython, gc
->>> gc.collect()
->>> micropython.mem_info()
-mem: total=37414, current=5122, peak=6688
-stack: 1004
-GC: total: 3121280, used: 1504, free: 3119776
- No. of 1-blocks: 25, 2-blocks: 4, max blk sz: 6, max free sz: 97351
+--[mpTerm command: ls /flash/www
+
+List of directory '/flash/www/':
+--------------------------------
+    favicon.ico  <file>  2238  2019-07-03 14:47:24
+     index.html  <file>  1122  2019-07-03 14:47:10
+ pdf-sample.pdf  <file>  7945  2019-07-03 14:47:11
+        pdf.png  <file>  4551  2019-07-03 14:47:14
+     python.ico  <file>  4286  2019-07-03 14:47:22
+      style.css  <file>   457  2019-07-03 14:47:17
+    test.pyhtml  <file>   666  2019-07-03 14:47:20
+    wstest.html  <file>  2128  2019-07-03 14:47:18
+back to device ]--
+
+>>> os.listdir('/flash/www')
+['favicon.ico', 'index.html', 'pdf-sample.pdf', 'pdf.png', 'python.ico', 'style.css', 'test.pyhtml', 'wstest.html']
 >>> 
 
 ```

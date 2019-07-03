@@ -114,12 +114,14 @@ extern void vPortYieldFromISR(void);
 #endif
 
 /* Store/clear the ready priorities in a bit map. */
-#define portRECORD_READY_PRIORITY( uxPriority, uxReadyPriorities ) ( uxReadyPriorities ) |= ( 1UL << ( uxPriority ) )
-#define portRESET_READY_PRIORITY( uxPriority, uxReadyPriorities ) ( uxReadyPriorities ) &= ~( 1UL << ( uxPriority ) )
+// LoBo: uxReadyPriorities is an array
+#define portRECORD_READY_PRIORITY( uxPriority, uxReadyPriorities ) ( uxReadyPriorities[uxPsrId] ) |= ( 1UL << ( uxPriority ) )
+#define portRESET_READY_PRIORITY( uxPriority, uxReadyPriorities ) ( uxReadyPriorities[uxPsrId] ) &= ~( 1UL << ( uxPriority ) )
 
 /*-----------------------------------------------------------*/
 
-#define portGET_HIGHEST_PRIORITY( uxTopPriority, uxReadyPriorities ) uxTopPriority = ( 31 - __builtin_clz( ( uxReadyPriorities ) ) )
+// LoBo: uxReadyPriorities is an array
+#define portGET_HIGHEST_PRIORITY( uxTopPriority, uxReadyPriorities ) uxTopPriority = ( 31 - __builtin_clz( ( uxReadyPriorities[uxPsrId] ) ) )
 
 #endif /* configUSE_PORT_OPTIMISED_TASK_SELECTION */
 

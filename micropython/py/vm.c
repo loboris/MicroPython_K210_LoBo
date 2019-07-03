@@ -3,8 +3,9 @@
  *
  * The MIT License (MIT)
  *
- * Copyright (c) 2013, 2014 Damien P. George
- * Copyright (c) 2014 Paul Sokolovsky
+ * Copyright (c) 2013-2019 Damien P. George
+ * Copyright (c) 2014-2015 Paul Sokolovsky
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -100,13 +101,11 @@
     DECODE_ULABEL; /* except labels are always forward */ \
     ++exc_sp; \
     exc_sp->handler = ip + ulab; \
-    exc_sp->val_sp = MP_TAGPTR_MAKE(sp, ((with_or_finally) << 1) | currently_in_except_block); \
+    exc_sp->val_sp = MP_TAGPTR_MAKE(sp, ((with_or_finally) << 1)); \
     exc_sp->prev_exc = NULL; \
-    currently_in_except_block = 0; /* in a try block now */ \
 } while (0)
 
 #define POP_EXC_BLOCK() \
-    currently_in_except_block = MP_TAGPTR_TAG0(exc_sp->val_sp); /* restore previous state */ \
     exc_sp--; /* pop back to previous exception handler */ \
     CLEAR_SYS_EXC_INFO() /* just clear sys.exc_info(), not compliant, but it shouldn't be used in 1st place */
 
@@ -161,7 +160,6 @@ run_code_state: ;
     }
 
     // variables that are visible to the exception handler (declared volatile)
-    volatile bool currently_in_except_block = MP_TAGPTR_TAG0(code_state->exc_sp); // 0 or 1, to detect nested exceptions
     mp_exc_stack_t *volatile exc_sp = MP_TAGPTR_PTR(code_state->exc_sp); // stack grows up, exc_sp points to top of stack
 
     #if MICROPY_PY_THREAD_GIL && MICROPY_PY_THREAD_GIL_VM_DIVISOR
@@ -604,7 +602,7 @@ dispatch_loop:
                         sp -= 2;
                         mp_call_method_n_kw(3, 0, sp);
                         SET_TOP(mp_const_none);
-                    } else if (MP_OBJ_IS_SMALL_INT(TOP())) {
+                    } else if (mp_obj_is_small_int(TOP())) {
                         // Getting here there are two distinct cases:
                         //  - unwind return, stack: (..., __exit__, ctx_mgr, ret_val, SMALL_INT(-1))
                         //  - unwind jump, stack:   (..., __exit__, ctx_mgr, dest_ip, SMALL_INT(num_exc))
@@ -633,8 +631,6 @@ dispatch_loop:
                             // replacing it with None, which signals END_FINALLY to just
                             // execute the finally handler normally.
                             SET_TOP(mp_const_none);
-                            assert(exc_sp >= exc_stack);
-                            POP_EXC_BLOCK();
                         } else {
                             // We need to re-raise the exception.  We pop __exit__ handler
                             // by copying the exception instance down to the new top-of-stack.
@@ -654,7 +650,7 @@ unwind_jump:;
                     while ((unum & 0x7f) > 0) {
                         unum -= 1;
                         assert(exc_sp >= exc_stack);
-                        if (MP_TAGPTR_TAG1(exc_sp->val_sp)) {
+                        if (MP_TAGPTR_TAG1(exc_sp->val_sp) && exc_sp->handler > ip) {
                             // Getting here the stack looks like:
                             //     (..., X, dest_ip)
                             // where X is pointed to by exc_sp->val_sp and in the case
@@ -680,7 +676,6 @@ unwind_jump:;
                     DISPATCH_WITH_PEND_EXC_CHECK();
                 }
 
-                // matched against: POP_BLOCK or POP_EXCEPT (anything else?)
                 ENTRY(MP_BC_SETUP_EXCEPT):
                 ENTRY(MP_BC_SETUP_FINALLY): {
                     MARK_EXC_IP_SELECTIVE();
@@ -698,8 +693,10 @@ unwind_jump:;
                     // if TOS is an integer, finishes coroutine and returns control to caller
                     // if TOS is an exception, reraises the exception
                     if (TOP() == mp_const_none) {
+                        assert(exc_sp >= exc_stack);
+                        POP_EXC_BLOCK();
                         sp--;
-                    } else if (MP_OBJ_IS_SMALL_INT(TOP())) {
+                    } else if (mp_obj_is_small_int(TOP())) {
                         // We finished "finally" coroutine and now dispatch back
                         // to our caller, based on TOS value
                         mp_int_t cause = MP_OBJ_SMALL_INT_VALUE(POP());
@@ -761,19 +758,13 @@ unwind_jump:;
                     DISPATCH();
                 }
 
-                // matched against: SETUP_EXCEPT, SETUP_FINALLY, SETUP_WITH
-                ENTRY(MP_BC_POP_BLOCK):
-                    // we are exiting an exception handler, so pop the last one of the exception-stack
+                ENTRY(MP_BC_POP_EXCEPT_JUMP): {
                     assert(exc_sp >= exc_stack);
                     POP_EXC_BLOCK();
-                    DISPATCH();
-
-                // matched against: SETUP_EXCEPT
-                ENTRY(MP_BC_POP_EXCEPT):
-                    assert(exc_sp >= exc_stack);
-                    assert(currently_in_except_block);
-                    POP_EXC_BLOCK();
-                    DISPATCH();
+                    DECODE_ULABEL;
+                    ip += ulab;
+                    DISPATCH_WITH_PEND_EXC_CHECK();
+                }
 
                 ENTRY(MP_BC_BUILD_TUPLE): {
                     MARK_EXC_IP_SELECTIVE();
@@ -906,19 +897,25 @@ unwind_jump:;
                     if (mp_obj_get_type(*sp) == &mp_type_fun_bc) {
                         code_state->ip = ip;
                         code_state->sp = sp;
-                        code_state->exc_sp = MP_TAGPTR_MAKE(exc_sp, currently_in_except_block);
+                        code_state->exc_sp = MP_TAGPTR_MAKE(exc_sp, 0);
                         mp_code_state_t *new_state = mp_obj_fun_bc_prepare_codestate(*sp, unum & 0xff, (unum >> 8) & 0xff, sp + 1);
-                        #if !MICROPY_ENABLE_PYSTACK
-                        if (new_state == NULL) {
-                            // Couldn't allocate codestate on heap: in the strict case raise
-                            // an exception, otherwise just fall through to stack allocation.
-                            #if MICROPY_STACKLESS_STRICT
-                        deep_recursion_error:
-                            mp_raise_recursion_depth();
-                            #endif
-                        } else
-                        #endif
-                        {
+                        if (MP_STATE_THREAD(pystack_enabled)) {
+                            if (new_state == NULL) {
+                                // Couldn't allocate codestate on heap: in the strict case raise
+                                // an exception, otherwise just fall through to stack allocation.
+                                #if MICROPY_STACKLESS_STRICT
+                                deep_recursion_error:
+                                mp_raise_recursion_depth();
+                                #endif
+                            }
+                            else {
+                                new_state->prev = code_state;
+                                code_state = new_state;
+                                nlr_pop();
+                                goto run_code_state;
+                            }
+                        }
+                        else {
                             new_state->prev = code_state;
                             code_state = new_state;
                             nlr_pop();
@@ -942,28 +939,32 @@ unwind_jump:;
                     if (mp_obj_get_type(*sp) == &mp_type_fun_bc) {
                         code_state->ip = ip;
                         code_state->sp = sp;
-                        code_state->exc_sp = MP_TAGPTR_MAKE(exc_sp, currently_in_except_block);
+                        code_state->exc_sp = MP_TAGPTR_MAKE(exc_sp, 0);
 
                         mp_call_args_t out_args;
                         mp_call_prepare_args_n_kw_var(false, unum, sp, &out_args);
 
                         mp_code_state_t *new_state = mp_obj_fun_bc_prepare_codestate(out_args.fun,
                             out_args.n_args, out_args.n_kw, out_args.args);
-                        #if !MICROPY_ENABLE_PYSTACK
-                        // Freeing args at this point does not follow a LIFO order so only do it if
-                        // pystack is not enabled.  For pystack, they are freed when code_state is.
-                        mp_nonlocal_free(out_args.args, out_args.n_alloc * sizeof(mp_obj_t));
-                        #endif
-                        #if !MICROPY_ENABLE_PYSTACK
-                        if (new_state == NULL) {
-                            // Couldn't allocate codestate on heap: in the strict case raise
-                            // an exception, otherwise just fall through to stack allocation.
-                            #if MICROPY_STACKLESS_STRICT
-                            goto deep_recursion_error;
-                            #endif
-                        } else
-                        #endif
-                        {
+                        if (!MP_STATE_THREAD(pystack_enabled)) {
+                            // Freeing args at this point does not follow a LIFO order so only do it if
+                            // pystack is not enabled.  For pystack, they are freed when code_state is.
+                            mp_nonlocal_free(out_args.args, out_args.n_alloc * sizeof(mp_obj_t));
+                            if (new_state == NULL) {
+                                // Couldn't allocate codestate on heap: in the strict case raise
+                                // an exception, otherwise just fall through to stack allocation.
+                                #if MICROPY_STACKLESS_STRICT
+                                goto deep_recursion_error;
+                                #endif
+                            }
+                            else {
+                                new_state->prev = code_state;
+                                code_state = new_state;
+                                nlr_pop();
+                                goto run_code_state;
+                            }
+                        }
+                        else {
                             new_state->prev = code_state;
                             code_state = new_state;
                             nlr_pop();
@@ -985,23 +986,29 @@ unwind_jump:;
                     if (mp_obj_get_type(*sp) == &mp_type_fun_bc) {
                         code_state->ip = ip;
                         code_state->sp = sp;
-                        code_state->exc_sp = MP_TAGPTR_MAKE(exc_sp, currently_in_except_block);
+                        code_state->exc_sp = MP_TAGPTR_MAKE(exc_sp, 0);
 
                         size_t n_args = unum & 0xff;
                         size_t n_kw = (unum >> 8) & 0xff;
                         int adjust = (sp[1] == MP_OBJ_NULL) ? 0 : 1;
 
                         mp_code_state_t *new_state = mp_obj_fun_bc_prepare_codestate(*sp, n_args + adjust, n_kw, sp + 2 - adjust);
-                        #if !MICROPY_ENABLE_PYSTACK
-                        if (new_state == NULL) {
-                            // Couldn't allocate codestate on heap: in the strict case raise
-                            // an exception, otherwise just fall through to stack allocation.
-                            #if MICROPY_STACKLESS_STRICT
-                            goto deep_recursion_error;
-                            #endif
-                        } else
-                        #endif
-                        {
+                        if (!MP_STATE_THREAD(pystack_enabled)) {
+                            if (new_state == NULL) {
+                                // Couldn't allocate codestate on heap: in the strict case raise
+                                // an exception, otherwise just fall through to stack allocation.
+                                #if MICROPY_STACKLESS_STRICT
+                                goto deep_recursion_error;
+                                #endif
+                            }
+                            else {
+                                new_state->prev = code_state;
+                                code_state = new_state;
+                                nlr_pop();
+                                goto run_code_state;
+                            }
+                        }
+                        else {
                             new_state->prev = code_state;
                             code_state = new_state;
                             nlr_pop();
@@ -1025,28 +1032,32 @@ unwind_jump:;
                     if (mp_obj_get_type(*sp) == &mp_type_fun_bc) {
                         code_state->ip = ip;
                         code_state->sp = sp;
-                        code_state->exc_sp = MP_TAGPTR_MAKE(exc_sp, currently_in_except_block);
+                        code_state->exc_sp = MP_TAGPTR_MAKE(exc_sp, 0);
 
                         mp_call_args_t out_args;
                         mp_call_prepare_args_n_kw_var(true, unum, sp, &out_args);
 
                         mp_code_state_t *new_state = mp_obj_fun_bc_prepare_codestate(out_args.fun,
                             out_args.n_args, out_args.n_kw, out_args.args);
-                        #if !MICROPY_ENABLE_PYSTACK
-                        // Freeing args at this point does not follow a LIFO order so only do it if
-                        // pystack is not enabled.  For pystack, they are freed when code_state is.
-                        mp_nonlocal_free(out_args.args, out_args.n_alloc * sizeof(mp_obj_t));
-                        #endif
-                        #if !MICROPY_ENABLE_PYSTACK
-                        if (new_state == NULL) {
-                            // Couldn't allocate codestate on heap: in the strict case raise
-                            // an exception, otherwise just fall through to stack allocation.
-                            #if MICROPY_STACKLESS_STRICT
-                            goto deep_recursion_error;
-                            #endif
-                        } else
-                        #endif
-                        {
+                        if (!MP_STATE_THREAD(pystack_enabled)) {
+                            // Freeing args at this point does not follow a LIFO order so only do it if
+                            // pystack is not enabled.  For pystack, they are freed when code_state is.
+                            mp_nonlocal_free(out_args.args, out_args.n_alloc * sizeof(mp_obj_t));
+                            if (new_state == NULL) {
+                                // Couldn't allocate codestate on heap: in the strict case raise
+                                // an exception, otherwise just fall through to stack allocation.
+                                #if MICROPY_STACKLESS_STRICT
+                                goto deep_recursion_error;
+                                #endif
+                            }
+                            else {
+                                new_state->prev = code_state;
+                                code_state = new_state;
+                                nlr_pop();
+                                goto run_code_state;
+                            }
+                        }
+                        else {
                             new_state->prev = code_state;
                             code_state = new_state;
                             nlr_pop();
@@ -1063,7 +1074,7 @@ unwind_jump:;
 unwind_return:
                     // Search for and execute finally handlers that aren't already active
                     while (exc_sp >= exc_stack) {
-                        if (!currently_in_except_block && MP_TAGPTR_TAG1(exc_sp->val_sp)) {
+                        if (MP_TAGPTR_TAG1(exc_sp->val_sp) && exc_sp->handler > ip) {
                             // Found a finally handler that isn't active.
                             // Getting here the stack looks like:
                             //     (..., X, [iter0, iter1, ...,] ret_val)
@@ -1097,13 +1108,13 @@ unwind_return:
                         mp_obj_t res = *sp;
                         mp_globals_set(code_state->old_globals);
                         mp_code_state_t *new_code_state = code_state->prev;
-                        #if MICROPY_ENABLE_PYSTACK
-                        // Free code_state, and args allocated by mp_call_prepare_args_n_kw_var
-                        // (The latter is implicitly freed when using pystack due to its LIFO nature.)
-                        // The sizeof in the following statement does not include the size of the variable
-                        // part of the struct.  This arg is anyway not used if pystack is enabled.
-                        mp_nonlocal_free(code_state, sizeof(mp_code_state_t));
-                        #endif
+                        if (!MP_STATE_THREAD(pystack_enabled)) {
+                            // Free code_state, and args allocated by mp_call_prepare_args_n_kw_var
+                            // (The latter is implicitly freed when using pystack due to its LIFO nature.)
+                            // The sizeof in the following statement does not include the size of the variable
+                            // part of the struct.  This arg is anyway not used if pystack is enabled.
+                            mp_nonlocal_free(code_state, sizeof(mp_code_state_t));
+                        }
                         code_state = new_code_state;
                         *code_state->sp = res;
                         goto run_code_state;
@@ -1116,7 +1127,7 @@ unwind_return:
                     mp_uint_t unum = *ip;
                     mp_obj_t obj;
                     if (unum == 2) {
-                        mp_warning("exception chaining not supported");
+                        mp_warning(NULL, "exception chaining not supported");
                         // ignore (pop) "from" argument
                         sp--;
                     }
@@ -1145,12 +1156,12 @@ yield:
                     nlr_pop();
                     code_state->ip = ip;
                     code_state->sp = sp;
-                    code_state->exc_sp = MP_TAGPTR_MAKE(exc_sp, currently_in_except_block);
+                    code_state->exc_sp = MP_TAGPTR_MAKE(exc_sp, 0);
                     return MP_VM_RETURN_YIELD;
 
                 ENTRY(MP_BC_YIELD_FROM): {
                     MARK_EXC_IP_SELECTIVE();
-//#define EXC_MATCH(exc, type) MP_OBJ_IS_TYPE(exc, type)
+//#define EXC_MATCH(exc, type) mp_obj_is_type(exc, type)
 #define EXC_MATCH(exc, type) mp_obj_exception_match(exc, type)
 #define GENERATOR_EXIT_IF_NEEDED(t) if (t != MP_OBJ_NULL && EXC_MATCH(t, MP_OBJ_FROM_PTR(&mp_type_GeneratorExit))) { mp_obj_t raise_t = mp_make_raise_obj(t); RAISE(raise_t); }
                     mp_vm_return_kind_t ret_kind;
@@ -1419,7 +1430,8 @@ unwind_loop:
                 mp_obj_exception_add_traceback(MP_OBJ_FROM_PTR(nlr.ret_val), source_file, source_line, block_name);
             }
 
-            while (currently_in_except_block) {
+            while (exc_sp >= exc_stack && exc_sp->handler <= code_state->ip) {
+
                 // nested exception
 
                 assert(exc_sp >= exc_stack);
@@ -1432,9 +1444,6 @@ unwind_loop:
             }
 
             if (exc_sp >= exc_stack) {
-                // set flag to indicate that we are now handling an exception
-                currently_in_except_block = 1;
-
                 // catch exception and pass to byte code
                 code_state->ip = exc_sp->handler;
                 mp_obj_t *sp = MP_TAGPTR_PTR(exc_sp->val_sp);
@@ -1448,19 +1457,18 @@ unwind_loop:
             } else if (code_state->prev != NULL) {
                 mp_globals_set(code_state->old_globals);
                 mp_code_state_t *new_code_state = code_state->prev;
-                #if MICROPY_ENABLE_PYSTACK
-                // Free code_state, and args allocated by mp_call_prepare_args_n_kw_var
-                // (The latter is implicitly freed when using pystack due to its LIFO nature.)
-                // The sizeof in the following statement does not include the size of the variable
-                // part of the struct.  This arg is anyway not used if pystack is enabled.
-                mp_nonlocal_free(code_state, sizeof(mp_code_state_t));
-                #endif
+                if (MP_STATE_THREAD(pystack_enabled)) {
+                    // Free code_state, and args allocated by mp_call_prepare_args_n_kw_var
+                    // (The latter is implicitly freed when using pystack due to its LIFO nature.)
+                    // The sizeof in the following statement does not include the size of the variable
+                    // part of the struct.  This arg is anyway not used if pystack is enabled.
+                    mp_nonlocal_free(code_state, sizeof(mp_code_state_t));
+                }
                 code_state = new_code_state;
                 size_t n_state = mp_decode_uint_value(code_state->fun_bc->bytecode);
                 fastn = &code_state->state[n_state - 1];
                 exc_stack = (mp_exc_stack_t*)(code_state->state + n_state);
                 // variables that are visible to the exception handler (declared volatile)
-                currently_in_except_block = MP_TAGPTR_TAG0(code_state->exc_sp); // 0 or 1, to detect nested exceptions
                 exc_sp = MP_TAGPTR_PTR(code_state->exc_sp); // stack grows up, exc_sp points to top of stack
                 goto unwind_loop;
 

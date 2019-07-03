@@ -171,6 +171,7 @@ extern "C" {
 	#define INCLUDE_uxTaskGetStackHighWaterMark 1
 #endif
 
+// LoBo: added
 #ifndef INCLUDE_pxTaskGetStackStart
     #define INCLUDE_pxTaskGetStackStart 1
 #endif

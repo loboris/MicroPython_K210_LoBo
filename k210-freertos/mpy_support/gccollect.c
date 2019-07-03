@@ -28,60 +28,84 @@
  */
 
 #include <stdio.h>
+#include "syslog.h"
+#include <setjmp.h>
 
 #include "py/mpconfig.h"
 #include "py/mpstate.h"
 #include "py/gc.h"
 #include "py/mpthread.h"
+#include "mphalport.h"
 #include "gccollect.h"
 
-#define K210_NUM_AREGS 32
-
-
+/*
 uintptr_t get_sp(void) {
     uintptr_t result;
     __asm__ ("la %0, _sp0\n" : "=r" (result) );
     return result;
 }
+*/
+
+typedef jmp_buf regs_t;
+
+static void gc_helper_get_regs(regs_t arr) {
+    setjmp(arr);
+}
+
+// Explicitly mark this as noinline to make sure the regs variable
+// is effectively at the top of the stack: otherwise, in builds where
+// LTO is enabled and a lot of inlining takes place we risk a stack
+// layout where regs is lower on the stack than pointers which have
+// just been allocated but not yet marked, and get incorrectly sweeped.
+MP_NOINLINE void gc_collect_regs_and_stack(void) {
+    regs_t regs;
+    gc_helper_get_regs(regs);
+    // GC stack (and regs because we captured them)
+    void **regs_ptr = (void**)(void*)&regs;
+    gc_collect_root(regs_ptr, ((uintptr_t)MP_STATE_THREAD(stack_top) - (uintptr_t)&regs) / sizeof(uintptr_t));
+}
+
+/*
+static void *inner_sp = NULL;
+static void **inner_ptrs;
 
 //-------------------------------------
 static void gc_collect_inner(int level)
 {
-    if (level < K210_NUM_AREGS) {
+    // ToDo: is this really necessary ?
+    // This function is called recursively 8 times
+    // so that all K210 registers are pushed onto the stack
+    // we than scan the stack for heap pointers
+    if (level < sizeof(void*)) {
         gc_collect_inner(level + 1);
         if (level != 0) return;
     }
 
-    if (level == K210_NUM_AREGS) {
+    if (level == sizeof(void*)) {
         // collect on stack
-        volatile void *stack_p = 0;
-        volatile void *sp = &stack_p;
-        gc_collect_root((void**)sp, ((mp_uint_t)MP_STATE_THREAD(stack_top) - (mp_uint_t)sp) / sizeof(void*));
+        inner_sp = (void *)pxTaskGetStackTop(NULL);
+        inner_ptrs = (void**)(void*)inner_sp;
+        gc_collect_root(inner_ptrs, ((void *)MP_STATE_THREAD(stack_top) - inner_sp) / sizeof(void*));
         return;
     }
-
-    // Trace root pointers from other threads
-    int n_th = mp_thread_gc_others();
 }
+*/
 
 //-------------------
 void gc_collect(void)
 {
-    TaskHandle_t selfID = (TaskHandle_t)mp_thread_getSelfID();
-    int t_priority = mp_thread_get_priority(selfID);
-    mp_thread_set_priority(selfID, MP_THREAD_MAX_PRIORITY);
-
     // start the GC
     gc_collect_start();
 
-    gc_collect_inner(0);
+    DEBUG_GC_printf("[GC_COLLECT] stacks\r\n");
+    //gc_collect_inner(0);
+    gc_collect_regs_and_stack();
 
+    // Finally, trace root pointers from other threads
 #if MICROPY_PY_THREAD
     mp_thread_gc_others();
 #endif
     // end the GC
     gc_collect_end();
-
-    mp_thread_set_priority(selfID, t_priority);
 }
 

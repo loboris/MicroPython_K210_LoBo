@@ -222,7 +222,6 @@ extern const color_t TFT_PINK;
 
 #define IMAGE_TYPE_JPG	1
 #define IMAGE_TYPE_BMP	2
-#define IMAGE_TYPE_FB   3
 
 
 // ===== PUBLIC FUNCTIONS =========================================================================
@@ -235,12 +234,9 @@ extern const color_t TFT_PINK;
  *       x: horizontal position
  *       y: vertical position
  *   color: pixel color
- *     sel: if not 0 activate CS before and deactivat after sending pixel data to display
- *          when sending multiple pixels it is faster to activate the CS first,
- *          send all pixels an deactivate CS after all pixela was sent
 */
-//-------------------------------------------------------------------
-void TFT_drawPixel(int16_t x, int16_t y, color_t color, uint8_t sel);
+//------------------------------------------------------
+void TFT_drawPixel(int16_t x, int16_t y, color_t color);
 
 
 /*

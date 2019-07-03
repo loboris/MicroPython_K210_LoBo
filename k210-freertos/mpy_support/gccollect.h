@@ -28,6 +28,8 @@
 
 #ifndef GC_COLLECT_H
 #define GC_COLLECT_H
-uintptr_t get_sp(void);
+
+//uintptr_t get_sp(void);
 void gc_collect(void);
+
 #endif

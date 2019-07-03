@@ -25,6 +25,7 @@
 #include <sysctl.h>
 #include <task.h>
 #include <utility.h>
+#include <syslog.h>
 
 using namespace sys;
 
@@ -514,7 +515,15 @@ private:
         auto &dmac = driver.dmac_.dmac();
         volatile dmac_channel_t &dma = dmac.channel[driver.channel_];
 
-        configASSERT(dma.intstatus & 0x2);
+        //configASSERT(dma.intstatus & 0x2);
+        // LoBo
+        if ((dma.intstatus & 0x2) == 0) {
+            uint64_t intstatus = dma.intstatus;
+            dma.intclear = 0xFFFFFFFF;
+            //driver.dmac_.release_axi_master(driver.session_.axi_master);
+            LOGW("[DMAC]", "ISR, wrong int status (%08lx)", intstatus);
+            return;
+        }
         dma.intclear = 0xFFFFFFFF;
 
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;

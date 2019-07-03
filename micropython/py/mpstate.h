@@ -4,6 +4,7 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2014 Damien P. George
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -46,6 +47,7 @@ typedef struct mp_dynamic_compiler_t {
     uint8_t small_int_bits; // must be <= host small_int_bits
     bool opt_cache_map_lookup_in_bytecode;
     bool py_builtins_str_unicode;
+    uint8_t native_arch;
 } mp_dynamic_compiler_t;
 extern mp_dynamic_compiler_t mp_dynamic_compiler;
 #endif
@@ -208,14 +210,15 @@ typedef struct _mp_state_vm_t {
 
     #if MICROPY_ENABLE_SCHEDULER
     volatile int16_t sched_state;
-    uint16_t sched_sp;
+    uint8_t sched_len;
+    uint8_t sched_idx;
     #endif
 
     #if MICROPY_PY_THREAD_GIL
     // This is a global mutex used to make the VM/runtime thread-safe.
     mp_thread_mutex_t gil_mutex;
     #endif
-} mp_state_vm_t;
+} __attribute__((aligned(8))) mp_state_vm_t;
 
 // This structure holds state that is specific to a given thread.
 // Everything in this structure is scanned for root pointers.
@@ -227,11 +230,10 @@ typedef struct _mp_state_thread_t {
     size_t stack_limit;
     #endif
 
-    #if MICROPY_ENABLE_PYSTACK
+    bool    pystack_enabled;
     uint8_t *pystack_start;
     uint8_t *pystack_end;
     uint8_t *pystack_cur;
-    #endif
 
     ////////////////////////////////////////////////////////////
     // START ROOT POINTER SECTION
@@ -243,7 +245,7 @@ typedef struct _mp_state_thread_t {
     mp_obj_dict_t *dict_globals;
 
     nlr_buf_t *nlr_top;
-} mp_state_thread_t;
+} __attribute__((aligned(8))) mp_state_thread_t;
 
 // This structure combines the above 3 structures.
 // The order of the entries are important for root pointer scanning in the GC to work.
@@ -251,18 +253,38 @@ typedef struct _mp_state_ctx_t {
     mp_state_thread_t thread;
     mp_state_vm_t vm;
     mp_state_mem_t mem;
-} mp_state_ctx_t;
+} __attribute__((aligned(8))) mp_state_ctx_t;
+
+// --------------------------------------------------------------------------
+// LoBo: some modifications needed for multiple MicroPython instances support
+// --------------------------------------------------------------------------
+// Pointers to MPy state and thread arguments are stored
+// in FreeRTOS task's local storage pointers 0 and 1
 
 extern mp_state_ctx_t mp_state_ctx;
+extern mp_state_ctx_t mp_state_ctx2;
 
-#define MP_STATE_VM(x) (mp_state_ctx.vm.x)
-#define MP_STATE_MEM(x) (mp_state_ctx.mem.x)
+#define MP_STATE_VM0(x) (mp_state_ctx.vm.x)
 
 #if MICROPY_PY_THREAD
-extern mp_state_thread_t *mp_thread_get_state(void);
-#define MP_STATE_THREAD(x) (mp_thread_get_state()->x)
+
+void *mp_get_args(void);
+mp_state_ctx_t *mp_get_state(void);
+
+#define MP_GET_ARGS()       (mp_get_args())
+#define MP_STATE_STATE()    (mp_get_state())
+#define MP_STATE_THREAD(x)  (mp_get_state()->thread.x)
+#define MP_STATE_VM(x)      (mp_get_state()->vm.x)
+#define MP_STATE_MEM(x)     (mp_get_state()->mem.x)
+
 #else
-#define MP_STATE_THREAD(x) (mp_state_ctx.thread.x)
+#define MP_GET_ARGS()       NULL
+#define MP_STATE_STATE()    (&mp_state_ctx)
+#define MP_STATE_THREAD(x)  (mp_state_ctx.thread.x)
+#define MP_STATE_VM(x)      (mp_state_ctx.vm.x)
+#define MP_STATE_MEM(x)     (mp_state_ctx.mem.x)
 #endif
+
+// --------------------------------------------------------------------------
 
 #endif // MICROPY_INCLUDED_PY_MPSTATE_H

@@ -43,6 +43,8 @@
 
 #include <printf.h>
 #include <stddef.h>
+#include "FreeRTOS.h"
+#include "semphr.h"
 
 /*
  * Configuration
@@ -91,6 +93,21 @@
 #else
 #define BF_MAX 10 /* int = 32b on some architectures */
 #endif
+
+
+/*
+ * LoBo:
+ *   make syslog level configurable during run time
+ *   add syslog mutex
+ *   enable filtering of non-printable characters
+ */
+//--------------------------------
+uint32_t user_log_level = 2;
+QueueHandle_t syslog_mutex = NULL;
+int kprint_filter_nonprint = 1;
+char kprint_nonprint_char = '~';
+uint8_t kprint_cr_lf = 1;
+//--------------------------------
 
 /*
  * Implementation
@@ -286,7 +303,19 @@ static void putchw(void* putp, putcf putf, struct param* p)
 
     /* Put actual buffer */
     while ((bf_len-- > 0) && (ch = *bf++))
-        putf(putp, ch);
+    {
+        // LoBo: filter non-printable characters
+        if ((!kprint_filter_nonprint) || (((ch >= 0x20) && (ch < 0x80)))) putf(putp, ch);
+        else if ((kprint_cr_lf) && (ch == '\r')) {
+            putf(putp, '\\');
+            putf(putp, 'r');
+        }
+        else if ((kprint_cr_lf) && (ch == '\n')) {
+            putf(putp, '\\');
+            putf(putp, 'n');
+        }
+        else putf(putp, kprint_nonprint_char);
+    }
 
     /* Fill with space to align to the left, after string */
     if (!p->lz && p->align_left)
@@ -645,6 +674,9 @@ static void uart_putf(void* unused, char c)
 
 int printk(const char* format, ...)
 {
+    if (syslog_mutex) {
+        xSemaphoreTake(syslog_mutex, 100 / portTICK_RATE_MS);
+    }
     va_list ap;
 
     va_start(ap, format);
@@ -655,8 +687,8 @@ int printk(const char* format, ...)
     corelock_unlock(&lock);
     va_end(ap);
 
+    if (syslog_mutex) {
+        xSemaphoreGive(syslog_mutex);
+    }
     return 0;
 }
-
-uint32_t user_log_level = 2;
-uint64_t log_divisor = 1;
