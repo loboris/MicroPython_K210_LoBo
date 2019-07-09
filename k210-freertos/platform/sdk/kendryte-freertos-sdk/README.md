@@ -26,6 +26,7 @@ _**The following files were modified:**_
     * `devices.h`
     * `FreeRTOS.h`
     * `filesystem.h`
+    * `portabe.h`
   * kernel/
     * `devices.cpp`
     * storage/
@@ -35,6 +36,7 @@ _**The following files were modified:**_
   * portable/
     * `port.c`
     * `portmacro.h`
+    * `heap_4.c`
 * third_party/
   * lwip/
     * src/

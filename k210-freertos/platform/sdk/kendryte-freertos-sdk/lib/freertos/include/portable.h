@@ -141,6 +141,8 @@ void vPortDefineHeapRegions( const HeapRegion_t * const pxHeapRegions ) PRIVILEG
  */
 void *pvPortMalloc( size_t xSize ) PRIVILEGED_FUNCTION;
 void vPortFree( void *pv ) PRIVILEGED_FUNCTION;
+void *pvPortRealloc( void *SrcAddr, size_t NewSize) PRIVILEGED_FUNCTION; // LoBo
+void *pvPortCalloc(size_t n, size_t size) PRIVILEGED_FUNCTION; // LoBo
 void vPortInitialiseBlocks( void ) PRIVILEGED_FUNCTION;
 size_t xPortGetFreeHeapSize( void ) PRIVILEGED_FUNCTION;
 size_t xPortGetMinimumEverFreeHeapSize( void ) PRIVILEGED_FUNCTION;

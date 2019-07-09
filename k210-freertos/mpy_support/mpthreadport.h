@@ -216,6 +216,8 @@ int mp_thread_list(thread_list_t *list);
 int mp_thread_mainAcceptMsg(int8_t accept);
 void mp_thread_kbd_interrupt(TaskHandle_t id);
 
+size_t _check_remaining_heap();
+
 #endif
 
 #endif // __MICROPY_INCLUDED_MPTHREADPORT_H__

@@ -69,16 +69,16 @@ STATIC mp_uint_t file_obj_write(mp_obj_t self_in, const void *buf, mp_uint_t siz
     littlefs_file_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
     //_lock_acquire(&self->lock);
-
     lfs_ssize_t written = lfs_file_write(self->fs, &self->fd, buf, size);
-
     //_lock_release(&self->lock);
 
     if (written < 0) {
+        if (w25qxx_debug) LOGD(TAG, "Write error (%d)", written);
         *errcode = MP_EIO;
         return MP_STREAM_ERROR;
     }
     if (written != size) {
+        /*if (w25qxx_debug)*/ LOGQ(TAG, "Write error (%d <> %lu)", written, size);
         *errcode = MP_ENOSPC;
         return MP_STREAM_ERROR;
     }
@@ -152,13 +152,14 @@ STATIC const mp_arg_t file_open_args[] = {
 };
 #define FILE_OPEN_NUM_ARGS MP_ARRAY_SIZE(file_open_args)
 
-//--------------------------------------------------------------------------------------------------
-STATIC mp_obj_t file_open(littlefs_user_mount_t *vfs, const mp_obj_type_t *type, mp_arg_val_t *args)
+//--------------------------------------------------------------------------------------------------------------
+STATIC mp_obj_t file_open(littlefs_user_mount_t *vfs, const mp_obj_type_t *type, mp_arg_val_t *args, bool raise)
 {
 	const char *file_name = mp_obj_str_get_str(args[0].u_obj);
     const char *mode_s = mp_obj_str_get_str(args[1].u_obj);
     if (strlen(file_name) > LITTLEFS_CFG_MAX_NAME_LEN) {
-        mp_raise_ValueError("name too long");
+        if (raise) mp_raise_ValueError("name too long");
+        return mp_const_none;
     }
 
     const char *lpath = littlefs_local_path(file_name);
@@ -191,7 +192,8 @@ STATIC mp_obj_t file_open(littlefs_user_mount_t *vfs, const mp_obj_type_t *type,
                 type = &mp_type_vfs_littlefs_textio;
                 break;
             default:
-                mp_raise_ValueError("not allowed mode character");
+                if (raise) mp_raise_ValueError("not allowed mode character");
+                return mp_const_none;
         }
     }
 
@@ -217,7 +219,8 @@ STATIC mp_obj_t file_open(littlefs_user_mount_t *vfs, const mp_obj_type_t *type,
     if(err != LFS_ERR_OK) {
         if (w25qxx_debug) LOGD("[LFS_FILE]", "OPEN error %d", err);
         m_del_obj(littlefs_file_obj_t, o);
-        mp_raise_OSError(map_lfs_error(err));
+        if (raise) mp_raise_OSError(map_lfs_error(err));
+        return mp_const_none;
     }
 
     return MP_OBJ_FROM_PTR(o);
@@ -228,7 +231,7 @@ STATIC mp_obj_t file_obj_make_new(const mp_obj_type_t *type, size_t n_args, size
 {
     mp_arg_val_t arg_vals[FILE_OPEN_NUM_ARGS];
     mp_arg_parse_all_kw_array(n_args, n_kw, args, FILE_OPEN_NUM_ARGS, file_open_args, arg_vals);
-    return file_open(NULL, type, arg_vals);
+    return file_open(NULL, type, arg_vals, true);
 }
 
 // TODO gc hook to close the file if not already closed
@@ -297,8 +300,21 @@ STATIC mp_obj_t littlefs_builtin_open_self(mp_obj_t self_in, mp_obj_t path, mp_o
     arg_vals[0].u_obj = path;
     arg_vals[1].u_obj = mode;
     arg_vals[2].u_obj = mp_const_none;
-    return file_open(self, &mp_type_vfs_littlefs_textio, arg_vals);
+    return file_open(self, &mp_type_vfs_littlefs_textio, arg_vals, true);
 }
 MP_DEFINE_CONST_FUN_OBJ_3(littlefs_vfs_open_obj, littlefs_builtin_open_self);
+
+//-------------------------------------------------------------------------------------------
+STATIC mp_obj_t littlefs_builtin_open_ex_self(mp_obj_t self_in, mp_obj_t path, mp_obj_t mode)
+{
+    // TODO: analyze buffering args and instantiate appropriate type
+    littlefs_user_mount_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_arg_val_t arg_vals[FILE_OPEN_NUM_ARGS];
+    arg_vals[0].u_obj = path;
+    arg_vals[1].u_obj = mode;
+    arg_vals[2].u_obj = mp_const_none;
+    return file_open(self, &mp_type_vfs_littlefs_textio, arg_vals, false);
+}
+MP_DEFINE_CONST_FUN_OBJ_3(littlefs_vfs_open_ex_obj, littlefs_builtin_open_ex_self);
 
 #endif // MICROPY_VFS && MICROPY_VFS_LITTLEFS

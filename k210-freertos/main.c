@@ -83,6 +83,11 @@
 #include <filesystem.h>
 #endif
 
+// === FreeRTOS heap ===
+size_t configTOTAL_HEAP_SIZE = FREE_RTOS_TOTAL_HEAP_SIZE;
+// This is used by 'heap_4.c'
+uint8_t __attribute__((aligned(8))) ucHeap[FREE_RTOS_TOTAL_HEAP_SIZE];
+
 static void *sys_rambuf;
 
 extern handle_t mp_rtc_rtc0;
@@ -113,6 +118,7 @@ static bool task0_started = false;
 static bool flash_fs_ok = false;
 static bool exec_boot_py = true;
 static bool exec_main_py = true;
+static bool use_default_config = false;
 
 //----------------------------
 size_t _check_remaining_heap()
@@ -422,8 +428,7 @@ int main()
     filesystem_rtc = mp_rtc_rtc0;
     #endif
 
-    sysctl_t sysctl __attribute__((unused));
-    sysctl.peri.jtag_clk_bypass = 1;
+    sysctl->peri.jtag_clk_bypass = 1;
 
     // ==== Initialize GPIOHS for boot menu pin check====
     if (mpy_config.config.boot_menu_pin) {
@@ -444,6 +449,7 @@ int main()
             char sel_f = ' ';
             char sel_b = ' ';
             char sel_m = ' ';
+            char sel_d = ' ';
             // boot menu pin is low, display the menu
         start_menu:
             timeout = mp_hal_ticks_ms() + 10000;
@@ -451,6 +457,7 @@ int main()
             mp_printf(&mp_plat_print, "%c"LOG_BOLD(LOG_COLOR_BROWN)"F"LOG_RESET_COLOR" - force format File system\n", sel_f);
             mp_printf(&mp_plat_print, "%c"LOG_BOLD(LOG_COLOR_BROWN)"B"LOG_RESET_COLOR" - do not execute 'boot.py'\n", sel_b);
             mp_printf(&mp_plat_print, "%c"LOG_BOLD(LOG_COLOR_BROWN)"M"LOG_RESET_COLOR" - do not execute 'main.py'\n", sel_m);
+            mp_printf(&mp_plat_print, "%c"LOG_BOLD(LOG_COLOR_BROWN)"D"LOG_RESET_COLOR" - use default configuration\n", sel_d);
             mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_RED)" Q"LOG_RESET_COLOR" - exit the menu\n");
             while (1) {
                 if (mp_hal_ticks_ms() > timeout) break;
@@ -473,7 +480,22 @@ int main()
                     sel_f = '*';
                     goto start_menu;
                 }
+                else if ((key == 'd') || (key == 'D')) {
+                    use_default_config = true;
+                    sel_d = '*';
+                    goto start_menu;
+                }
             }
+        }
+    }
+
+    if (use_default_config) {
+        vTaskDelay(2);
+        mpy_config_set_default();
+        vTaskDelay(2);
+        sysctl->soft_reset.soft_reset = 1;
+        while (1) {
+            ;
         }
     }
 
@@ -495,11 +517,11 @@ int main()
             configASSERT(mp_task_pystack2);
         }
         LOGM(TAG_MAIN, "Heaps: FreeRTOS=%lu KB (%lu KB free), MPy_1=%u KB, MPy_2=%u KB, other=%lu KB",
-                configTOTAL_HEAP_SIZE/1024, xPortGetFreeHeapSize()/1024, mpy_config.config.heap_size1/1024, mpy_config.config.heap_size2/1024, _check_remaining_heap()/1024);
+                FREE_RTOS_TOTAL_HEAP_SIZE/1024, xPortGetFreeHeapSize()/1024, mpy_config.config.heap_size1/1024, mpy_config.config.heap_size2/1024, _check_remaining_heap()/1024);
     }
     else {
         LOGM(TAG_MAIN, "Heaps: FreeRTOS=%lu KB (%lu KB free), MPy=%u KB, other=%lu KB",
-                configTOTAL_HEAP_SIZE/1024, xPortGetFreeHeapSize()/1024, mpy_config.config.heap_size1/1024, _check_remaining_heap()/1024);
+                FREE_RTOS_TOTAL_HEAP_SIZE/1024, xPortGetFreeHeapSize()/1024, mpy_config.config.heap_size1/1024, _check_remaining_heap()/1024);
     }
 
     // ======================================================

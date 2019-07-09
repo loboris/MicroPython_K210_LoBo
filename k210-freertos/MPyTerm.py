@@ -130,7 +130,7 @@ class PyTerm:
         self.ReceiverToStdout = False
         time.sleep(0.1)
         dummy = self.uart.read()
-        self.uart.timeout = 2
+        self.uart.timeout = 4
         # enter raw REPL
         self.uart.write(b'\x01')
         resp = self.uart.read(28)

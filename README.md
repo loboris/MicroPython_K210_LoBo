@@ -22,6 +22,7 @@ Based on *kendryte-freertos-sdk* (modified to include some needed features not y
 * **Display** module ported from my [MicroPython for ESP32]
 (https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/wiki/display) display module
 * Full **network** support for **WiFi** (based on ESP8266/ESP8285) and **GSM** modules.
+* **sqlite3** support
 * **pye**, full screen file editor (as python frozen module) is provided
 * **MPyTerm**, serial terminal emulator specially designed for MicroPython is provided.<br>
 Included are commands to syncronize MicroPython time from PC, change the REPL baudrate, transfer files to/from MicroPython filesystem (including transfering whole directories).<br>Fast block file transfer is used, protected with CRC.
@@ -54,8 +55,8 @@ You will not be able to use `git pull` to update the repository, but otherwise t
 ## Build the MicroPython firmware
 <br>
 
-> *Kendryte toolchain will be automatically downloaded and unpacked on* **first run** *of* **BUILD.sh** *script. It can take some time on slow Internet connection (~32 MB will be downloaded).*<br>
-> *kendryte-freertos-sdk* is included in the repository
+> _**Kendryte toolchain** will be automatically downloaded and unpacked on **first run** of **BUILD.sh** script.<br> It can take some time on slow Internet connection (~32 MB will be downloaded)._<br>
+> _**kendryte-freertos-sdk** is included in the repository._
 
 
 Change the working directory to **MicroPython_K210_LoBo/k210-freertos**.
@@ -65,7 +66,7 @@ To build the MicroPython firmware, run:
 ./BUILD.sh
 ```
 
-To flush the built firmware to your K210 board, run:
+To flash the built firmware to your K210 board, run:
 ```
 ./kflash.py -p /dev/ttyUSB0 -b 2000000 -t MaixPy.bin
 ```
@@ -74,7 +75,7 @@ Change */dev/ttyUSB0* to the port used to connect to the your board if needed.
 
 ---
 
-```
+```console
 M (1371) [MAIXPY]: Configuration loaded from flash
 M (9298) [MAIXPY]: Heaps: FreeRTOS=3840 KB (1196 KB free), MPy=2560 KB, other=379 KB
 

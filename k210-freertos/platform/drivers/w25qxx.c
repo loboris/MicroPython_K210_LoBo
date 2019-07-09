@@ -45,6 +45,10 @@
 #include "w25qxx.h"
 #include "syslog.h"
 #include "sysctl.h"
+#include "FreeRTOS.h"
+#include "task.h"
+
+#define W25QXX_BUSY_TIMEOUT     500000 // micro seconds
 
 bool w25qxx_spi_check = false;
 bool w25qxx_debug = false;
@@ -154,8 +158,7 @@ enum w25qxx_status_t w25qxx_is_busy(void)
     uint8_t status;
 
     w25qxx_read_status_reg1(&status);
-    if (status & REG1_BUSY_MASK)
-        return W25QXX_BUSY;
+    if (status & REG1_BUSY_MASK) return W25QXX_BUSY;
     return W25QXX_OK;
 }
 
@@ -265,15 +268,19 @@ start:
 enum w25qxx_status_t w25qxx_wait_busy()
 {
     uint64_t start_time = mp_hal_ticks_us();
-    uint64_t end_time = start_time + 500000;
-    while (mp_hal_ticks_us() < end_time) {
+    uint64_t alarm_time = start_time + 1000000;
+    while (1) {
         if (w25qxx_is_busy() == W25QXX_OK) {
-            op_time += mp_hal_ticks_us() - start_time;
+            op_time += (mp_hal_ticks_us() - start_time);
             return W25QXX_OK;
         }
+        vTaskDelay(1);
+        if (mp_hal_ticks_us() > alarm_time) {
+            LOGY("w25qxx_wait_busy", "BUSY");
+            alarm_time = mp_hal_ticks_us() + 1000000;
+        }
     }
-    op_time += mp_hal_ticks_us() - start_time;
-    return W25QXX_ERROR;
+    return W25QXX_BUSY;
 }
 
 //------------------------------------------------------------------------------------------------
@@ -357,7 +364,7 @@ enum w25qxx_status_t w25qxx_write_data(uint32_t addr, uint8_t* data_buf, uint32_
                 w25qxx_sector_erase(sector_addr);
                 if (w25qxx_wait_busy() != W25QXX_OK) {
                     if (w25qxx_debug) LOGE("w25qxx_write", "sector erase timeout");
-                    return W25QXX_ERROR;
+                    return W25QXX_BUSY;
                 }
                 if (w25qxx_debug) LOGD("w25qxx_write", "sector %x erased", sector_addr);
                 break;
@@ -374,7 +381,10 @@ enum w25qxx_status_t w25qxx_write_data(uint32_t addr, uint8_t* data_buf, uint32_
             for (index = 0; index < write_len; index++)
                 *pread++ = *pwrite++;
             res = w25qxx_sector_program(sector_addr, swap_buf);
-            if (res != W25QXX_OK) return res;
+        }
+        if (res != W25QXX_OK) {
+            if (w25qxx_debug) LOGE("w25qxx_write", "sector program error (%d)", res);
+            return res;
         }
         length -= write_len;
         addr += write_len;

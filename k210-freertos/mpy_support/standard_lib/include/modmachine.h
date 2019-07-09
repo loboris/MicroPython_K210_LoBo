@@ -174,7 +174,7 @@ void gpiohs_set_free(uint8_t gpio);
 int gpiohs_get_free();
 
 uint64_t random_at_most(uint32_t max);
-
+time_t _get_time(bool systm);
 void _set_sys_time(struct tm *tm_inf, int zone);
 
 extern const mp_obj_type_t machine_pin_type;

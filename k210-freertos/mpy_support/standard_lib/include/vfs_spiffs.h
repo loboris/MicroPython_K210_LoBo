@@ -139,6 +139,7 @@ MP_NOINLINE bool init_flash_filesystem();
 const char *spiffs_local_path(const char *path);
 
 MP_DECLARE_CONST_FUN_OBJ_3(spiffs_vfs_open_obj);
+MP_DECLARE_CONST_FUN_OBJ_3(spiffs_vfs_open_ex_obj);
 
 #endif
 

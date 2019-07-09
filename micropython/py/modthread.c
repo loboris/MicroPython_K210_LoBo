@@ -642,7 +642,8 @@ STATIC mp_obj_t mod_thread_list(mp_uint_t n_args, const mp_obj_t *args) {
             }
             mp_printf(&mp_plat_print, "-------------------------------------------------------------------------------\n");
             mp_printf(&mp_plat_print, "FreeRTOS heap: Size: %lu, Free: %lu, Min free: %lu\n",
-                    configTOTAL_HEAP_SIZE, xPortGetFreeHeapSize(), xPortGetMinimumEverFreeHeapSize());
+                    FREE_RTOS_TOTAL_HEAP_SIZE, xPortGetFreeHeapSize(), xPortGetMinimumEverFreeHeapSize());
+            mp_printf(&mp_plat_print, "  System heap: Free: %lu\n", _check_remaining_heap());
         }
 
         mp_printf(&mp_plat_print, "\n");

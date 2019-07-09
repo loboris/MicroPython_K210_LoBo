@@ -1,9 +1,9 @@
 /*
- * This file is part of the MicroPython project, http://micropython.org/
+ * This file is part of the MicroPython ESP32 project, https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo
  *
  * The MIT License (MIT)
  *
- * Copyright (c) 2013, 2014 Damien P. George
+ * Copyright (c) 2018 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -160,8 +160,8 @@ STATIC const mp_arg_t file_open_args[] = {
 };
 #define FILE_OPEN_NUM_ARGS MP_ARRAY_SIZE(file_open_args)
 
-//------------------------------------------------------------------------------------------------
-STATIC mp_obj_t file_open(sdcard_user_mount_t *vfs, const mp_obj_type_t *type, mp_arg_val_t *args)
+//------------------------------------------------------------------------------------------------------------
+STATIC mp_obj_t file_open(sdcard_user_mount_t *vfs, const mp_obj_type_t *type, mp_arg_val_t *args, bool raise)
 {
 	const char* file_name = mp_obj_str_get_str(args[0].u_obj);
     const char *mode_s = mp_obj_str_get_str(args[1].u_obj);
@@ -193,7 +193,8 @@ STATIC mp_obj_t file_open(sdcard_user_mount_t *vfs, const mp_obj_type_t *type, m
                 type = &mp_type_vfs_sdcard_textio;
                 break;
             default:
-                mp_raise_ValueError("Invalid mode");
+                if (raise) mp_raise_ValueError("Invalid mode");
+                return mp_const_none;
         }
     }
 
@@ -202,7 +203,8 @@ STATIC mp_obj_t file_open(sdcard_user_mount_t *vfs, const mp_obj_type_t *type, m
     FRESULT res = f_open(&o->fp, lpath, mode);
     if (res != FR_OK) {
         m_del_obj(sdcard_file_obj_t, o);
-        mp_raise_OSError(fresult_to_errno_table[res]);
+        if (raise) mp_raise_OSError(fresult_to_errno_table[res]);
+        return mp_const_none;
     }
 
     // for 'a' mode, we must begin at the end of the file
@@ -218,7 +220,7 @@ STATIC mp_obj_t file_obj_make_new(const mp_obj_type_t *type, size_t n_args, size
 {
     mp_arg_val_t arg_vals[FILE_OPEN_NUM_ARGS];
     mp_arg_parse_all_kw_array(n_args, n_kw, args, FILE_OPEN_NUM_ARGS, file_open_args, arg_vals);
-    return file_open(NULL, type, arg_vals);
+    return file_open(NULL, type, arg_vals, true);
 }
 
 // TODO gc hook to close the file if not already closed
@@ -285,8 +287,19 @@ STATIC mp_obj_t sdcard_builtin_open_self(mp_obj_t self_in, mp_obj_t path, mp_obj
     arg_vals[0].u_obj = path;
     arg_vals[1].u_obj = mode;
     arg_vals[2].u_obj = mp_const_none;
-    return file_open(self, &mp_type_vfs_sdcard_textio, arg_vals);
+    return file_open(self, &mp_type_vfs_sdcard_textio, arg_vals, true);
 }
 MP_DEFINE_CONST_FUN_OBJ_3(sdcard_vfs_open_obj, sdcard_builtin_open_self);
+
+STATIC mp_obj_t sdcard_builtin_open_ex_self(mp_obj_t self_in, mp_obj_t path, mp_obj_t mode) {
+    // TODO: analyze buffering args and instantiate appropriate type
+    sdcard_user_mount_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_arg_val_t arg_vals[FILE_OPEN_NUM_ARGS];
+    arg_vals[0].u_obj = path;
+    arg_vals[1].u_obj = mode;
+    arg_vals[2].u_obj = mp_const_none;
+    return file_open(self, &mp_type_vfs_sdcard_textio, arg_vals, false);
+}
+MP_DEFINE_CONST_FUN_OBJ_3(sdcard_vfs_open_ex_obj, sdcard_builtin_open_ex_self);
 
 #endif // MICROPY_VFS && MICROPY_VFS_SDCARD

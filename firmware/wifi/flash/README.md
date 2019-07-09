@@ -40,7 +40,7 @@ The latest stable _esptool.py_ release can be installed from _pypi_ via pip:
 pip install esptool
 ```
 
-The initial firmware must be flashed to the ESP8266/ESP8285.<br>
+The **initial firmware** must be **flashed** to the ESP8266/ESP8285.<br>
 Bash script `flash.sh` is provided to make the flashing as easy as possible.<br>
 The correct `flash.sh` options must be specified, depending on the Flash type used:<br>
 Change the working directory to `this directory` and run `flash.sh`:<br>
@@ -83,15 +83,15 @@ Flash to ESP8266, 512KB, single firmware, no OTA:
 ![Sipeed_DanDock](Sipeed_DanDock_wifi.jpg)
 
 
-1 Connect some _USBtoSerial_ adapter to the board, connetc adapter's Tx to the Rx pin on the image, adapter's Rx to the Tx pin on the image
-1 Connect the **ESP8285 boot** pin (the M1 module's corner pin near the WiFi antenna) to the ground before powering the the board, after power on, the pin can be released
-1 Power on the board (connect USB cable to the board's USB-C connector)
-1 Execute `.\flash.sh -eo -t 1MB -m DOUT` to erase the existing firmware
-1 Power off the board (disconnect USB cable from the board's USB-C connector)
-1 Connect the **ESP8285 boot** pin to the ground before powering the the board, after power on, the pin can be released
-1 Power on the board (connect USB cable to the board's USB-C connector)
-1 Execute `.\flash.sh -t 1MB -m DOUT` to flash the new firmware
-1 Power off the board
+1. Connect some _USBtoSerial_ adapter to the board, connetc adapter's Tx to the Rx pin on the image, adapter's Rx to the Tx pin on the image
+1. Connect the **ESP8285 boot** pin (the M1 module's corner pin near the WiFi antenna) to the ground before powering the the board, after power on, the pin can be released
+1. Power on the board (connect USB cable to the board's USB-C connector)
+1. Execute `.\flash.sh -eo -t 1MB -m DOUT` to erase the existing firmware
+1. Power off the board (disconnect USB cable from the board's USB-C connector)
+1. Connect the **ESP8285 boot** pin to the ground before powering the the board, after power on, the pin can be released
+1. Power on the board (connect USB cable to the board's USB-C connector)
+1. Execute `.\flash.sh -t 1MB -m DOUT` to flash the new firmware
+1. Power off the board
 
 After booting to MicroPython, test the WiFi functionality:
 

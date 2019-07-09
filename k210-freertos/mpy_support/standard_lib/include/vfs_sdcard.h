@@ -1,9 +1,9 @@
 /*
- * This file is part of the MicroPython project, http://micropython.org/
+ * This file is part of the MicroPython ESP32 project, https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo
  *
  * The MIT License (MIT)
  *
- * Copyright (c) 2013, 2014 Damien P. George
+ * Copyright (c) 2018 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,6 +23,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #ifndef MICROPY_INCLUDED_EXTMOD_VFS_SDCARD_H
 #define MICROPY_INCLUDED_EXTMOD_VFS_SDCARD_H
 
@@ -49,5 +50,6 @@ extern const mp_obj_type_t mp_sdcard_vfs_type;
 const char *sdcard_local_path(const char *path, sdcard_user_mount_t *vfsobj);
 
 MP_DECLARE_CONST_FUN_OBJ_3(sdcard_vfs_open_obj);
+MP_DECLARE_CONST_FUN_OBJ_3(sdcard_vfs_open_ex_obj);
 
 #endif // MICROPY_INCLUDED_EXTMOD_VFS_SDCARD_H

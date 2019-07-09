@@ -849,6 +849,7 @@ STATIC const mp_rom_map_elem_t spiffs_vfs_locals_dict_table[] = {
     #endif
     { MP_ROM_QSTR(MP_QSTR_mkfs),        MP_ROM_PTR(&spiffs_vfs_mkfs_obj) },
     { MP_ROM_QSTR(MP_QSTR_open),        MP_ROM_PTR(&spiffs_vfs_open_obj) },
+    { MP_ROM_QSTR(MP_QSTR_openex),      MP_ROM_PTR(&spiffs_vfs_open_ex_obj) },
     { MP_ROM_QSTR(MP_QSTR_mount),       MP_ROM_PTR(&vfs_spiffs_mount_obj) },
     { MP_ROM_QSTR(MP_QSTR_ilistdir),    MP_ROM_PTR(&spiffs_vfs_ilistdir_obj) },
     { MP_ROM_QSTR(MP_QSTR_chdir),       MP_ROM_PTR(&spiffs_vfs_chdir_obj) },

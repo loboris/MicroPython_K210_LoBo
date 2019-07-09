@@ -61,13 +61,62 @@
 #define MICROPY_ENABLE_PYSTACK                  (1)
 //---------------------------------------------------------------------------
 
+#define MICROPY_K210_KPU_USED                   (0)
+
+// sqlite3 module uses ~416 KB of code (and SRAM) space
+#define MICROPY_PY_USE_SQLITE                   (1)
+
+//---- K210 Memory usage -------------------------------------------------------------------------------------
+// MicroPython heap is allocated from FreeRTOS heap which is allocated at system start
+// Some heap space is reserved for FreeRTOS,
+//   thread's (task's) stacks and all buffers are allocated from that space
+// All other heap space is used for MicroPython heap if a single MicroPython instance is running
+// If two MicroPython instances are configured, the available heap space is divided between them,
+//   default values are: 5/8 for 1st MicroPython instance and 3/8 for the 2nd
+
+// === Total usable K210 SRAM size
+#define K210_SRAM_SIZE                          (6*1024*1024)
+
+// === SRAM used by firmware (text + data segments) aligned to 256 bytes
+//     Firmware size is reported at the end of compilation
+//     as a result of '../kendryte-toolchain/bin/riscv64-unknown-elf-size MaixPy'
+//     Setting the nearest value will maximize the available
+//     memory for FreeRTOS and MicroPython
+//     Round the value to the 4 KB;  ((file_size // 4096) * 4096 + 4096) / 4096
+#if MICROPY_PY_USE_SQLITE
+#define FIRMWARE_SIZE                           (434*4096)
+#else
+#define FIRMWARE_SIZE                           (332*4096)
+#endif
+
+// === SRAM reserved for dynamic allocation by standard malloc function
+//     and other memory requirements of the system
+#define RESERVED_FOR_SYSTEM                     (1024*1024)
+// === SRAM buffer used for FreeRTOS heap
+//     All other dynamic memory allocation is done from this are
+//     including MicroPython heap and PyStack
+#define FREE_RTOS_TOTAL_HEAP_SIZE               (( size_t )(K210_SRAM_SIZE - FIRMWARE_SIZE - RESERVED_FOR_SYSTEM))
+// === Reserved size of FreeRTOS heap
+#define MICRO_PY_FREE_RTOS_RESERVED             (3*256*1024)
+// === FreeRTOS heap used for MicroPython heap
+#define MICRO_PY_MAX_HEAP_SIZE                  (FREE_RTOS_TOTAL_HEAP_SIZE - MICRO_PY_FREE_RTOS_RESERVED)
+#if MICROPY_USE_TWO_MAIN_TASKS
+#define MICROPY_HEAP_SIZE                       (MICRO_PY_MAX_HEAP_SIZE * 5 / 8)
+#define MICROPY_HEAP_SIZE2                      (MICRO_PY_MAX_HEAP_SIZE * 3 / 8)
+#else
+#define MICROPY_HEAP_SIZE                       (MICRO_PY_MAX_HEAP_SIZE)
+#define MICROPY_HEAP_SIZE2                      (0)
+#endif
+//------------------------------------------------------------------------------------------------------------
+
+
 //------------------------------------------------------------------------------------------------------------
 // Flash chip configuration and Flash FS selection and configuration
 
-#define MICRO_PY_FLASH_SIZE                     (16*1024*1026)  // Flash chip size (usually 16 MB Flash)
+#define MICRO_PY_FLASH_SIZE                     (16*1024*1024)  // Flash chip size (usually 16 MB Flash)
 #define MICRO_PY_FLASH_ERASE_SECTOR_SIZE        (4096)          // Flash chip erase size
 
-#define MICRO_PY_FLASHFS_START_ADDRESS          (8*1024*1026)   // Flash chip address where the file system starts
+#define MICRO_PY_FLASHFS_START_ADDRESS          (8*1024*1024)   // Flash chip address where the file system starts
 #define MICRO_PY_FLASHFS_SIZE                   (6*1024*1024)   // Flash file system size in bytes
 
 #define MICRO_PY_FLASHFS_SPIFFS                 0
@@ -135,25 +184,6 @@ extern void vm_loop_hook();
 // === stack entries are 64-bit, stack size in bytes is 8*MICROPY_THREAD_STACK_SIZE ===
 #define MICROPY_THREAD_STACK_SIZE               (2048) // default thread stack size in STACK UNITS (8 bytes)
 #define MICROPY_TASK_PRIORITY                   (8)    // default thread priority
-
-//---- MicroPython heap -----------------------------------------------------------------------------
-// MicroPython heap is allocated from FreeRTOS heap which is allocated at system start
-// Some heap space is reserved for FreeRTOS,
-//   thread's (task's) stacks and all buffers are allocated from that space
-// All other heap space is used for MicroPython heap if a single MicroPython instance is running
-// If two MicroPython instances are configured, the available heap space is divided between them,
-//   default values are: 5/8 for 1st MicroPython instance and 3/8 for the 2nd
-
-#define MICRO_PY_FREE_RTOS_RESERVED             (5*256*1024)
-#define MICRO_PY_MAX_HEAP_SIZE                  (configTOTAL_HEAP_SIZE - MICRO_PY_FREE_RTOS_RESERVED)
-#if MICROPY_USE_TWO_MAIN_TASKS
-#define MICROPY_HEAP_SIZE                       (MICRO_PY_MAX_HEAP_SIZE * 5 / 8)
-#define MICROPY_HEAP_SIZE2                      (MICRO_PY_MAX_HEAP_SIZE * 3 / 8)
-#else
-#define MICROPY_HEAP_SIZE                       (MICRO_PY_MAX_HEAP_SIZE)
-#define MICROPY_HEAP_SIZE2                      (0)
-#endif
-//---------------------------------------------------------------------------------------------------
 
 // === MicroPython main task stack size in bytes ===
 #define MICROPY_TASK_STACK_RESERVED             (512)
@@ -286,6 +316,8 @@ extern const struct _mp_print_t mp_debug_print;
 #define MICROPY_ENABLE_SOURCE_LINE              (1)
 #define MICROPY_ENABLE_DOC_STRING               (0)
 #define MICROPY_ERROR_REPORTING                 (MICROPY_ERROR_REPORTING_TERSE)
+
+#define MICROPY_MODULE_GETATTR                  (1)
 
 #define MICROPY_BUILTIN_METHOD_CHECK_SELF_ARG   (0)
 #define MICROPY_PY_ASYNC_AWAIT                  (0)
@@ -485,39 +517,46 @@ extern const struct _mp_obj_module_t utime_module;
 extern const struct _mp_obj_module_t mp_module_ymodem;
 extern const struct _mp_obj_module_t mp_module_usocket;
 
-#if defined(MICROPY_PY_USE_WIFI) || defined(MICROPY_PY_USE_WIFI) || defined(MICROPY_PY_USE_WIFI) || defined(MICROPY_PY_USE_WIFI)
+#if defined(MICROPY_PY_USE_WIFI) || defined(MICROPY_PY_USE_GSM) || defined(MICROPY_PY_USE_REQUESTS) || defined(MICROPY_PY_USE_MQTT)
 extern const struct _mp_obj_module_t mp_module_network;
 #define BUILTIN_MODULE_NETWORK { MP_ROM_QSTR(MP_QSTR_network),     MP_ROM_PTR(&mp_module_network) },
 #else
 #define BUILTIN_MODULE_NETWORK
 #endif
 
-#ifdef MICROPY_PY_UHASHLIB_K210
+#if MICROPY_PY_UHASHLIB_K210
 extern const struct _mp_obj_module_t mp_module_uhashlib;
 #define BUILTIN_MODULE_UHASHLIB_K210 { MP_ROM_QSTR(MP_QSTR_uhashlib), MP_ROM_PTR(&mp_module_uhashlib) },
 #else
 #define BUILTIN_MODULE_UHASHLIB_K210
 #endif
 
-#ifdef MICROPY_PY_UCRYPTOLIB_K210
+#if MICROPY_PY_UCRYPTOLIB_K210
 extern const struct _mp_obj_module_t mp_module_ucryptolib;
 #define BUILTIN_MODULE_UCRYPTOLIB_K210 { MP_ROM_QSTR(MP_QSTR_ucryptolib), MP_ROM_PTR(&mp_module_ucryptolib) },
 #else
 #define BUILTIN_MODULE_UCRYPTOLIB_K210
 #endif
 
-#ifdef MICROPY_USE_DISPLAY
+#if MICROPY_USE_DISPLAY
 extern const struct _mp_obj_module_t mp_module_display;
 #define BUILTIN_MODULE_DISPLAY { MP_OBJ_NEW_QSTR(MP_QSTR_display), (mp_obj_t)&mp_module_display },
 #else
 #define BUILTIN_MODULE_DISPLAY
 #endif
 
-#ifdef MICROPY_PY_UTIMEQ_K210
+#if MICROPY_PY_UTIMEQ_K210
 extern const struct _mp_obj_module_t mp_module_utimeq;
 #define BUILTIN_MODULE_UTIMEQ_K210 { MP_OBJ_NEW_QSTR(MP_QSTR_utimeq), (mp_obj_t)&mp_module_utimeq },
 #else
 #define BUILTIN_MODULE_UTIMEQ_K210
+#endif
+
+#if MICROPY_PY_USE_SQLITE
+extern const struct _mp_obj_module_t mp_module_usqlite3;
+#define BUILTIN_MODULE_SQLITE { MP_OBJ_NEW_QSTR(MP_QSTR_usqlite3), (mp_obj_t)&mp_module_usqlite3 },
+#else
+#define BUILTIN_MODULE_SQLITE
 #endif
 
 #define MICROPY_PORT_BUILTIN_MODULES \
@@ -539,6 +578,7 @@ extern const struct _mp_obj_module_t mp_module_utimeq;
     BUILTIN_MODULE_UCRYPTOLIB_K210 \
     BUILTIN_MODULE_DISPLAY \
     BUILTIN_MODULE_UTIMEQ_K210 \
+    BUILTIN_MODULE_SQLITE \
 
 /*
 #define MICROPY_PORT_BUILTIN_MODULE_WEAK_LINKS \
@@ -556,8 +596,8 @@ extern const struct _mp_obj_module_t mp_module_utimeq;
 #define MICROPY_HW_BOARD_NAME       "Sipeed_board"
 #define MICROPY_HW_MCU_NAME         "Kendryte-K210"
 #define MICROPY_PY_SYS_PLATFORM     "K210/FreeRTOS"
-#define MICROPY_PY_LOBO_VERSION     "1.11.3"
-#define MICROPY_PY_LOBO_VERSION_NUM (0x011103)
+#define MICROPY_PY_LOBO_VERSION     "1.11.4"
+#define MICROPY_PY_LOBO_VERSION_NUM (0x011104)
 
 #define MP_STATE_PORT MP_STATE_VM
 

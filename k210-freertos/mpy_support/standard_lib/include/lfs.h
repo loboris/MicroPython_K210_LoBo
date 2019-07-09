@@ -215,8 +215,9 @@ struct lfs_config {
     // By default lfs_malloc is used to allocate this buffer.
     void *prog_buffer;
 
-    // Optional statically allocated program buffer. Must be lookahead_size.
-    // By default lfs_malloc is used to allocate this buffer.
+    // Optional statically allocated lookahead buffer. Must be lookahead_size
+    // and aligned to a 64-bit boundary. By default lfs_malloc is used to
+    // allocate this buffer.
     void *lookahead_buffer;
 
     // Optional upper limit on length of file names in bytes. No downside for
@@ -380,6 +381,10 @@ typedef struct lfs {
     lfs_size_t name_max;
     lfs_size_t file_max;
     lfs_size_t attr_max;
+
+#ifdef LFS_MIGRATE
+    struct lfs1 *lfs1;
+#endif
 } lfs_t;
 
 
@@ -573,7 +578,8 @@ int lfs_dir_close(lfs_t *lfs, lfs_dir_t *dir);
 // Read an entry in the directory
 //
 // Fills out the info structure, based on the specified file or directory.
-// Returns a negative error code on failure.
+// Returns a positive value on success, 0 at the end of directory,
+// or a negative error code on failure.
 int lfs_dir_read(lfs_t *lfs, lfs_dir_t *dir, struct lfs_info *info);
 
 // Change the position of the directory
@@ -616,6 +622,21 @@ lfs_ssize_t lfs_fs_size(lfs_t *lfs);
 //
 // Returns a negative error code on failure.
 int lfs_fs_traverse(lfs_t *lfs, int (*cb)(void*, lfs_block_t), void *data);
+
+#ifdef LFS_MIGRATE
+// Attempts to migrate a previous version of littlefs
+//
+// Behaves similarly to the lfs_format function. Attempts to mount
+// the previous version of littlefs and update the filesystem so it can be
+// mounted with the current version of littlefs.
+//
+// Requires a littlefs object and config struct. This clobbers the littlefs
+// object, and does not leave the filesystem mounted. The config struct must
+// be zeroed for defaults and backwards compatibility.
+//
+// Returns a negative error code on failure.
+int lfs_migrate(lfs_t *lfs, const struct lfs_config *cfg);
+#endif
 
 
 #ifdef __cplusplus

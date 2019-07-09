@@ -97,8 +97,8 @@ void _set_sys_time(struct tm *tm_inf, int zone)
  * to use RTC timer
  */
 
-//-----------------------------------
-static time_t _get_time(bool systm) {
+//----------------------------
+time_t _get_time(bool systm) {
     time_t seconds;
     if (systm) {
         time(&seconds); // get system time

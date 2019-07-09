@@ -43,6 +43,7 @@
 #include "mphalport.h"
 #include "littleflash.h"
 
+#define LITTLEFS_MUTEX_TIMEOUT  (600 / portTICK_PERIOD_MS)
 
 typedef struct _mp_vfs_littlefs_ilistdir_it_t {
     mp_obj_base_t base;
@@ -81,14 +82,16 @@ static uint8_t lookahead_buffer[LITTLEFS_CFG_LOOKAHEAD_SIZE] __attribute__((alig
 //-------------------------------------------------------------------------------------------------------------------
 static int internal_read(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, void *buffer, lfs_size_t size)
 {
-    if (xSemaphoreTake(littlefs_mutex, 200 / portTICK_PERIOD_MS) != pdTRUE) return LFS_ERR_IO;
-    //littleFlash_t *self = (littleFlash_t *) c->context;
     uint32_t phy_addr = LITTLEFS_CFG_START_ADDR + (block * LITTLEFS_CFG_SECTOR_SIZE) + off;
-    if (w25qxx_debug) LOGD(TAG, "[READ] bkl=%u, off=%u, sz=%u, adr=%x", block, off, size, phy_addr);
+    if (xSemaphoreTake(littlefs_mutex, LITTLEFS_MUTEX_TIMEOUT) != pdTRUE) {
+        if (w25qxx_debug) LOGE(TAG, "[READ] Mutex timeout: bkl=%u, off=%u, sz=%u, adr=0x%x", block, off, size, phy_addr);
+        return LFS_ERR_IO;
+    }
+    if (w25qxx_debug) LOGD(TAG, "[READ] bkl=%u, off=%u, sz=%u, adr=0x%x", block, off, size, phy_addr);
 
     enum w25qxx_status_t res = w25qxx_read_data(phy_addr, (uint8_t *)buffer, size);
     if (res != W25QXX_OK) {
-        if (w25qxx_debug) LOGE(TAG, "read err");
+        if (w25qxx_debug) LOGE(TAG, "[READ] ERROR %d: bkl=%u, off=%u, sz=%u, adr=0x%x", res, block, off, size, phy_addr);
         xSemaphoreGive(littlefs_mutex);
         return LFS_ERR_IO;
     }
@@ -99,14 +102,21 @@ static int internal_read(const struct lfs_config *c, lfs_block_t block, lfs_off_
 //-------------------------------------------------------------------------------------------------------------------------
 static int internal_prog(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, const void *buffer, lfs_size_t size)
 {
-    if (xSemaphoreTake(littlefs_mutex, 200 / portTICK_PERIOD_MS) != pdTRUE) return LFS_ERR_IO;
-    //littleFlash_t *self = (littleFlash_t *) c->context;
     uint32_t phy_addr = LITTLEFS_CFG_START_ADDR + (block * LITTLEFS_CFG_SECTOR_SIZE) + off;
-    if (w25qxx_debug) LOGD(TAG, "[PROG] bkl=%u, off=%u, sz=%u, adr=%x", block, off, size, phy_addr);
+    if (xSemaphoreTake(littlefs_mutex, LITTLEFS_MUTEX_TIMEOUT) != pdTRUE) {
+        if (w25qxx_debug) LOGE(TAG, "[PROG] Mutex timeout: bkl=%u, off=%u, sz=%u, adr=0x%x", block, off, size, phy_addr);
+        return LFS_ERR_IO;
+    }
+    if (w25qxx_debug) LOGD(TAG, "[PROG] bkl=%u, off=%u, sz=%u, adr=0x%x", block, off, size, phy_addr);
 
     enum w25qxx_status_t res = w25qxx_write_data(phy_addr, (uint8_t *)buffer, size);
     if (res != W25QXX_OK) {
-        if (w25qxx_debug) LOGE(TAG, "write err");
+        if (w25qxx_debug) LOGW(TAG, "[PROG] Try again (%d): bkl=%u, off=%u, sz=%u, adr=0x%x", res, block, off, size, phy_addr);
+        vTaskDelay(250 / portTICK_PERIOD_MS);
+        res = w25qxx_write_data(phy_addr, (uint8_t *)buffer, size);
+    }
+    if (res != W25QXX_OK) {
+        if (w25qxx_debug) LOGE(TAG, "[PROG] ERROR %d: bkl=%u, off=%u, sz=%u, adr=0x%x", res, block, off, size, phy_addr);
         xSemaphoreGive(littlefs_mutex);
         return LFS_ERR_IO;
     }
@@ -117,10 +127,12 @@ static int internal_prog(const struct lfs_config *c, lfs_block_t block, lfs_off_
 //----------------------------------------------------------------------
 static int internal_erase(const struct lfs_config *c, lfs_block_t block)
 {
-    if (xSemaphoreTake(littlefs_mutex, 200 / portTICK_PERIOD_MS) != pdTRUE) return LFS_ERR_IO;
-    //if (w25qxx_debug) LOGD(TAG, "[ERASE] bkl=%u", block);
-    //littleFlash_t *self = (littleFlash_t *) c->context;
     uint32_t phy_addr = LITTLEFS_CFG_START_ADDR + (block * w25qxx_FLASH_SECTOR_SIZE);
+    if (xSemaphoreTake(littlefs_mutex, LITTLEFS_MUTEX_TIMEOUT) != pdTRUE) {
+        //if (w25qxx_debug) LOGE(TAG, "[ERASE] Mutex timeout: bkl=%u, adr=0x%x", block, phy_addr);
+        return LFS_ERR_IO;
+    }
+    //if (w25qxx_debug) LOGD(TAG, "[ERASE] bkl=%u", block);
 
     // erase sector size is 4096!
     uint8_t rd_buf[w25qxx_FLASH_SECTOR_SIZE];
@@ -129,7 +141,7 @@ static int internal_erase(const struct lfs_config *c, lfs_block_t block)
     for (int index = 0; index < w25qxx_FLASH_SECTOR_SIZE; index++)
     {
         if (*pread != 0xFF) {
-            //if (w25qxx_debug) LOGD(TAG, "[ERASE] physical erase %x", phy_addr);
+            //if (w25qxx_debug) LOGD(TAG, "[ERASE] physical erase %0xx", phy_addr);
             w25qxx_sector_erase(phy_addr);
             enum w25qxx_status_t res = w25qxx_wait_busy();
             if (res != W25QXX_OK) {
@@ -151,7 +163,10 @@ static int internal_erase(const struct lfs_config *c, lfs_block_t block)
 //----------------------------------------------------------------------------
 static int internal_dummy_erase(const struct lfs_config *c, lfs_block_t block)
 {
-    if (w25qxx_debug) LOGD(TAG, "[DUMMY_ERASE] bkl=%u", block);
+    if (w25qxx_debug) {
+        uint32_t phy_addr = LITTLEFS_CFG_START_ADDR + (block * w25qxx_FLASH_SECTOR_SIZE);
+        LOGW(TAG, "[DUMMY_ERASE] bkl=%u, addr=0x%x", block, phy_addr);
+    }
     return LFS_ERR_OK;
 }
 
@@ -862,6 +877,144 @@ STATIC mp_obj_t vfs_littlefs_counters(size_t n_args, const mp_obj_t *args)
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(littlefs_vfs_counters_obj, 1, 2, vfs_littlefs_counters);
 
 
+// Executed when used block is found
+//----------------------------------------------------
+static int _cb_traverse(void *data, lfs_block_t block)
+{
+    if (block >= (LITTLEFS_CFG_PHYS_SZ / LITTLEFS_CFG_SECTOR_SIZE)) {
+        LOGE(TAG, "Block number outside FS (%u)", block);
+        return -1;
+    }
+
+    uint8_t *pdata = (uint8_t *)data;
+    uint32_t bpos = block % 8;
+    // mark used block
+    pdata[block/8] |= (1 << bpos);
+    return 0;
+}
+
+//--------------------------------------------------------------------
+STATIC mp_obj_t vfs_littlefs_trim(size_t n_args, const mp_obj_t *args)
+{
+    bool do_erase = false;
+    if (n_args > 0) do_erase = mp_obj_is_true(args[0]);
+
+    uint8_t lfs_blocks[LITTLEFS_CFG_PHYS_SZ / LITTLEFS_CFG_SECTOR_SIZE / 8];
+    memset(lfs_blocks, 0, LITTLEFS_CFG_PHYS_SZ / LITTLEFS_CFG_SECTOR_SIZE / 8);
+
+    uint8_t block_buf[LITTLEFS_CFG_SECTOR_SIZE];
+
+    uint32_t bused=0, bfree=0;
+    uint32_t sect_erase=0, blocks_erase=0, sect_erased=0, blocks_erased=0;
+    int sector[LITTLEFS_CFG_PHYS_ERASE_SZ / LITTLEFS_CFG_SECTOR_SIZE];
+
+    int res = lfs_fs_traverse(&littleFlash.lfs, _cb_traverse, (void *)lfs_blocks);
+
+    if (res == 0) {
+        uint32_t block_n, sect_idx;
+        uint8_t blk;
+        bool f;
+        int i, j;
+        // Check all FS blocks
+        for (i=0; i<(LITTLEFS_CFG_PHYS_SZ / LITTLEFS_CFG_SECTOR_SIZE / 8); i++) {
+            // start of 8-blocks block
+            blk = lfs_blocks[i];
+            for (j=0; j<8; j++) {
+                // 8 FS blocks usage encoded in one byte, check each
+                // current FS block address
+                block_n = (i << 3) + j;
+                // block position in current Flash sector
+                sect_idx = block_n % (LITTLEFS_CFG_PHYS_ERASE_SZ / LITTLEFS_CFG_SECTOR_SIZE);
+                if ((blk & (1<<j)) == 0) {
+                    // not used block
+                    sector[sect_idx] = block_n;
+                    bfree++;
+                }
+                else {
+                    // used block
+                    //LOGQ(TAG, "Used block %u", block_n);
+                    bused++;
+                    sector[sect_idx] = -1;
+                }
+                // --- Erase the free blocks in current sector ---
+                if (sect_idx == ((LITTLEFS_CFG_PHYS_ERASE_SZ / LITTLEFS_CFG_SECTOR_SIZE) - 1)) {
+                    mp_hal_wdt_reset();
+                    // execute after number of blocks in sector is processed
+                    // check if all blocks in sector are free
+                    f = true;
+                    for (int n=0; n<(LITTLEFS_CFG_PHYS_ERASE_SZ / LITTLEFS_CFG_SECTOR_SIZE); n++) {
+                        if (sector[n] < 0) {
+                            f = false;
+                            break;
+                        }
+                    }
+                    if ((f) && (((sector[0] * LITTLEFS_CFG_SECTOR_SIZE) % LITTLEFS_CFG_PHYS_ERASE_SZ) == 0)) {
+                        // All blocks in sector are free, erase the whole sector
+                        f = false;
+                        // check if free blocks are already erased
+                        for (int n=0; n<(LITTLEFS_CFG_PHYS_ERASE_SZ / LITTLEFS_CFG_SECTOR_SIZE); n++) {
+                            if (internal_read(&littleFlash.lfs_cfg, sector[n], 0, block_buf, LITTLEFS_CFG_SECTOR_SIZE) == LFS_ERR_OK) {
+                                for (int bidx=0; bidx<LITTLEFS_CFG_SECTOR_SIZE; bidx++) {
+                                    if (block_buf[bidx] != 0xFF) {
+                                        f = true; // needs erase
+                                        break;
+                                    }
+                                }
+                            }
+                            else f = false;
+                            if (f == true) break;
+                        }
+                        if (f) {
+                            //LOGY(TAG, "Erase sector %u", sector[0]);
+                            if (do_erase) internal_erase(&littleFlash.lfs_cfg, sector[0] / (LITTLEFS_CFG_PHYS_ERASE_SZ / LITTLEFS_CFG_SECTOR_SIZE));
+                            sect_erased++;
+                        }
+                        sect_erase++;
+                    }
+                    else {
+                        // Erase individual free blocks
+                        for (int n=0; n<(LITTLEFS_CFG_PHYS_ERASE_SZ / LITTLEFS_CFG_SECTOR_SIZE); n++) {
+                            if (sector[n] >= 0) {
+                                f = false;
+                                // check if free block is already erased
+                                if (internal_read(&littleFlash.lfs_cfg, sector[n], 0, block_buf, LITTLEFS_CFG_SECTOR_SIZE) == LFS_ERR_OK) {
+                                    for (int bidx=0; bidx<LITTLEFS_CFG_SECTOR_SIZE; bidx++) {
+                                        if (block_buf[bidx] != 0xFF) {
+                                            f = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (f) {
+                                    //LOGY(TAG, "Erase block %u", sector[n]);
+                                    memset(block_buf, 0xFF, LITTLEFS_CFG_SECTOR_SIZE);
+                                    if (do_erase) internal_prog(&littleFlash.lfs_cfg, sector[n], 0, block_buf, LITTLEFS_CFG_SECTOR_SIZE);
+                                    blocks_erased++;
+                                }
+                                blocks_erase++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    else {
+        mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_RED)"Trim ERROR (traverse)\r\n"LOG_RESET_COLOR);
+        return mp_const_none;
+    }
+    mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_CYAN)" LittleFS blocks: used=%u, free=%u\r\n"LOG_RESET_COLOR, bused, bfree);
+    mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_BROWN)"Sectors to erase: %u, erased: %u\r\n"LOG_RESET_COLOR, sect_erase, sect_erased);
+    mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_BROWN)" Blocks to erase: %u, erased: %u\r\n"LOG_RESET_COLOR, blocks_erase, blocks_erased);
+    if (!do_erase) {
+        mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_PURPLE)"      Erase time: %.2f s\r\n"LOG_RESET_COLOR, (double)(sect_erased + blocks_erased) * 0.075);
+    }
+
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(littlefs_vfs_trim_obj, 0, 1, vfs_littlefs_trim);
+
+
 //===============================================================
 STATIC const mp_rom_map_elem_t littlefs_vfs_locals_dict_table[] = {
     #if _FS_REENTRANT
@@ -869,6 +1022,7 @@ STATIC const mp_rom_map_elem_t littlefs_vfs_locals_dict_table[] = {
     #endif
     { MP_ROM_QSTR(MP_QSTR_mkfs),        MP_ROM_PTR(&littlefs_vfs_mkfs_obj) },
     { MP_ROM_QSTR(MP_QSTR_open),        MP_ROM_PTR(&littlefs_vfs_open_obj) },
+    { MP_ROM_QSTR(MP_QSTR_openex),      MP_ROM_PTR(&littlefs_vfs_open_ex_obj) },
     { MP_ROM_QSTR(MP_QSTR_mount),       MP_ROM_PTR(&vfs_littlefs_mount_obj) },
     { MP_ROM_QSTR(MP_QSTR_ilistdir),    MP_ROM_PTR(&littlefs_vfs_ilistdir_obj) },
     { MP_ROM_QSTR(MP_QSTR_chdir),       MP_ROM_PTR(&littlefs_vfs_chdir_obj) },
@@ -881,6 +1035,7 @@ STATIC const mp_rom_map_elem_t littlefs_vfs_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_statvfs),     MP_ROM_PTR(&littlefs_vfs_statvfs_obj) },
     { MP_ROM_QSTR(MP_QSTR_umount),      MP_ROM_PTR(&littlefs_vfs_umount_obj) },
     { MP_ROM_QSTR(MP_QSTR_counters),    MP_ROM_PTR(&littlefs_vfs_counters_obj) },
+    { MP_ROM_QSTR(MP_QSTR_trim),        MP_ROM_PTR(&littlefs_vfs_trim_obj) },
 };
 STATIC MP_DEFINE_CONST_DICT(littlefs_vfs_locals_dict, littlefs_vfs_locals_dict_table);
 

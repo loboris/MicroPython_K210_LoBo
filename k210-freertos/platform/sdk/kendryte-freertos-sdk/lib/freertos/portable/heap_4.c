@@ -48,7 +48,8 @@
 * memory management pages of http://www.FreeRTOS.org for more information.
 */
 #include <stdlib.h>
-
+// LoBo: needed for pvPortRealloc
+#include <string.h>
 /* Defining MPU_WRAPPERS_INCLUDED_FROM_API_FILE prevents task.h from redefining
 all the API functions to use the MPU wrappers.  That should only be done when
 task.h is included from an application file. */
@@ -74,7 +75,9 @@ task.h is included from an application file. */
 #if( configAPPLICATION_ALLOCATED_HEAP == 1 )
 /* The application writer has already defined the array used for the RTOS
 heap - probably so it can be placed in a special segment or address. */
-extern uint8_t ucHeap[configTOTAL_HEAP_SIZE];
+// LoBo: use external variable for heapsize
+extern size_t configTOTAL_HEAP_SIZE;
+extern uint8_t ucHeap[];
 #else
 static uint8_t ucHeap[configTOTAL_HEAP_SIZE];
 #endif /* configAPPLICATION_ALLOCATED_HEAP */
@@ -320,6 +323,155 @@ void vPortFree(void *pv)
 			mtCOVERAGE_TEST_MARKER();
 		}
 	}
+}
+/*-----------------------------------------------------------*/
+
+// LoBo: Add pvPortRealloc & pvPortCalloc
+void *pvPortRealloc( void *SrcAddr, size_t NewSize)
+{
+    size_t xWantedSize;
+    BlockLink_t *pxBlock, *pxPreviousBlock, *pxNewBlockLink;
+    BlockLink_t *pxBlockold, *pxBlockjudge, *pxIterator;
+    void *pvReturn = NULL;
+    size_t cnt;
+
+    if(SrcAddr == NULL)
+    {
+        /* Direct malloc */
+        pvReturn = pvPortMalloc(NewSize);
+        return pvReturn;
+    }
+
+    if(NewSize <= 0)
+    {
+        vPortFree(SrcAddr);
+        return NULL;
+    }
+
+    vTaskSuspendAll();
+    {
+        /* If this is the first call to malloc then the heap will require
+           initialisation to setup the list of free blocks. */
+        if( pxEnd == NULL )
+        {
+            prvHeapInit();
+        }
+        else
+        {
+            mtCOVERAGE_TEST_MARKER();
+        }
+
+        /* Check the requested block size is not so large that the top bit is
+           set.  The top bit of the block size member of the BlockLink_t structure
+           is used to determine who owns the block - the application or the
+           kernel, so it must be free. */
+        if( ( NewSize & xBlockAllocatedBit ) == 0 )
+        {
+            /* xWantedSize contains the size of the BlockLink_t structure */
+            xWantedSize = NewSize + xHeapStructSize;
+
+            /* Block end boundary alignment */
+            if ((xWantedSize & portBYTE_ALIGNMENT_MASK) != 0x00)
+            {
+                /* Byte alignment required. */
+                xWantedSize += (portBYTE_ALIGNMENT - (xWantedSize & portBYTE_ALIGNMENT_MASK));
+                configASSERT((xWantedSize & portBYTE_ALIGNMENT_MASK) == 0);
+            }
+            else
+            {
+                mtCOVERAGE_TEST_MARKER();
+            }
+
+            /* Find the BlockLink_t structure corresponding to the source address and extract the xBlockSize information from it. */
+            pxBlockold = (BlockLink_t *)(((uint8_t *)SrcAddr) - xHeapStructSize);
+            if ((pxBlockold->xBlockSize & (~xBlockAllocatedBit)) >= xWantedSize)
+            {
+                /* The original memory is enough to cover the newly applied memory, do nothing, return directly */
+                pvReturn = SrcAddr;
+            }
+            else
+            {
+                /* Determine whether the next block after the source address block can be combined */
+                for (pxIterator = &xStart;
+                     pxIterator->pxNextFreeBlock < pxBlockold;
+                     pxIterator = pxIterator->pxNextFreeBlock)
+                {
+                    /* Do nothing, just to find empty memory blocks that are later than the original memory block. */
+                }
+                pxPreviousBlock = pxIterator;
+                pxBlock = pxIterator->pxNextFreeBlock;
+
+                /* Calculate the memory block behind the source address */
+                pxBlockjudge = (BlockLink_t *)(((uint8_t *)pxBlockold) + (pxBlockold->xBlockSize & (~xBlockAllocatedBit)));
+
+                if (pxBlock != pxBlockjudge ||
+                    ((pxBlockold->xBlockSize & (~xBlockAllocatedBit)) + pxBlockjudge->xBlockSize) < xWantedSize)
+                {
+                    /* There is no free address block behind the source address block or free space is not enough */
+                    pvReturn = pvPortMalloc(NewSize);
+                    if (pvReturn)
+                    {
+                        cnt = (pxBlockold->xBlockSize & (~xBlockAllocatedBit)) - xHeapStructSize;
+                        cnt = cnt > NewSize ? NewSize : cnt;
+                        memcpy((uint8_t *)pvReturn, SrcAddr, cnt);
+                        vPortFree(SrcAddr);
+                    }
+                }
+                else
+                {
+                    /* Use the following address space directly */
+                    pvReturn = SrcAddr;
+                    /* cnt indicates how many Bytes are taken from the following memory block */
+                    cnt = xWantedSize - (pxBlockold->xBlockSize & (~xBlockAllocatedBit));
+                    if ((pxBlock->xBlockSize - cnt) > heapMINIMUM_BLOCK_SIZE)
+                    {
+                        /* Split memory block */
+                        /* Create a new free memory block */
+                        pxNewBlockLink = (BlockLink_t *)(((uint8_t *)pxBlockold) + xWantedSize);
+                        pxNewBlockLink->pxNextFreeBlock = NULL;
+                        pxNewBlockLink->xBlockSize = pxBlock->xBlockSize - cnt;
+                        /* The amount of memory remaining in the memory pool */
+                        xFreeBytesRemaining -= cnt;
+                        /* New memory block size after realloc */
+                        pxBlockold->xBlockSize = xWantedSize | xBlockAllocatedBit;
+                        /* Relink free memory table */
+                        pxPreviousBlock->pxNextFreeBlock = pxBlock->pxNextFreeBlock;
+                        prvInsertBlockIntoFreeList(pxNewBlockLink);
+                    }
+                    else
+                    {
+                        /* Directly merge the entire entire block to the original address block */
+                        xFreeBytesRemaining -= pxBlock->xBlockSize;
+                        pxBlockold->xBlockSize += pxBlock->xBlockSize;
+                        pxPreviousBlock->pxNextFreeBlock = pxBlock->pxNextFreeBlock;
+                    }
+
+                    if(xMinimumEverFreeBytesRemaining > xFreeBytesRemaining)
+                        xMinimumEverFreeBytesRemaining = xFreeBytesRemaining;
+                }
+            }
+        }
+        else
+        {
+            mtCOVERAGE_TEST_MARKER();
+        }
+
+    }
+    ( void ) xTaskResumeAll();
+    configASSERT( ( ( ( size_t ) pvReturn ) & ( size_t ) portBYTE_ALIGNMENT_MASK ) == 0 );
+    return pvReturn;
+}
+/*-----------------------------------------------------------*/
+
+void *pvPortCalloc(size_t n, size_t size)
+{
+    void *pvReturn;
+
+    pvReturn = pvPortMalloc(n * size);
+    if(pvReturn)
+        memset(pvReturn, 0, n * size);
+
+    return pvReturn;
 }
 /*-----------------------------------------------------------*/
 

@@ -106,6 +106,7 @@ int map_lfs_error(int err);
 void littleFlash_term();
 
 MP_DECLARE_CONST_FUN_OBJ_3(littlefs_vfs_open_obj);
+MP_DECLARE_CONST_FUN_OBJ_3(littlefs_vfs_open_ex_obj);
 
 #endif // MICROPY_VFS_LITTLEFS
 

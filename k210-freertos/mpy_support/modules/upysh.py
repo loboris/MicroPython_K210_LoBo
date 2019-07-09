@@ -1,6 +1,7 @@
 import sys
 import os
 import time
+import gc
 
 class LS:
 
@@ -99,6 +100,7 @@ class CP:
             return
         try:
             st = os.stat(srcf)
+            src_size = st[6]
         except:
             print("Source not found", srcf)
             return
@@ -117,19 +119,48 @@ class CP:
                 print("Error opening '{}'".format(destf))
                 return
             try:
+                size = src_size
+                wrsize = 0
+                n_try = 0
+                buf = bytearray(4096)
                 while True:
-                    buf = fs.read(1024)
-                    if len(buf) == 0:
-                        break
+                    try:
+                        x = fs.readinto(buf)
+                    except:
+                        print("Read Error during copy at {}".format(size))
+                        n_try += 1
+                        if n_try > 3:
+                            try:
+                                fd.close()
+                                fs.close()
+                                os.remove(destf)
+                            except:
+                                pass
+                            return
+                        time.sleep_ms(300)
+                        continue
+                    n_try = 0
+                    wrsize += x
+                    size -= x
+                    if x < len(buf) :
+                        if x > 0:
+                            buf = memoryview(buf)[:x]
+                            fd.write(buf)
                     else:
                         fd.write(buf)
-            except:
+                    print("{} of {}".format(wrsize, src_size), end='\r')
+                    if size <= 0:
+                        print("")
+                        break
+            except Exception as err:
                 try:
+                    fs.close()
                     fd.close()
                     os.remove(destf)
                 except:
                     pass
-                print("Error during copy")
+                print("Error during copy at {} [{}]".format(size, err))
+                return
             fd.close()
             fs.close()
         except:

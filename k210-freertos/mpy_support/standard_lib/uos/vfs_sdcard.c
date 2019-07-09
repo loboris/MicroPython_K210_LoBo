@@ -1,10 +1,9 @@
 /*
- * This file is part of the MicroPython project, http://micropython.org/
+ * This file is part of the MicroPython ESP32 project, https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo
  *
  * The MIT License (MIT)
  *
- * Copyright (c) 2014 Damien P. George
- * Copyright (c) 2016 Paul Sokolovsky
+ * Copyright (c) 2018 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -260,29 +259,20 @@ const char *sdcard_local_path(const char *path, sdcard_user_mount_t *vfsobj)
 STATIC mp_import_stat_t sdcard_vfs_import_stat(void *vfs_in,const char *path)
 {
     sdcard_user_mount_t *vfs = vfs_in;
-    assert(vfs != NULL);
-	int len = strlen(path);
-	char file_path[50] ;
-	//char* file_path = m_malloc_with_finaliser(len+2);
-	int i = 0;
-	for(;i < len;i++)
-	{
-		file_path[i] = path[i+1];
-	}
-	file_path[len] = '\0';
-    struct stat buf;
-    int res = stat(file_path, &buf);
-    if (res == 0) {
-        if (buf.st_mode & S_IFDIR)
-		{
-            return MP_IMPORT_STAT_DIR;
-        } 
-		else 
-		{
-            return MP_IMPORT_STAT_FILE;
-        }
+    if (vfs == NULL) return MP_IMPORT_STAT_NO_EXIST;
+    if (path[0] == 0 || (path[0] == '/' && path[1] == 0)) {
+        return MP_IMPORT_STAT_DIR;
     }
-    return MP_IMPORT_STAT_NO_EXIST;
+
+    FILINFO fno;
+    int res;
+    const char *lpath = sdcard_local_path(path, vfs);
+    res = f_stat(lpath, &fno);
+    if (res != 0) return MP_IMPORT_STAT_NO_EXIST;
+
+    if (fno.fattrib & AM_DIR) return MP_IMPORT_STAT_DIR;
+
+    return MP_IMPORT_STAT_FILE;
 }
 
 #if FF_FS_REENTRANT
@@ -554,7 +544,6 @@ STATIC mp_obj_t sdcard_vfs_stat(mp_obj_t vfs_in, mp_obj_t path_in)
         const char *lpath = sdcard_local_path(path, self);
         res = f_stat(lpath, &fno);
         if (res != 0) {
-            //printf("[MaixPy]:SPIFFS Error Code %d\n",res);
             mp_raise_OSError(fresult_to_errno_table[res]);
         }
     }
@@ -626,6 +615,7 @@ STATIC const mp_rom_map_elem_t sdcard_vfs_locals_dict_table[] = {
     #endif
     { MP_ROM_QSTR(MP_QSTR_mkfs), MP_ROM_PTR(&sdcard_vfs_mkfs_obj) },
     { MP_ROM_QSTR(MP_QSTR_open), MP_ROM_PTR(&sdcard_vfs_open_obj) },
+    { MP_ROM_QSTR(MP_QSTR_openex), MP_ROM_PTR(&sdcard_vfs_open_ex_obj) },
     { MP_ROM_QSTR(MP_QSTR_mount), MP_ROM_PTR(&vfs_sdcard_mount_obj) },
     { MP_ROM_QSTR(MP_QSTR_ilistdir), MP_ROM_PTR(&sdcard_vfs_ilistdir_obj) },
     { MP_ROM_QSTR(MP_QSTR_chdir), MP_ROM_PTR(&sdcard_vfs_chdir_obj) },
