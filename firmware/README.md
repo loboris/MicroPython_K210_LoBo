@@ -1,7 +1,7 @@
 # MicroPython for Kendryte K210
 
 
-To flush the pre-built firmware to your K210 board, run (in this directory):
+To flash the pre-built firmware to your K210 board, run (in this directory):
 
 ```
 ./kflash.py -p /dev/ttyUSB0 -b 2000000 -t MaixPy.bin

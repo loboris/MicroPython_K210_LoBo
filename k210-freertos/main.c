@@ -260,6 +260,7 @@ static void mp_task_proc1(void *pvParameter)
 
         thread_msg_t msg;
 
+        vTaskDelay(5);
         if (flash_fs_ok) {
             // set mount point for flash file system
             mp_vfs_mount_t *vfs = m_new_obj_maybe(mp_vfs_mount_t);
@@ -283,6 +284,7 @@ static void mp_task_proc1(void *pvParameter)
             }
         }
 
+        vTaskDelay(5);
         // ==== Main 2nd MicroPPython instance loop ========
         while (1) {
             // === Wait for command from main (or other) MicroPython task ===
@@ -543,6 +545,7 @@ int main()
         while (!task0_started) {
             vTaskDelay(10);
         }
+        vTaskDelay(50);
         res = xTaskCreateAtProcessor(
                 MAIN_TASK_PROC ^ 1,                     // MPy instance #2 processor
                 mp_task_proc1,                          // function entry

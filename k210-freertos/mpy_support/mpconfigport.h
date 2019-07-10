@@ -38,6 +38,12 @@
 // Options to control how MicroPython is built
 // ===========================================
 
+#define MICROPY_HW_BOARD_NAME       "Sipeed_board"
+#define MICROPY_HW_MCU_NAME         "Kendryte-K210"
+#define MICROPY_PY_SYS_PLATFORM     "K210/FreeRTOS"
+#define MICROPY_PY_LOBO_VERSION     "1.11.5"
+#define MICROPY_PY_LOBO_VERSION_NUM (0x011105)
+
 /*
    Several basic configurations can be selected for build:
    -------------------------------------------------------
@@ -46,6 +52,19 @@
    3. Two MicroPython instances with PyStack enabled
    4. Two MicroPython instances without PyStack enabled
    -------------------------------------------------------
+
+   The following options are configurable on runtime from MicroPython:
+   -------------------------------------------------------------------
+   - running two MPy instances
+   - using PyStack
+   - heap size
+   - PyStack size
+   - MicroPython task(s) stack size
+   - default CPU frequency
+   - default REPL baudrate
+   - boot menu pin
+   - default log level
+   - MicroPython VM divisor
 */
 
 //---------------------------------------------------------------------------
@@ -64,7 +83,7 @@
 #define MICROPY_K210_KPU_USED                   (0)
 
 // sqlite3 module uses ~416 KB of code (and SRAM) space
-#define MICROPY_PY_USE_SQLITE                   (1)
+#define MICROPY_PY_USE_SQLITE                   (0)
 
 //---- K210 Memory usage -------------------------------------------------------------------------------------
 // MicroPython heap is allocated from FreeRTOS heap which is allocated at system start
@@ -97,15 +116,30 @@
 //     including MicroPython heap and PyStack
 #define FREE_RTOS_TOTAL_HEAP_SIZE               (( size_t )(K210_SRAM_SIZE - FIRMWARE_SIZE - RESERVED_FOR_SYSTEM))
 // === Reserved size of FreeRTOS heap
-#define MICRO_PY_FREE_RTOS_RESERVED             (3*256*1024)
+#define MICRO_PY_FREE_RTOS_RESERVED             (7*128*1024)
 // === FreeRTOS heap used for MicroPython heap
 #define MICRO_PY_MAX_HEAP_SIZE                  (FREE_RTOS_TOTAL_HEAP_SIZE - MICRO_PY_FREE_RTOS_RESERVED)
+#define MICRO_PY_MIN_HEAP_SIZE                  (128*1024)
 #if MICROPY_USE_TWO_MAIN_TASKS
 #define MICROPY_HEAP_SIZE                       (MICRO_PY_MAX_HEAP_SIZE * 5 / 8)
 #define MICROPY_HEAP_SIZE2                      (MICRO_PY_MAX_HEAP_SIZE * 3 / 8)
 #else
 #define MICROPY_HEAP_SIZE                       (MICRO_PY_MAX_HEAP_SIZE)
 #define MICROPY_HEAP_SIZE2                      (0)
+#endif
+
+// === MicroPython main task stack size in bytes ===
+#define MICROPY_TASK_STACK_RESERVED             (512)
+#define MICROPY_TASK_STACK_SIZE                 (32 * 1024)
+// === MicroPython main task stack size in stack_type units (64-bits) ===
+#define MICROPY_TASK_STACK_LEN                  (MICROPY_TASK_STACK_SIZE / sizeof(StackType_t))
+
+#define MICRO_PY_MIN_PYSTACK_SIZE               (2*1024)
+#define MICRO_PY_MAX_PYSTACK_SIZE               (32*1024)
+#if MICROPY_ENABLE_PYSTACK
+#define MICROPY_PYSTACK_SIZE                    (4096)
+#else
+#define MICROPY_PYSTACK_SIZE                    (0)
 #endif
 //------------------------------------------------------------------------------------------------------------
 
@@ -184,18 +218,6 @@ extern void vm_loop_hook();
 // === stack entries are 64-bit, stack size in bytes is 8*MICROPY_THREAD_STACK_SIZE ===
 #define MICROPY_THREAD_STACK_SIZE               (2048) // default thread stack size in STACK UNITS (8 bytes)
 #define MICROPY_TASK_PRIORITY                   (8)    // default thread priority
-
-// === MicroPython main task stack size in bytes ===
-#define MICROPY_TASK_STACK_RESERVED             (512)
-#define MICROPY_TASK_STACK_SIZE                 (32 * 1024)
-// === MicroPython main task stack size in stack_type units (64-bits) ===
-#define MICROPY_TASK_STACK_LEN                  (MICROPY_TASK_STACK_SIZE / sizeof(StackType_t))
-
-#if MICROPY_ENABLE_PYSTACK
-#define MICROPY_PYSTACK_SIZE                    (4096)
-#else
-#define MICROPY_PYSTACK_SIZE                    (0)
-#endif
 
 // === Buffer size for UART used as RELP standard input/output ===
 #define MICRO_PY_UARTHS_BUFFER_SIZE             (1280)
@@ -592,12 +614,6 @@ extern const struct _mp_obj_module_t mp_module_usqlite3;
 
 #define MICROPY_PY_MACHINE                  (1)
 #define MICROPY_PY_MACHINE_PIN_MAKE_NEW     mp_pin_make_new
-
-#define MICROPY_HW_BOARD_NAME       "Sipeed_board"
-#define MICROPY_HW_MCU_NAME         "Kendryte-K210"
-#define MICROPY_PY_SYS_PLATFORM     "K210/FreeRTOS"
-#define MICROPY_PY_LOBO_VERSION     "1.11.4"
-#define MICROPY_PY_LOBO_VERSION_NUM (0x011104)
 
 #define MP_STATE_PORT MP_STATE_VM
 

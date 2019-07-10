@@ -349,8 +349,8 @@ TaskHandle_t mp_thread_create(void *entry, thread_entry_args_t *arg, size_t task
             pystack_size = MICROPY_PYSTACK_SIZE; //use default PyStackstack size
         }
         else {
-            if (pystack_size < MP_THREAD_MIN_PYSTACK_SIZE) pystack_size = MP_THREAD_MIN_PYSTACK_SIZE;
-            else if (pystack_size > MP_THREAD_MAX_PYSTACK_SIZE) pystack_size = MP_THREAD_MAX_PYSTACK_SIZE;
+            if (pystack_size < MICRO_PY_MIN_PYSTACK_SIZE) pystack_size = MICRO_PY_MIN_PYSTACK_SIZE;
+            else if (pystack_size > MICRO_PY_MAX_PYSTACK_SIZE) pystack_size = MICRO_PY_MAX_PYSTACK_SIZE;
         }
         pystack_size = (pystack_size / 8) * 8;
     }

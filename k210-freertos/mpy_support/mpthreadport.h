@@ -68,9 +68,6 @@
 #define MP_THREAD_DEFAULT_STACK_SIZE		1024      // in stack_type units (64-bits)
 #define MP_THREAD_MAX_STACK_SIZE			(16*1024) // in stack_type units (64-bits)
 
-#define MP_THREAD_MIN_PYSTACK_SIZE          2048
-#define MP_THREAD_MAX_PYSTACK_SIZE          65536
-
 #define THREAD_NAME_MAX_SIZE		        16
 #define THREAD_MGG_BROADCAST		        0xFFFFEEEE
 #define THREAD_MSG_TYPE_NONE		        0

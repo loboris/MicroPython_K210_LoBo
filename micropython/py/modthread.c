@@ -242,9 +242,9 @@ STATIC mp_obj_t mod_thread_start_new_thread(size_t n_args, const mp_obj_t *pos_a
     size_t py_stack_size = MICROPY_PYSTACK_SIZE;
 
     if (mpy_config.config.pystack_enabled) {
-        if (args[6].u_int >= MP_THREAD_MIN_PYSTACK_SIZE) {
+        if (args[6].u_int >= MICRO_PY_MIN_PYSTACK_SIZE) {
             py_stack_size = args[6].u_int;
-            if (py_stack_size > MP_THREAD_MAX_PYSTACK_SIZE) py_stack_size = MP_THREAD_MAX_PYSTACK_SIZE;
+            if (py_stack_size > MICRO_PY_MAX_PYSTACK_SIZE) py_stack_size = MICRO_PY_MAX_PYSTACK_SIZE;
             py_stack_size = (py_stack_size / 8) * 8;
         }
     }
