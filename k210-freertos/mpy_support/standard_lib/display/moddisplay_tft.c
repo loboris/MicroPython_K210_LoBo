@@ -36,6 +36,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
+#include "sysctl.h"
 
 #include "moddisplay.h"
 #include "modmachine.h"
@@ -69,7 +70,7 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
         { MP_QSTR_type,      MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = DISP_TYPE_ST7789V } },
         { MP_QSTR_width,     MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = DEFAULT_TFT_DISPLAY_WIDTH } },
         { MP_QSTR_height,    MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = DEFAULT_TFT_DISPLAY_HEIGHT } },
-        { MP_QSTR_speed,     MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = 10000000 } },
+        { MP_QSTR_speed,     MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = SPI_DEFAULT_SPEED } },
         { MP_QSTR_rot,       MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = -1 } },
         { MP_QSTR_bgr,       MP_ARG_KW_ONLY  | MP_ARG_BOOL, { .u_bool = false } },
         { MP_QSTR_splash,    MP_ARG_KW_ONLY  | MP_ARG_BOOL, { .u_bool = true } },
@@ -97,6 +98,12 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
 
     int orient = LANDSCAPE;
     if ((args[ARG_rot].u_int >= 0) && (args[ARG_rot].u_int <= 3)) orient = args[ARG_rot].u_int;
+
+    uint32_t speed = args[ARG_speed].u_int;
+    if (speed <= 24) speed *= 1000000;
+    if ((speed < 1000000) || (speed > 24000000)) speed = SPI_DEFAULT_SPEED;
+    if ((sysctl_clock_get_freq(SYSCTL_CLOCK_CPU) < 200000000) && (speed > SPI_DEFAULT_SPEED)) speed = SPI_DEFAULT_SPEED;
+    self->dconfig.speed = speed;
 
     // ================================
     // ==== Initialize the Display ====
@@ -145,15 +152,6 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
     }
 
     if (use_frame_buffer) send_frame_buffer();
-
-    uint32_t speed = args[ARG_speed].u_int;
-    if (speed <= 25) speed *= 1000000;
-    if ((speed < 1000000) || (speed > 25000000)) speed = 8000000;
-    self->dconfig.speed = speed;
-    spi_speed = speed;
-    speed = tft_set_speed();
-    self->dconfig.speed = speed;
-    spi_speed = speed;
 
     return mp_const_none;
 }
@@ -1013,22 +1011,22 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(display_tft_get_Y_obj, display_tft_get_Y);
 STATIC mp_obj_t display_tft_set_speed(size_t n_args, const mp_obj_t *args)
 {
     display_tft_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-    uint32_t speed = spi_speed;
     if (n_args > 1) {
-        speed = mp_obj_get_int(args[1]);
-        if (speed <= 25) speed *= 1000000;
-        if ((speed < 1000000) || (speed > 25000000)) {
-            mp_raise_ValueError("Unsupported tft speed (1 - 25 Mhz)");
+        uint32_t speed = mp_obj_get_int(args[1]);
+        if (speed <= 24) speed *= 1000000;
+        if ((speed < 1000000) || (speed > 24000000)) {
+            mp_raise_ValueError("Unsupported tft speed (1 - 24 Mhz)");
+        }
+        if ((sysctl_clock_get_freq(SYSCTL_CLOCK_CPU) < 200000000) && (speed > SPI_DEFAULT_SPEED)) {
+            mp_raise_ValueError("Maximal tft speed @100MHz CPU is 16 MHz");
         }
 
         // Set SPI clock used for display operations
         self->dconfig.speed = speed;
-        spi_speed = speed;
-        speed = tft_set_speed();
-        self->dconfig.speed = speed;
-        spi_speed = speed;
+        tft_set_speed(speed);
+        self->dconfig.speed = tft_get_speed();
     }
-    return mp_obj_new_int(speed);
+    return mp_obj_new_int(tft_get_speed());
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(display_tft_set_speed_obj, 1, 2, display_tft_set_speed);
 

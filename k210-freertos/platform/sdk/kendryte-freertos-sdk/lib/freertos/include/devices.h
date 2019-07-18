@@ -301,7 +301,7 @@ void i2s_stop(handle_t file);
  *
  * @return      Void
  */
-void spi_slave_config(handle_t file, size_t data_bit_length, uint8_t *data, uint32_t len, uint32_t ro_len, spi_slave_receive_callback_t callback, spi_slave_csum_callback_t csum_callback, int priority);
+void spi_slave_config(handle_t file, size_t data_bit_length, uint8_t *data, uint32_t len, uint32_t ro_len, spi_slave_receive_callback_t callback, spi_slave_csum_callback_t csum_callback, int priority, int mosi, int miso);
 
 /**
  * LoBo

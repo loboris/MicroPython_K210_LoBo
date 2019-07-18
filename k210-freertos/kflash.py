@@ -905,7 +905,7 @@ class KFlash:
                         speed = str(int((n + 1) * DATAFRAME_SIZE / 1024.0 / time_delta)) + 'kiB/s'
                     printProgressBar(n+1, total_chunk, prefix = 'Downloading ISP:', suffix = speed, length = columns - 35)
 
-            def dump_to_flash(self, data, address=0):
+            def dump_to_flash(self, data, address=0, swap=False):
                 '''
                 typedef struct __attribute__((packed)) {
                     uint8_t op;
@@ -920,10 +920,14 @@ class KFlash:
                 data_chunks = chunks(data, DATAFRAME_SIZE)
                 #print('[DEBUG] flash dataframe | data length:', len(data))
 
-
-
                 for n, chunk in enumerate(data_chunks):
                     #print('[INFO] sending chunk', i, '@address', hex(address))
+                    if swap is True:
+                        chunkr = bytearray(len(chunk))
+                        for i in range(0, len(chunk), 4):
+                            chunkr[i], chunkr[i+1], chunkr[i+2], chunkr[i+3] = chunk[i+3], chunk[i+2], chunk[i+1], chunk[i]
+                        chunk = chunkr
+                    
                     out = struct.pack('II', address, len(chunk))
 
                     crc32_checksum = struct.pack('I', binascii.crc32(out + chunk) & 0xFFFFFFFF)
@@ -948,9 +952,15 @@ class KFlash:
 
 
             def flash_erase(self):
+                print(INFO_MSG, "Erasing SPI Flash...", BASH_TIPS['DEFAULT'])
+
                 #print('[DEBUG] erasing spi flash.')
                 self._port.write(b'\xc0\xd3\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xc0')
                 op, reason, text = FlashModeResponse.parse(self.recv_one_return())
+                if FlashModeResponse.ErrorCode(reason).name == 'ISP_RET_OK':
+                    print(INFO_MSG, "SPI Flash erased.", BASH_TIPS['DEFAULT'])
+                else:
+                    print(ERROR_MSG, "Error while erasing:", BASH_TIPS['YELLOW'], FlashModeResponse.Operation(op).name, " ", FlashModeResponse.ErrorCode(reason).name , BASH_TIPS['DEFAULT'])
                 #print('MAIX return op:', FlashModeResponse.Operation(op).name, 'reason:',
                 #      FlashModeResponse.ErrorCode(reason).name)
 
@@ -980,13 +990,15 @@ class KFlash:
                         continue
                     self.flash_dataframe(segment.data(), segment['p_vaddr'])
 
-            def flash_firmware(self, firmware_bin, aes_key = None, address_offset = 0, sha256Prefix = True):
+            def flash_firmware(self, firmware_bin, aes_key = None, address_offset = 0, sha256Prefix = True, swap=False):
+                print(INFO_MSG, "Flashing data at Flash address", "0x%08x"%address_offset, BASH_TIPS['DEFAULT'])
                 # type: (bytes, bytes, int, bool) -> None
                 # Don't remove above code!
 
                 #print('[DEBUG] flash_firmware DEBUG: aeskey=', aes_key)
 
                 if sha256Prefix == True:
+                    print(INFO_MSG, "Flashing with SHA prefix", BASH_TIPS['DEFAULT'])
                     # Add header to the firmware
                     # Format: SHA256(after)(32bytes) + AES_CIPHER_FLAG (1byte) + firmware_size(4bytes) + firmware_data
                     aes_cipher_flag = b'\x01' if aes_key else b'\x00'
@@ -1018,7 +1030,7 @@ class KFlash:
 
                     # Download a dataframe
                     #print('[INFO]', 'Write firmware data piece')
-                    self.dump_to_flash(chunk, address= n * ISP_FLASH_DATA_FRAME_SIZE + address_offset)
+                    self.dump_to_flash(chunk, address= n * ISP_FLASH_DATA_FRAME_SIZE + address_offset, swap=(address_offset > 0))
                     columns, lines = get_terminal_size()
                     time_delta = time.time() - time_start
                     speed = ''
@@ -1026,8 +1038,8 @@ class KFlash:
                         speed = str(int((n + 1) * ISP_FLASH_DATA_FRAME_SIZE / 1024.0 / time_delta)) + 'kiB/s'
                     printProgressBar(n+1, total_chunk, prefix = 'Programming BIN:', suffix = speed, length = columns - 35)
 
-        def open_terminal(reset, bdr):
-            trm = PyTerm(baudrate=bdr, device=_port, rst=reset)
+        def open_terminal(reset, bdr, colors=True):
+            trm = PyTerm(baudrate=bdr, device=_port, rst=reset, clr=colors)
             sys.exit(0)
 
         parser = argparse.ArgumentParser()
@@ -1043,10 +1055,12 @@ class KFlash:
         parser.add_argument("-r", "--reset", help="Reset the board when running PyTerm", default=False, action="store_true")
         parser.add_argument("-n", "--noansi", help="Do not use ANSI colors, recommended in Windows CMD", default=False, action="store_true")
         parser.add_argument("-s", "--sram", help="Download firmware to SRAM and boot", default=False, action="store_true")
+        parser.add_argument("-a", "--address", type=int, help="Download firmware to address", default=0)
+        parser.add_argument("-E", "--erase", help="Erase the Falsh chip!", default=False, action="store_true")
 
         parser.add_argument("-B", "--Board",required=False, type=str, help="Select dev board, e.g. kd233, dan, bit, goD, goE or trainer", default="bit")
         parser.add_argument("-S", "--Slow",required=False, help="Slow download mode", default=False)
-        parser.add_argument("firmware", help="firmware bin path")
+        parser.add_argument("firmware", nargs='?', help="firmware bin path", default='None.none')
 
         args = parser.parse_args()
 
@@ -1095,37 +1109,39 @@ class KFlash:
             _port = args.port
             print(INFO_MSG,"COM Port Selected Manually: ", _port, BASH_TIPS['DEFAULT'])
 
-        if(args.term == True):
-            open_terminal(args.reset, args.termbdr)
+        if (args.term == True):
+            open_terminal(args.reset, args.termbdr, not args.noansi)
 
         loader = MAIXLoader(port=_port, baudrate=115200)
         file_format = ProgramFileFormat.FMT_BINARY
 
-        # 0. Check firmware
-        try:
-            firmware_bin = open(args.firmware, 'rb')
-        except FileNotFoundError:
-            print(ERROR_MSG,'Unable to find the firmware at ', args.firmware, BASH_TIPS['DEFAULT'])
-            sys.exit(1)
-
-        with open(args.firmware, 'rb') as f:
-            file_header = f.read(4)
-            #if file_header.startswith(bytes([0x50, 0x4B])):
-            if file_header.startswith(b'\x50\x4B'):
-                if ".kfpkg" != os.path.splitext(args.firmware)[1]:
-                    print(INFO_MSG, 'Find a zip file, but not with ext .kfpkg:', args.firmware, BASH_TIPS['DEFAULT'])
-                else:
-                    file_format = ProgramFileFormat.FMT_KFPKG
-
-            #if file_header.startswith(bytes([0x7F, 0x45, 0x4C, 0x46])):
-            if file_header.startswith(b'\x7f\x45\x4c\x46'):
-                file_format = ProgramFileFormat.FMT_ELF
-                if args.sram:
-                    print(INFO_MSG, 'Found an ELF file:', args.firmware, BASH_TIPS['DEFAULT'])
-                else:
-                    print(ERROR_MSG, 'This is an ELF file and cannot be programmed to flash directly:', args.firmware, BASH_TIPS['DEFAULT'])
-                    print(ERROR_MSG, 'Please retry:', args.firmware + '.bin', BASH_TIPS['DEFAULT'])
-                    sys.exit(1)
+        firmware_bin = None
+        if args.firmware != "None.none":
+            # 0. Check firmware
+            try:
+                firmware_bin = open(args.firmware, 'rb')
+            except FileNotFoundError:
+                print(ERROR_MSG,'Unable to find the firmware at ', args.firmware, BASH_TIPS['DEFAULT'])
+                sys.exit(1)
+    
+            with open(args.firmware, 'rb') as f:
+                file_header = f.read(4)
+                #if file_header.startswith(bytes([0x50, 0x4B])):
+                if file_header.startswith(b'\x50\x4B'):
+                    if ".kfpkg" != os.path.splitext(args.firmware)[1]:
+                        print(INFO_MSG, 'Find a zip file, but not with ext .kfpkg:', args.firmware, BASH_TIPS['DEFAULT'])
+                    else:
+                        file_format = ProgramFileFormat.FMT_KFPKG
+    
+                #if file_header.startswith(bytes([0x7F, 0x45, 0x4C, 0x46])):
+                if file_header.startswith(b'\x7f\x45\x4c\x46'):
+                    file_format = ProgramFileFormat.FMT_ELF
+                    if args.sram:
+                        print(INFO_MSG, 'Found an ELF file:', args.firmware, BASH_TIPS['DEFAULT'])
+                    else:
+                        print(ERROR_MSG, 'This is an ELF file and cannot be programmed to flash directly:', args.firmware, BASH_TIPS['DEFAULT'])
+                        print(ERROR_MSG, 'Please retry:', args.firmware + '.bin', BASH_TIPS['DEFAULT'])
+                        sys.exit(1)
 
         # 1. Greeting.
         print(INFO_MSG,"Trying to Enter the ISP Mode...",BASH_TIPS['DEFAULT'])
@@ -1225,6 +1241,9 @@ class KFlash:
 
         # 2. download bootloader and firmware
         if args.sram:
+            if firmware_bin == None:
+                print(ERROR_MSG,'Firmware file not provided !', '', BASH_TIPS['DEFAULT'])
+                sys.exit(1)
             if file_format == ProgramFileFormat.FMT_KFPKG:
                 print(ERROR_MSG, "Unable to load kfpkg to SRAM")
                 sys.exit(1)
@@ -1266,8 +1285,18 @@ class KFlash:
 
         loader.init_flash(args.flash)
 
+        # ==== ERASE SPI FLASH ====
+        if (args.erase == True):
+            ISP_RECEIVE_TIMEOUT = 160
+            loader.flash_erase()
+            if firmware_bin == None:
+                sys.exit(0)
+
+        # ==== FLASH THE FIRMWARE ===
+        if firmware_bin == None:
+            print(ERROR_MSG,'Firmware file not provided !', '', BASH_TIPS['DEFAULT'])
         if file_format == ProgramFileFormat.FMT_KFPKG:
-            print(INFO_MSG,"Extracting KFPKG ... ", BASH_TIPS['DEFAULT'])
+            print(INFO_MSG,BASH_TIPS['YELLOW']+"Extracting KFPKG ... ", BASH_TIPS['DEFAULT'])
             firmware_bin.close()
             with tempfile.TemporaryDirectory() as tmpdir:
                 try:
@@ -1282,19 +1311,26 @@ class KFlash:
                 fFlashList.close()
                 jsonFlashList = json.loads(sFlashList)
                 for lBinFiles in jsonFlashList['files']:
-                    print(INFO_MSG,"Writing",lBinFiles['bin'],"into","0x%08x"%int(lBinFiles['address'], 0),BASH_TIPS['DEFAULT'])
+                    print(INFO_MSG,"  Writing",lBinFiles['bin'],"to Flash address","0x%08x"%int(lBinFiles['address'], 0),BASH_TIPS['DEFAULT'])
                     firmware_bin = open(os.path.join(tmpdir, lBinFiles["bin"]), "rb")
-                    loader.flash_firmware(firmware_bin.read(), None, int(lBinFiles['address'], 0), lBinFiles['sha256Prefix'])
+                    loader.flash_firmware(firmware_bin.read(), address_offset=int(lBinFiles['address'], 0), sha256Prefix=lBinFiles['sha256Prefix'])
                     firmware_bin.close()
         else:
+            print(INFO_MSG,"Flash to address: {} ({}). ".format(args.address, hex(args.address)), BASH_TIPS['DEFAULT'])
             if args.key:
                 aes_key = binascii.a2b_hex(args.key)
                 if len(aes_key) != 16:
                     raise ValueError('AES key must by 16 bytes')
 
-                loader.flash_firmware(firmware_bin.read(), aes_key=aes_key)
+                if args.address > 0:
+                    loader.flash_firmware(firmware_bin.read(), aes_key=aes_key, address_offset=args.address, sha256Prefix=False)
+                else:
+                    loader.flash_firmware(firmware_bin.read(), aes_key=aes_key)
             else:
-                loader.flash_firmware(firmware_bin.read())
+                if args.address > 0:
+                    loader.flash_firmware(firmware_bin.read(), address_offset=args.address, sha256Prefix=False)
+                else:
+                    loader.flash_firmware(firmware_bin.read())
 
         # 3. boot
         if args.Board == "dan" or args.Board == "bit" or args.Board == "trainer":
@@ -1312,7 +1348,7 @@ class KFlash:
         loader._port.close()
 
         if(args.terminal == True):
-            open_terminal(True, args.termbdr)
+            open_terminal(True, args.termbdr, not args.noansi)
 
 def main():
     kflash = KFlash()

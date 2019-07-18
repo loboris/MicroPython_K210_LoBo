@@ -15,7 +15,7 @@ from datetime import datetime
 try:
     import serial
 except ImportError:
-    print("\033[1;31mPySerial must be installed, run \033[1;34m`pip3 install pyserial`\033[0m\r\n")
+    print("PySerial must be installed, run `pip3 install pyserial`\r\n")
     sys.exit(1)
 
 KEY_NONE      = 0x00
@@ -53,8 +53,8 @@ class PyTerm:
     "\x09"   : KEY_TAB,
     }
 
-    #-----------------------------------------------------------------
-    def __init__(self, baudrate=115200, device='/dev/ttyUSB0', rst=0):
+    #----------------------------------------------------------------------------
+    def __init__(self, baudrate=115200, device='/dev/ttyUSB0', rst=0, clr=False):
         self.DEVICE     = device
         self.BAUDRATE   = baudrate
         self.ESCAPECHAR = "\033"
@@ -62,12 +62,27 @@ class PyTerm:
         self.ShutdownReceiver = False
         self.ReceiverToStdout = True
         self.DefaultTimeout = 0.1
-        self.width = 80
-        self.height = 80
         self.width, self.height = shutil.get_terminal_size()
+        self.colors = clr;
+        if clr is True:
+            self.TCLR = dict(
+                NORMAL = '\033[0m',
+                RED    = '\033[1;31m',
+                BLUE   = '\033[1;34m',
+                YELLOW = '\033[1;33m',
+                WHITE  = '\033[1;37m'
+                )
+        else:
+            self.TCLR = dict(
+                NORMAL = '',
+                RED    = '',
+                BLUE   = '',
+                YELLOW = '',
+                WHITE  = ''
+                )
 
-        print("\n\033[1;31m--[ \033[1;34mMicroPython terminal \033[1;31m ver. \033[1;34m" + self.VERSION + "\033[1;31m ]-- \033[0m")
-        print("\033[1;31m--[ \033[1;34mPress ESC twice for command mode\033[1;31m ]-- \033[0m\n")
+        print("\n"+self.TCLR['RED']+"--[ "+self.TCLR['BLUE']+"MicroPython terminal "+self.TCLR['RED']+" ver. "+self.TCLR['BLUE']+self.VERSION + self.TCLR['RED']+" ]-- "+self.TCLR['NORMAL'])
+        print(self.TCLR['RED']+"--[ "+self.TCLR['BLUE']+"Press ESC twice for command mode"+self.TCLR['RED']+" ]-- "+self.TCLR['NORMAL']+"\n")
         # Open remote terminal device
         try:
             self.uart = serial.Serial(
@@ -89,7 +104,7 @@ class PyTerm:
                 self.uart.write(b'\r\n')
 
         except Exception as e:
-            raise Exception("\033[1;31mAccessing \033[1;37m" + self.DEVICE + " \033[1;31mfailed\r\n\033[1;37mPyTerm exit\033[0m\r\n")
+            raise Exception(self.TCLR['RED']+"Accessing "+self.TCLR['WHITE'] + self.DEVICE + " "+self.TCLR['RED']+"failed\r\n"+self.TCLR['WHITE']+"PyTerm exit"+self.TCLR['NORMAL']+"\r\n")
 
         # Setup local terminal
         self.stdinfd          = sys.stdin.fileno()
@@ -104,7 +119,7 @@ class PyTerm:
         try:
             self.HandleUnbufferedUserInput();
         except Exception as e:
-            print("\r\n\033[1;31mError: failed with the following exception:\033[0m\r\n")
+            print("\r\n"+self.TCLR['RED']+"Error: failed with the following exception:"+self.TCLR['NORMAL']+"\r\n")
             print(e, "\r\n")
 
         # Shutdown receiver thread
@@ -159,9 +174,9 @@ class PyTerm:
                     push_msg(res[pos:]) ## update tail
                     sys.stdout.flush()
             elif key in (KEY_ENTER, KEY_TAB): ## Finis
-                return res
+                return res, len(res)
             elif key in (KEY_QUIT, KEY_DUP): ## Abort
-                return None
+                return None, len(res)
             elif key == KEY_LEFT:
                 if pos > 0:
                     sys.stdout.write("\b")
@@ -309,7 +324,7 @@ class PyTerm:
             print("Error opening file", end="\r\n")
             return
 
-        print("Sending local file \033[1;34m{}\033[0m to \033[1;34m{}\033[0m\r\n".format(src_fname, dest_fname), end="\r\n")
+        print("Sending local file "+self.TCLR['BLUE']+src_fname+self.TCLR['NORMAL']+" to "+self.TCLR['BLUE']+dest_fname+self.TCLR['NORMAL']+"\r\n", end="\r\n")
 
         if not self.EnterRawREPL(b'import os\r\n', bytes(send_cmd.encode('utf-8'))):
             return
@@ -363,7 +378,7 @@ class PyTerm:
         print("", end="\r\n")
         if bytes_remaining <= 0:
             end_time = time.time()
-            print("OK, took \033[1;34m%.3f\033[0m seconds, \033[1;34m%.3f\033[0m KB/s" % (end_time - start_time, (filesize / (end_time - start_time)) / 1024), end="\r\n")
+            print("OK, took "+self.TCLR['BLUE'] + "%.3f" % (end_time - start_time) + self.TCLR['NORMAL']+" seconds, " + self.TCLR['BLUE'] + "%.3f" % ((filesize / (end_time - start_time)) / 1024) + self.TCLR['NORMAL']+" KB/s", end="\r\n")
         self.ExitRawREPL()
 
     #------------------------------------------------------
@@ -375,7 +390,7 @@ class PyTerm:
             print("Error opening file", end="\r\n")
             return
 
-        print("Receiving remote file \033[1;34m{}\033[0m to \033[1;34m{}\033[0m\r\n".format(src_fname, dest_fname), end="\r\n")
+        print("Receiving remote file "+self.TCLR['BLUE']+src_fname+self.TCLR['NORMAL']+" to "+self.TCLR['BLUE']+dest_fname+self.TCLR['NORMAL']+"\r\n", end="\r\n")
 
         if not self.EnterRawREPL(b'import os\r\n', bytes(recv_cmd.encode('utf-8'))):
             return
@@ -464,7 +479,7 @@ class PyTerm:
         print("", end="\r\n")
         if bytes_remaining <= 0:
             end_time = time.time()
-            print("OK, took \033[1;34m%.3f\033[0m seconds, \033[1;34m%.3f\033[0m KB/s" % (end_time - start_time, (filesize / (end_time - start_time)) / 1024), end="\r\n")
+            print("OK, took "+self.TCLR['BLUE']+"%.3f" % (end_time - start_time) + self.TCLR['NORMAL']+" seconds, "+self.TCLR['BLUE']+"%.3f" % ((filesize / (end_time - start_time)) / 1024)+self.TCLR['NORMAL']+" KB/s", end="\r\n")
         dst_file.close()
         self.ExitRawREPL()
 
@@ -544,18 +559,19 @@ class PyTerm:
 
             if char == self.ESCAPECHAR:
                 if self.Get2ndEscape():
-                    prompt = "\033[1;31m--[\033[1;34mmpTerm command: \033[0m"
+                    prompt = self.TCLR['RED']+"--["+self.TCLR['BLUE']+"mpTerm command: "+self.TCLR['NORMAL']
                     print("\r\n")
-                    #command = self.ReadCommand()
-                    command = self.line_edit(prompt, 19, '')
+                    command, cmd_len = self.line_edit(prompt, 19, '')
 
                     if command is None:
-                        #sys.stdout.write("\r\n")
-                        #sys.stdout.flush()
-                        print("\r{}\033[1;37maborted\033[0m\033[0K".format(prompt), end="\r\n")
+                        if self.colors is True:
+                            print("\r{}".format(prompt) + self.TCLR['WHITE']+"aborted"+self.TCLR['NORMAL']+"\033[0K", end="\r\n")
+                        else:
+                            cmd_blank = " "*cmd_len
+                            print("\r{}".format(prompt) + self.TCLR['WHITE']+"aborted"+self.TCLR['NORMAL']+cmd_blank, end="\r\n")
 
                     elif command == "exit":
-                        print("\r\n\033[1;34m Exit PyTerm \033[1;31m]--\033[0m\r\n", end="")
+                        print("\r\n"+self.TCLR['BLUE']+" Exit PyTerm "+self.TCLR['RED']+"]--"+self.TCLR['NORMAL']+"\r\n", end="")
                         break
 
                     elif command == "version":
@@ -766,23 +782,27 @@ class PyTerm:
                             print("Error", end="\r\n")
 
                     else:
-                        print("""\r{}\033[1;31munknown command !\033[0m\r\n\033[1;37mAvailable commands:\033[0m\033[0K\r
-\033[1;34m        exit              \033[0m - exit the terminal\r
-\033[1;34m     version              \033[0m - print version info\r
-\033[1;34m    synctime              \033[0m - synchronize device time to the PC time\r
-\033[1;34m    baudrate \033[0m\033[1;37mbdr          \033[0m - set terminal baudrate\r
-\033[1;34mset_baudrate \033[0m\033[1;37mbdr          \033[0m - set device and terminal baudrate\r
-\033[1;34m        send \033[0m\033[1;37mlfile rfile\033[0m   - send file to device\r
-\033[1;34m        recv \033[0m\033[1;37mrfile lfile\033[0m   - receive file from device\r
-\033[1;34m     senddir \033[0m\033[1;37mldir  rdir \033[0m   - send all files from local directory to device's directory\r
-\033[1;34m     recvdir \033[0m\033[1;37mrdir  ldir \033[0m   - receive all files from device's directory to local directory\r
-\033[1;34m          ls \033[0m\033[1;37mrdir  [short]\033[0m - list remote directory, if 'short' is given, only file names are printed\r
-\033[1;34m     lslocal \033[0m\033[1;37mrdir  [short]\033[0m - list local directory, if 'short' is given, only file names are printed\r
-\033[1;33m       Enter              \033[0m - accept and execute command\r
-\033[1;33m      Ctrl-Q              \033[0m - aborts command mode\r
-""".format(prompt))
+                        if self.colors is True:
+                            print("\r{}".format(prompt)+self.TCLR['RED']+"unknown command !"+self.TCLR['NORMAL']+"\033[0K"+"\r\n", end="\r\n")
+                        else:
+                            cmd_blank = " "*cmd_len
+                            print("\r{}".format(prompt)+self.TCLR['RED']+"unknown command !"+self.TCLR['NORMAL']+cmd_blank+"\r\n", end="\r\n")
+                        print(self.TCLR['WHITE']+"Available commands:"+self.TCLR['NORMAL'], end="\r\n")
+                        print(self.TCLR['BLUE']  +"        exit              "+self.TCLR['NORMAL']+" - exit the terminal", end="\r\n")
+                        print(self.TCLR['BLUE']  +"     version              "+self.TCLR['NORMAL']+" - print version info", end="\r\n")
+                        print(self.TCLR['BLUE']  +"    synctime              "+self.TCLR['NORMAL']+" - synchronize device time to the PC time", end="\r\n")
+                        print(self.TCLR['BLUE']  +"    baudrate "+self.TCLR['WHITE']+"bdr          "+self.TCLR['NORMAL']+" - set terminal baudrate", end="\r\n")
+                        print(self.TCLR['BLUE']  +"set_baudrate "+self.TCLR['WHITE']+"bdr          "+self.TCLR['NORMAL']+" - set device and terminal baudrate", end="\r\n")
+                        print(self.TCLR['BLUE']  +"        send "+self.TCLR['WHITE']+"lfile rfile"+self.TCLR['NORMAL']+"   - send file to device", end="\r\n")
+                        print(self.TCLR['BLUE']  +"        recv "+self.TCLR['WHITE']+"rfile lfile"+self.TCLR['NORMAL']+"   - receive file from device", end="\r\n")
+                        print(self.TCLR['BLUE']  +"     senddir "+self.TCLR['WHITE']+"ldir  rdir "+self.TCLR['NORMAL']+"   - send all files from local directory to device's directory", end="\r\n")
+                        print(self.TCLR['BLUE']  +"     recvdir "+self.TCLR['WHITE']+"rdir  ldir "+self.TCLR['NORMAL']+"   - receive all files from device's directory to local directory", end="\r\n")
+                        print(self.TCLR['BLUE']  +"          ls "+self.TCLR['WHITE']+"rdir  [short]"+self.TCLR['NORMAL']+" - list remote directory, if 'short' is given, only file names are printed", end="\r\n")
+                        print(self.TCLR['BLUE']  +"     lslocal "+self.TCLR['WHITE']+"rdir  [short]"+self.TCLR['NORMAL']+" - list local directory, if 'short' is given, only file names are printed", end="\r\n")
+                        print(self.TCLR['YELLOW']+"       Enter              "+self.TCLR['NORMAL']+" - accept and execute command", end="\r\n")
+                        print(self.TCLR['YELLOW']+"      Ctrl-Q              "+self.TCLR['NORMAL']+" - aborts command mode\r", end="\r\n")
 
-                    print("\033[1;34mback to device \033[1;31m]--\033[0m\r\n", end="")
+                    print(self.TCLR['BLUE']+"back to device "+self.TCLR['RED']+"]--"+self.TCLR['NORMAL']+"\r\n", end="")
                     self.uart.write(b'\r\n')
             else:
                 data = char.encode("utf-8")
@@ -799,9 +819,11 @@ if __name__ == '__main__':
         help="The baudrate used for the communication.")
     cli.add_argument("-r", "--reset",    default=False,          type=str, action="store",
         help="Reset the device on start")
+    cli.add_argument("-c", "--color",    default=True,           type=str, action="store",
+        help="Use ANSI colors or not")
     cli.add_argument("-d", "--device",   default='/dev/ttyUSB0', type=str, action="store",
         help="Path to the serial communication device.")
 
     args = cli.parse_args()
 
-    trm = PyTerm(baudrate=args.baudrate, device=args.device, rst=args.reset)
+    trm = PyTerm(baudrate=args.baudrate, device=args.device, rst=args.reset, clr=args.color)

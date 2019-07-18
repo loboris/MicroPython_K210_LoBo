@@ -107,8 +107,8 @@ const char Banner[] = {"\n __  __              _____  __   __  _____   __     __
 |_|  |_| /_/    \\_\\ |_____| /_/ \\_\\ |_|         |_|\n\
 ------------------------------------------------------\n"};
 
-const char ver_info1[] = {LOG_BOLD(LOG_COLOR_BROWN)"\nMaixPy-FreeRTOS by LoBo v"MICROPY_PY_LOBO_VERSION" (two MPY tasks)\n-----------------------------------------------\n"LOG_RESET_COLOR};
-const char ver_info2[] = {LOG_BOLD(LOG_COLOR_BROWN)"\nMaixPy-FreeRTOS by LoBo v"MICROPY_PY_LOBO_VERSION"\n-------------------------------\n"LOG_RESET_COLOR};
+static const char *ver_info1 = "\nMaixPy-FreeRTOS by LoBo v"MICROPY_PY_LOBO_VERSION" (two MPY tasks)\n-----------------------------------------------\n";
+static const char *ver_info2 = "\nMaixPy-FreeRTOS by LoBo v"MICROPY_PY_LOBO_VERSION"\n-------------------------------\n";
 
 static const char* TAG = "[MAIN]";
 static const char* TAG_MAIN = "[MAIXPY]";
@@ -200,7 +200,7 @@ static void mp_task_proc0(void *pvParameter)
         }
 
         // Print MicroPython banners
-        mp_printf(&mp_plat_print, "%s%s", Banner, (mpy_config.config.use_two_main_tasks) ? ver_info1 : ver_info2);
+        mp_printf(&mp_plat_print, "%s%s%s%s%s", term_color(BLUE), Banner, term_color(BROWN), (mpy_config.config.use_two_main_tasks) ? ver_info1 : ver_info2, term_color(DEFAULT));
         task0_started = true;
 
         // ==== Main REPL loop =========================================
@@ -348,28 +348,37 @@ static void mp_task_proc1(void *pvParameter)
 //========
 int main()
 {
-    // Allocate ram buffer
-    sys_rambuf = malloc(SYS_RAMBUF_SIZE);
+    // ==== Allocate ram buffer ====
+    sys_rambuf = malloc(MYCROPY_SYS_RAMBUF_SIZE);
     if (sys_rambuf) sys_rambuf_ptr = (uintptr_t)sys_rambuf;
 
+    // ==== Basic initialization ====
+    sysctl_pll_set_freq(SYSCTL_PLL0, PLL0_MAX_OUTPUT_FREQ);
     sysctl_pll_set_freq(SYSCTL_PLL1, PLL1_MAX_OUTPUT_FREQ);
     sysctl_pll_set_freq(SYSCTL_PLL2, PLL2_MAX_OUTPUT_FREQ);
     sysctl_clock_set_threshold(SYSCTL_THRESHOLD_AI, 0);
-    sys_us_counter_cpu = read_csr64(mcycle);
+    // Set SPI3 clock to PLL0 / 2
+    sysctl_clock_set_clock_select(SYSCTL_CLOCK_SELECT_SPI3, 0);
+    sysctl_clock_set_threshold(SYSCTL_THRESHOLD_SPI3, 0);
+    sysctl_clock_set_clock_select(SYSCTL_CLOCK_SELECT_SPI3, 1);
 
-    // Get reset status
+    sys_us_counter_cpu = read_csr64(mcycle);
+    uarths_baudrate = uarths_init(MICRO_PY_DEFAULT_BAUDRATE);
+
+    // ==== Get reset status ====
     system_status = sysctl->reset_status.soft_reset_sts |
             (sysctl->reset_status.wdt0_reset_sts << 1) |
             (sysctl->reset_status.wdt1_reset_sts << 2) |
             (sysctl->reset_status.pin_reset_sts << 3);
     sysctl->reset_status.reset_sts_clr = 1;
 
-    user_log_level = LOG_WARN;
-    printf("\r\n");
-
-    // Set dvp and lcd spi pins to 1.8V
+    // ==== Set dvp and lcd spi pins to 1.8V ====
 	sysctl_set_power_mode(SYSCTL_POWER_BANK6,SYSCTL_POWER_V18);
 	sysctl_set_power_mode(SYSCTL_POWER_BANK7,SYSCTL_POWER_V18);
+
+    user_log_level = LOG_WARN;
+    user_log_color = 0;
+    printf("\r\n");
 
     #if !MICROPY_PY_THREAD
 	LOGE(TAG_MAIN, "Threads must be enabled!");
@@ -378,32 +387,32 @@ int main()
     #endif
 
     // ==== Initialize the SPI Flash hardware ====
-    // Set SPI3 clock to PLL0 / 4
-    sysctl_clock_set_clock_select(SYSCTL_CLOCK_SELECT_SPI3, 0);
-    sysctl_clock_set_threshold(SYSCTL_THRESHOLD_SPI3, 1);
-    sysctl_clock_set_clock_select(SYSCTL_CLOCK_SELECT_SPI3, 1);
-
     flash_spi = io_open("/dev/spi3");
     configASSERT(flash_spi);
 
     w25qxx_spi_check = false;
-    if (w25qxx_init(flash_spi, SPI_FF_QUAD, w25qxx_max_speed()) == 0) {
-        LOGE(TAG_MAIN, "Flash initialization error");
-        vTaskDelete(NULL);
-        return 1;
-    }
+    uint32_t res = w25qxx_init(flash_spi, SPI_FF_QUAD, WQ25QXX_MAX_SPEED);
+    configASSERT(res);
     vTaskDelay(2);
 
     // === Read MicroPython configuration from flash ===
+    bool cfg_loaded = false;
     if (!mpy_read_config()) {
         vTaskDelay(2);
         mpy_config_set_default();
     }
-    else LOGM(TAG_MAIN, "Configuration loaded from flash");
+    else cfg_loaded = true;
     configASSERT(mpy_config_crc(false));
 
     user_log_level = mpy_config.config.log_level;
+    user_log_color = mpy_config.config.log_color;
     vTaskDelay(2);
+    if (cfg_loaded) LOGM(TAG_MAIN, "Configuration loaded from flash");
+
+    LOGQ(TAG_MAIN, "PLL0=%u, PLL1=%u, PLL2=%u, SPI3clk=%u",
+            sysctl_clock_get_freq(SYSCTL_CLOCK_PLL0), sysctl_clock_get_freq(SYSCTL_CLOCK_PLL1),
+            sysctl_clock_get_freq(SYSCTL_CLOCK_PLL2), sysctl_clock_get_freq(SYSCTL_CLOCK_SPI3));
+    if (sys_rambuf) LOGQ(TAG_MAIN, "RAM buffer of %d bytes allocated at %p", MYCROPY_SYS_RAMBUF_SIZE, sys_rambuf);
 
     // ==== Initialize MicroPython HAL ====
 	mp_hal_init();
@@ -455,12 +464,12 @@ int main()
             // boot menu pin is low, display the menu
         start_menu:
             timeout = mp_hal_ticks_ms() + 10000;
-            mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_CYAN)"\nBoot menu, select an option\n"LOG_RESET_COLOR);
-            mp_printf(&mp_plat_print, "%c"LOG_BOLD(LOG_COLOR_BROWN)"F"LOG_RESET_COLOR" - force format File system\n", sel_f);
-            mp_printf(&mp_plat_print, "%c"LOG_BOLD(LOG_COLOR_BROWN)"B"LOG_RESET_COLOR" - do not execute 'boot.py'\n", sel_b);
-            mp_printf(&mp_plat_print, "%c"LOG_BOLD(LOG_COLOR_BROWN)"M"LOG_RESET_COLOR" - do not execute 'main.py'\n", sel_m);
-            mp_printf(&mp_plat_print, "%c"LOG_BOLD(LOG_COLOR_BROWN)"D"LOG_RESET_COLOR" - use default configuration\n", sel_d);
-            mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_RED)" Q"LOG_RESET_COLOR" - exit the menu\n");
+            mp_printf(&mp_plat_print, "%s\nBoot menu, select an option\n%s", term_color(BROWN), term_color(DEFAULT));
+            mp_printf(&mp_plat_print, "%c%sF%s - force format File system\n", sel_f, term_color(BROWN), term_color(DEFAULT));
+            mp_printf(&mp_plat_print, "%c%sB%s - do not execute 'boot.py'\n", sel_b, term_color(BROWN), term_color(DEFAULT));
+            mp_printf(&mp_plat_print, "%c%sM%s - do not execute 'main.py'\n", sel_m, term_color(BROWN), term_color(DEFAULT));
+            mp_printf(&mp_plat_print, "%c%sD%s - use default configuration\n", sel_d, term_color(BROWN), term_color(DEFAULT));
+            mp_printf(&mp_plat_print, "%s Q%s - exit the menu\n", term_color(BROWN), term_color(DEFAULT));
             while (1) {
                 if (mp_hal_ticks_ms() > timeout) break;
                 key = wait_key("", 500);
@@ -529,7 +538,6 @@ int main()
     // ======================================================
     // ==== Run MicroPython instance(s) as FreeRTOS task ====
     // ======================================================
-    int res;
     res = xTaskCreateAtProcessor(
             MAIN_TASK_PROC,                         // MPy instance #1 processor
             mp_task_proc0,                          // function entry

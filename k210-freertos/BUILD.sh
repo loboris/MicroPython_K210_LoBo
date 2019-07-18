@@ -2,6 +2,12 @@
 
 TOOLS_VER=ver20190409.id
 
+if [ "$1" != "-V" ]; then
+VERBOSE="no"
+else
+VERBOSE="yes"
+fi
+
 cd k210-freertos > /dev/null 2>&1
 
 # ==============================================
@@ -15,13 +21,13 @@ if [ ! -d "${PWD}/../kendryte-toolchain" ]; then
     wget https://loboris.eu/sipeed/kendryte-toolchain_v2.tar.xz > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo "'kendryte-toolchain' download FAILED"
-        return 1
+        exit 1
     fi
     echo "Unpacking kendryte-toolchain"
     tar -xf kendryte-toolchain_v2.tar.xz > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo "unpacking 'kendryte-toolchain' FAILED"
-        return 1
+        exit 1
     fi
     rm -f kendryte-toolchain_v2.tar.xz > /dev/null 2>&1
 
@@ -35,6 +41,7 @@ fi
 # ==========================
 if [ ! -f "${PWD}/../kendryte-toolchain/${TOOLS_VER}" ]; then
     make clean  > /dev/null 2>&1
+	make -C ../mklittlefs > /dev/null 2>&1
 
     echo "Kendryte toolchain needs to be upgraded."
     echo "Removing old tools version and cleaning build..."
@@ -49,32 +56,45 @@ if [ ! -f "${PWD}/../kendryte-toolchain/${TOOLS_VER}" ]; then
     wget https://loboris.eu/sipeed/kendryte-toolchain_v2.tar.xz > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo "'kendryte-toolchain' download FAILED"
-        return 1
+        exit 1
     fi
     echo "Unpacking kendryte-toolchain"
     tar -xf kendryte-toolchain_v2.tar.xz > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo "unpacking 'kendryte-toolchain' FAILED"
-        return 1
+        exit 1
     fi
     rm -f kendryte-toolchain_v2.tar.xz > /dev/null 2>&1
 
     cd k210-freertos
     if [ ! -f "${PWD}/../kendryte-toolchain/${TOOLS_VER}" ]; then
         echo "wrong 'kendryte-toolchain' version, cannot continue!"
-        return 1
+        exit 1
     else
         echo "'kendryte-toolchain' prepared, ready to build"
     fi
     sleep 2
 fi
 
-# ======================
-# === Start building ===
-# ======================
+# ===========================================
+# === Start building MicroPython firmware ===
+# ===========================================
 
-MICROPY_VER=$(cat mpy_support/mpconfigport.h | grep "MICROPY_PY_LOBO_VERSION" | cut -d'"' -f 2)
+# === build mklfs =======================
+make -C ../mklittlefs > /dev/null 2>&1
+if [ $? -eq 0 ]; then
+echo "===[ 'mklfs' created ]==="
+else
+echo "===[ ERROR compiling 'mklfs' ]==="
+fi
+sleep 1
+# =======================================
+
+MICROPY_VER=$( cat mpy_support/mpconfigport.h | grep "MICROPY_PY_LOBO_VERSION" | cut -d'"' -s -f 2 )
 export MICROPY_VERSION="MaixPy-FreeRTOS_LoBo v${MICRO_PI_VER}"
+
+MICROPY_FLASH_START=$( cat mpy_support/mpconfigport.h | grep "MICRO_PY_FLASHFS_START_ADDRESS" | cut -d'(' -s -f 2 | cut -d')' -s -f 1 | head -n 1 )
+FLASH_START_ADDRES=$(( ${MICROPY_FLASH_START} ))
 
 FS_USED=$(cat mpy_support/mpconfigport.h | grep "#define MICRO_PY_FLASHFS_USED" | cut -d'(' -f 2)
 if [ "${FS_USED}" == "MICRO_PY_FLASHFS_LITTLEFS)" ]; then
@@ -86,13 +106,31 @@ else
 	fi
 fi
 
-make update_mk
-make update_mk
+echo "===[ BUILDING MicroPython FIRMWARE ]==="
+
+make update_mk > /dev/null
+if [ $? -eq 0 ]; then
+echo "."
+else
+echo "===[ First pass ERROR ]==="
+exit 1
+fi
+make update_mk > /dev/null
+if [ $? -eq 0 ]; then
+echo "."
+else
+echo "===[ First pass ERROR ]==="
+exit 1
+fi
 
 export CROSS_COMPILE=${PWD}/../kendryte-toolchain/bin/riscv64-unknown-elf-
 export PLATFORM=k210
 
+if [ "${VERBOSE}" == "yes" ]; then
 make all
+else
+make all > /dev/null
+fi
 
 # ===============================================================================
 # For some weird reason the compiled binary sometimes won't run
@@ -110,8 +148,67 @@ mv MaixPy.bin MaixPy.bin.bkp
 
 #../kendryte-toolchain/bin/riscv64-unknown-elf-objdump -S  --disassemble MaixPy > MaixPy.dump
 
-echo "==== Build finished. ===="
+# =========================================
+# === Create kfpkg package ================
+# =========================================
+echo "===[ Creating 'MaixPy.kfpkg' ]==="
+rm -f *.img > /dev/null 2>&1
+echo "{" > flash-list.json
+echo "    \"version\": \"0.1.0\"," >> flash-list.json
+echo "    \"files\": [">> flash-list.json
+echo "        {">> flash-list.json
+echo "            \"address\": 0,">> flash-list.json
+echo "            \"bin\": \"MaixPy.bin\",">> flash-list.json
+echo "            \"sha256Prefix\": true">> flash-list.json
+if [ -f "${PWD}/../mklittlefs/maixpy_lfs.img" ]; then
+cp ${PWD}/../mklittlefs/maixpy_lfs.img .
+echo "        },">> flash-list.json
+echo "        {">> flash-list.json
+echo "            \"address\": ${FLASH_START_ADDRES},">> flash-list.json
+echo "            \"bin\": \"maixpy_lfs.img\",">> flash-list.json
+echo "            \"sha256Prefix\": false">> flash-list.json
+echo "        }">> flash-list.json
+else
+echo "        }">> flash-list.json
 fi
+echo "    ]">> flash-list.json
+echo "}">> flash-list.json
+
+rm -f *.kfpkg > /dev/null 2>&1
+if [ -f maixpy_lfs.img ]; then
+zip MaixPy.kfpkg -9 flash-list.json MaixPy.bin maixpy_lfs.img > /dev/null
+else
+zip MaixPy.kfpkg -9 flash-list.json MaixPy.bin > /dev/null
+fi
+
+if [ $? -eq 0 ]; then
+echo "===[ kfpkg created ]==="
+else
+echo "===[ ERROR creating kfpkg ]==="
+exit 1
+fi
+rm -f *.img > /dev/null 2>&1
+rm -f *.json > /dev/null 2>&1
+# =========================================
+
+echo
+echo "------------------------------------------------"
+../kendryte-toolchain/bin/riscv64-unknown-elf-size MaixPy
+echo "------------------------------------------------"
+echo
+echo "============================"
+echo "====== Build finished ======"
+echo "            version: ${MICROPY_VER}"
+echo " Firmware file size: ${ALLIGNED_SIZE}"
+echo " Flash FS starts at: ${FLASH_START_ADDRES}"
+echo "============================"
+else
+	
+echo "===================="
+echo "==== Build ERROR ==="
+echo "===================="
+fi
+
 
 if [ -f third_party/spiffs/Makefile.notused ]; then
 	mv third_party/spiffs/Makefile.notused third_party/spiffs/Makefile

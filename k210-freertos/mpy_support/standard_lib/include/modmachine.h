@@ -39,12 +39,12 @@
 
 #define mp_obj_is_meth(o) (mp_obj_is_obj(o) && (((mp_obj_base_t*)MP_OBJ_TO_PTR(o))->type->name == MP_QSTR_bound_method))
 
-#define PLL0_MAX_OUTPUT_FREQ 800000000UL
-#define PLL1_MAX_OUTPUT_FREQ 400000000UL
-#define PLL2_MAX_OUTPUT_FREQ 45158400UL
-#define CPU_MAX_FREQ (PLL0_MAX_OUTPUT_FREQ / 2)
-#define KPU_MAX_FREQ PLL1_MAX_OUTPUT_FREQ
-#define I2S_MAX_FREQ 0
+#define PLL0_MAX_OUTPUT_FREQ    988000000UL
+#define PLL1_MAX_OUTPUT_FREQ    400000000UL
+#define PLL2_MAX_OUTPUT_FREQ    45100000UL
+#define CPU_MAX_FREQ            (PLL0_MAX_OUTPUT_FREQ / 2)
+#define KPU_MAX_FREQ            PLL1_MAX_OUTPUT_FREQ
+#define I2S_MAX_FREQ            0
 
 #define SYS_RESET_REASON_NONE   0
 #define SYS_RESET_REASON_NLR    1
@@ -143,12 +143,24 @@ typedef struct _mpy_flash_config_t {
     int32_t     boot_menu_pin;
     uint32_t    log_level;
     uint32_t    vm_divisor;
+    bool        log_color;
 } __attribute__((aligned(8))) mpy_flash_config_t;
 
 typedef struct _mpy_config_t {
     mpy_flash_config_t config;
     uint32_t           crc;
 } __attribute__((aligned(8))) mpy_config_t;
+
+enum term_colors_t {
+    BLACK = 0,
+    RED,
+    GREEN,
+    BROWN,
+    BLUE,
+    PURPLE,
+    CYAN,
+    DEFAULT,
+};
 
 extern handle_t flash_spi;
 extern handle_t gpiohs_handle;
@@ -157,8 +169,10 @@ extern machine_pin_def_t mp_used_pins[FPIOA_NUM_IO];
 extern const char *gpiohs_funcs[14];
 extern const char *gpiohs_funcs_in_use[14];
 extern const char *reset_reason[8];
+extern const char *term_colors[8];
 extern mpy_config_t mpy_config;
 
+const char *term_color(enum term_colors_t color);
 bool mpy_config_crc(bool set);
 bool mpy_read_config();
 void mpy_config_set_default();

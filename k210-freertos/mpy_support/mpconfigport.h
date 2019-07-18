@@ -44,6 +44,8 @@
 #define MICROPY_PY_LOBO_VERSION     "1.11.5"
 #define MICROPY_PY_LOBO_VERSION_NUM (0x011105)
 
+#define MICROPY_PY_USE_LOG_COLORS   (1)
+
 /*
    Several basic configurations can be selected for build:
    -------------------------------------------------------
@@ -65,6 +67,7 @@
    - boot menu pin
    - default log level
    - MicroPython VM divisor
+   - use log colors or not
 */
 
 //---------------------------------------------------------------------------
@@ -93,6 +96,7 @@
 // If two MicroPython instances are configured, the available heap space is divided between them,
 //   default values are: 5/8 for 1st MicroPython instance and 3/8 for the 2nd
 
+#define K210_SRAM_START_ADDRESS                 (0x80000000)
 // === Total usable K210 SRAM size
 #define K210_SRAM_SIZE                          (6*1024*1024)
 
@@ -101,11 +105,12 @@
 //     as a result of '../kendryte-toolchain/bin/riscv64-unknown-elf-size MaixPy'
 //     Setting the nearest value will maximize the available
 //     memory for FreeRTOS and MicroPython
-//     Round the value to the 4 KB;  ((file_size // 4096) * 4096 + 4096) / 4096
+//     #define FIRMWARE_SIZE        (value*4096)
+//     Round the value to the 4 KB: value = ((file_size // 4096) * 4096 + 4096) / 4096
 #if MICROPY_PY_USE_SQLITE
-#define FIRMWARE_SIZE                           (434*4096)
+#define FIRMWARE_SIZE                           (447*4096)
 #else
-#define FIRMWARE_SIZE                           (332*4096)
+#define FIRMWARE_SIZE                           (343*4096)
 #endif
 
 // === SRAM reserved for dynamic allocation by standard malloc function
@@ -141,6 +146,9 @@
 #else
 #define MICROPY_PYSTACK_SIZE                    (0)
 #endif
+
+#define MYCROPY_SYS_RAMBUF_SIZE                 1024
+extern uintptr_t sys_rambuf_ptr;
 //------------------------------------------------------------------------------------------------------------
 
 
@@ -150,8 +158,10 @@
 #define MICRO_PY_FLASH_SIZE                     (16*1024*1024)  // Flash chip size (usually 16 MB Flash)
 #define MICRO_PY_FLASH_ERASE_SECTOR_SIZE        (4096)          // Flash chip erase size
 
-#define MICRO_PY_FLASHFS_START_ADDRESS          (8*1024*1024)   // Flash chip address where the file system starts
-#define MICRO_PY_FLASHFS_SIZE                   (6*1024*1024)   // Flash file system size in bytes
+// Flash chip address where the file system starts
+#define MICRO_PY_FLASHFS_START_ADDRESS          (4*1024*1024)
+  // Flash file system size in bytes
+#define MICRO_PY_FLASHFS_SIZE                   (10*1024*1024)
 
 #define MICRO_PY_FLASHFS_SPIFFS                 0
 #define MICRO_PY_FLASHFS_LITTLEFS               1

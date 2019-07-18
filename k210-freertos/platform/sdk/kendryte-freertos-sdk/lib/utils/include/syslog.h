@@ -121,28 +121,31 @@ enum kendryte_log_level_e
 #endif /* CONFIG_LOG_COLORS */
 /* clang-format on */
 
-#define LOG_FORMAT(letter, format)  LOG_COLOR_ ## letter #letter " (%lu) %s: " format LOG_RESET_COLOR "\r\n"
-
-#ifdef LOG_LEVEL
-#undef CONFIG_LOG_LEVEL
-#define CONFIG_LOG_LEVEL LOG_LEVEL
-#endif
-
 /*
  * LoBo:
  *   print log time as micro seconds
  *   make syslog level configurable during run time
+ *   make syslog colors configurable during run time
  *   add syslog mutex
  *   enable filtering of non-printable characters
  */
 //------------------------------------
 extern uint32_t user_log_level;
+extern uint32_t user_log_color;
 extern uint64_t mp_hal_ticks_us(void);
 extern QueueHandle_t syslog_mutex;
 extern int kprint_filter_nonprint;
 extern char kprint_nonprint_char;
 extern uint8_t kprint_cr_lf;
 //------------------------------------
+
+#define LOG_FORMAT(letter, format)  LOG_COLOR_ ## letter #letter " (%lu) %s: " format LOG_RESET_COLOR "\r\n"
+#define LOG_FORMAT_NC(letter, format)  #letter " (%lu) %s: " format "\r\n"
+
+#ifdef LOG_LEVEL
+#undef CONFIG_LOG_LEVEL
+#define CONFIG_LOG_LEVEL LOG_LEVEL
+#endif
 
 #ifdef LOG_KERNEL
 #define LOG_PRINTF printk
@@ -151,6 +154,16 @@ extern uint8_t kprint_cr_lf;
 #endif
 
 #ifdef CONFIG_LOG_ENABLE
+#define LOGE(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   {if (user_log_color) LOG_PRINTF(LOG_FORMAT(E, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); else LOG_PRINTF(LOG_FORMAT_NC(E, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__);} } while (0)
+#define LOGe(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   {if (user_log_color) LOG_PRINTF(LOG_FORMAT(e, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); else LOG_PRINTF(LOG_FORMAT_NC(e, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__);} } while (0)
+#define LOGW(tag, format, ...)  do {if (user_log_level >= LOG_WARN)    {if (user_log_color) LOG_PRINTF(LOG_FORMAT(W, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); else LOG_PRINTF(LOG_FORMAT_NC(W, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__);} } while (0)
+#define LOGI(tag, format, ...)  do {if (user_log_level >= LOG_INFO)    {if (user_log_color) LOG_PRINTF(LOG_FORMAT(I, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); else LOG_PRINTF(LOG_FORMAT_NC(I, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__);} } while (0)
+#define LOGD(tag, format, ...)  do {if (user_log_level >= LOG_DEBUG)   {if (user_log_color) LOG_PRINTF(LOG_FORMAT(D, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); else LOG_PRINTF(LOG_FORMAT_NC(D, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__);} } while (0)
+#define LOGV(tag, format, ...)  do {if (user_log_level >= LOG_VERBOSE) {if (user_log_color) LOG_PRINTF(LOG_FORMAT(V, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); else LOG_PRINTF(LOG_FORMAT_NC(V, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__);} } while (0)
+#define LOGM(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   {if (user_log_color) LOG_PRINTF(LOG_FORMAT(M, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); else LOG_PRINTF(LOG_FORMAT_NC(M, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__);} } while (0)
+#define LOGQ(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   {if (user_log_color) LOG_PRINTF(LOG_FORMAT(Q, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); else LOG_PRINTF(LOG_FORMAT_NC(Q, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__);} } while (0)
+#define LOGY(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   {if (user_log_color) LOG_PRINTF(LOG_FORMAT(Y, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); else LOG_PRINTF(LOG_FORMAT_NC(Y, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__);} } while (0)
+/*
 #define LOGE(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   LOG_PRINTF(LOG_FORMAT(E, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); } while (0)
 #define LOGe(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   LOG_PRINTF(LOG_FORMAT(e, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); } while (0)
 #define LOGW(tag, format, ...)  do {if (user_log_level >= LOG_WARN)    LOG_PRINTF(LOG_FORMAT(W, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); } while (0)
@@ -160,6 +173,7 @@ extern uint8_t kprint_cr_lf;
 #define LOGM(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   LOG_PRINTF(LOG_FORMAT(M, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); } while (0)
 #define LOGQ(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   LOG_PRINTF(LOG_FORMAT(Q, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); } while (0)
 #define LOGY(tag, format, ...)  do {if (user_log_level >= LOG_ERROR)   LOG_PRINTF(LOG_FORMAT(Y, format), mp_hal_ticks_us(), tag, ##__VA_ARGS__); } while (0)
+*/
 #else
 #define LOGE(tag, format, ...)
 #define LOGe(tag, format, ...)

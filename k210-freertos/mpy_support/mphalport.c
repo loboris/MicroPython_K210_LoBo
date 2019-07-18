@@ -58,7 +58,6 @@ static handle_t mpy_wdt1 = 0;
 static TaskHandle_t mp_hal_tick_handle = 0;
 static QueueSetMemberHandle_t mp_hal_uart_semaphore = NULL;
 static volatile uarths_t *const uarths = (volatile uarths_t *)UARTHS_BASE_ADDR;
-static uint64_t sys_us_counter = 0;
 static volatile bool mp_hall_kbd_irq = false;
 static QueueSetMemberHandle_t inter_proc_semaphore = NULL;
 static uint8_t stdin_ringbuf_array[MICRO_PY_UARTHS_BUFFER_SIZE];
@@ -71,9 +70,8 @@ task_ipc_t task_ipc = { 0 };
 SemaphoreHandle_t inter_proc_mutex = NULL;
 mp_obj_t ipc_callback_1 = 0;
 uint64_t sys_us_counter_cpu = 0;
+uint64_t sys_us_counter = 0;
 uint32_t system_status = 0;
-uintptr_t sys_rambuf_ptr = 0;
-
 
 
 // ===================================
@@ -108,8 +106,7 @@ void mp_hal_set_cpu_frequency(uint32_t freq)
     system_set_cpu_frequency(freq);
     mp_hal_usdelay(1000);
     if (flash_spi > 0) {
-        // Flash SPI speed needs to be adjusted depending on frequency (PLL0) set
-        w25qxx_init(flash_spi, SPI_FF_QUAD, w25qxx_max_speed());
+        w25qxx_init(flash_spi, SPI_FF_QUAD, WQ25QXX_MAX_SPEED);
     }
 }
 

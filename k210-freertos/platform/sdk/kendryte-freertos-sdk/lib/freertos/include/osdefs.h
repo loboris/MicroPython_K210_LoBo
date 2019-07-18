@@ -160,6 +160,7 @@ typedef struct
     spi_slave_command_errors_t  err;
     uint32_t                    addr;
     uint32_t                    len;
+    uint64_t                    time;
 } spi_slave_command_t;
 
 typedef int (*spi_slave_receive_callback_t)(void *ctx);

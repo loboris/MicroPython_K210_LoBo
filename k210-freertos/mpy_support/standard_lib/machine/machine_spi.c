@@ -75,6 +75,7 @@
 #include "py/mpstate.h"
 #include "py/runtime.h"
 #include "py/obj.h"
+#include "py/objstr.h"
 
 #include "modmachine.h"
 #include "mphalport.h"
@@ -141,6 +142,16 @@ typedef struct _machine_hw_spi_obj_t {
     } state;
 } machine_hw_spi_obj_t;
 
+static const char *slave_err[8] = {
+    "Ok",
+    "Wrong command",
+    "Cmd CSUM error",
+    "Data CRC error",
+    "Wrong address",
+    "Wrong length",
+    "Timeout",
+    "Error",
+};
 
 static const char *TAG = "[SPI]";
 static machine_hw_spi_obj_t *slave_obj = NULL;
@@ -220,12 +231,17 @@ static bool spi_hard_deinit(machine_hw_spi_obj_t *self)
     mp_fpioa_cfg_item_t spi_pin_func[4];
     if (self->spi_num == SPI_SLAVE) {
         // === SPI slave
+        int n_func = 3;
         spi_pin_func[0] = (mp_fpioa_cfg_item_t){-1, self->mosi, GPIO_USEDAS_NONE, FUNC_RESV0};
         spi_pin_func[1] = (mp_fpioa_cfg_item_t){-1, self->sck, GPIO_USEDAS_NONE, FUNC_RESV0};
         spi_pin_func[2] = (mp_fpioa_cfg_item_t){-1, self->cs, GPIO_USEDAS_NONE, FUNC_RESV0};
+        if (self->miso >= 0) {
+            n_func = 4;
+            spi_pin_func[3] = (mp_fpioa_cfg_item_t){-1, self->miso, GPIO_USEDAS_NONE, FUNC_RESV0};
+        }
 
-        fpioa_setup_pins(3, spi_pin_func);
-        fpioa_freeused_pins(3, spi_pin_func);
+        fpioa_setup_pins(n_func, spi_pin_func);
+        fpioa_freeused_pins(n_func, spi_pin_func);
     }
     else if (self->spi_num <= SPI_MASTER_1) {
         // === SPI master
@@ -342,8 +358,8 @@ static int spi_master_hard_init(uint8_t mosi, int8_t miso, uint8_t sck, int8_t c
     return 0;
 }
 
-//-----------------------------------------------------------------------------------------
-static int spi_slave_hard_init(uint8_t mosi, uint8_t sck, uint8_t cs, gpio_pin_func_t func)
+//---------------------------------------------------------------------------------------------------
+static int spi_slave_hard_init(uint8_t mosi, int miso, uint8_t sck, uint8_t cs, gpio_pin_func_t func)
 {
     if (mp_used_pins[mosi].func != GPIO_FUNC_NONE) {
         LOGW(TAG, "MOSI %s", gpiohs_funcs_in_use[mp_used_pins[mosi].func]);
@@ -357,16 +373,19 @@ static int spi_slave_hard_init(uint8_t mosi, uint8_t sck, uint8_t cs, gpio_pin_f
         LOGW(TAG, "CS %s", gpiohs_funcs_in_use[mp_used_pins[cs].func]);
         return -4;
     }
+    int n_func = 3;
+    if (miso >= 0) n_func = 4;
     // Configure pins
-    mp_fpioa_cfg_item_t spi_pin_func[3];
+    mp_fpioa_cfg_item_t spi_pin_func[n_func];
 
     spi_pin_func[0] = (mp_fpioa_cfg_item_t){-1, cs, GPIO_USEDAS_CS, FUNC_SPI_SLAVE_SS};
     spi_pin_func[1] = (mp_fpioa_cfg_item_t){-1, mosi, GPIO_USEDAS_MOSI, FUNC_SPI_SLAVE_D0};
     spi_pin_func[2] = (mp_fpioa_cfg_item_t){-1, sck, GPIO_USEDAS_CLK, FUNC_SPI_SLAVE_SCLK};
+    if (n_func == 4) spi_pin_func[3] = (mp_fpioa_cfg_item_t){-1, miso, GPIO_USEDAS_MISO, FUNC_RESV0};
 
     // Setup and mark used pins
-    fpioa_setup_pins(3, spi_pin_func);
-    fpioa_setused_pins(3, spi_pin_func, func);
+    fpioa_setup_pins(n_func, spi_pin_func);
+    fpioa_setused_pins(n_func, spi_pin_func, func);
 
     return 0;
 }
@@ -400,7 +419,7 @@ STATIC void checkSPImaster(machine_hw_spi_obj_t *self)
         mp_raise_msg(&mp_type_OSError, "SPI not initialized");
     }
     if (self->spi_num == SPI_SLAVE) {
-        mp_raise_msg(&mp_type_OSError, "SPI in slave mode");
+        mp_raise_msg(&mp_type_OSError, "SPI not in master mode");
     }
 }
 
@@ -425,7 +444,7 @@ STATIC void checkSPIws2812(machine_hw_spi_obj_t *self)
         mp_raise_msg(&mp_type_OSError, "SPI not initialized");
     }
     if (self->spi_num < SPI_MASTER_WS2812_0) {
-        mp_raise_msg(&mp_type_OSError, "SPI in ws2812 mode");
+        mp_raise_msg(&mp_type_OSError, "SPI not in ws2812 mode");
     }
 }
 
@@ -445,7 +464,8 @@ int spi_slave_receive_hook(void *ctx)
         mp_sched_schedule(slave_obj->slave_cb, mp_obj_new_tuple(4, tuple));
     }
     else {
-        LOGM("[SPI_SLAVE]", "cmd=%u, err=%u, addr=%u, len=%u", slv_cmd->cmd, slv_cmd->err, slv_cmd->addr, slv_cmd->len);
+        LOGD("[SPI_SLAVE]", "cmd=%u, err=%u (%s), addr=%u, len=%u, time=%lu",
+                slv_cmd->cmd, slv_cmd->err, slave_err[slv_cmd->err], slv_cmd->addr, slv_cmd->len, slv_cmd->time);
     }
     return 0;
 }
@@ -554,7 +574,7 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
     }
     else if (self->spi_num == SPI_SLAVE) {
         // Init spi slave pins
-        if (spi_slave_hard_init(args[ARG_mosi].u_int, args[ARG_sck].u_int, args[ARG_cs].u_int, spi_func) != 0) flag = false;
+        if (spi_slave_hard_init(args[ARG_mosi].u_int, args[ARG_miso].u_int, args[ARG_sck].u_int, args[ARG_cs].u_int, spi_func) != 0) flag = false;
         self->reused_spi = false;
     }
     else {
@@ -663,9 +683,9 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
 
         memset(self->slave_buffer, 0, self->buffer_size);
         spi_slave_config(self->handle, self->nbits, self->slave_buffer, self->buffer_size, self->slave_ro_size,
-                spi_slave_receive_hook, mp_hal_crc16, MICROPY_TASK_PRIORITY);
+                spi_slave_receive_hook, mp_hal_crc16, MICROPY_TASK_PRIORITY, self->mosi, self->miso);
 
-        slave_obj = self;;
+        slave_obj = self;
     }
 
     self->state = MACHINE_HW_SPI_STATE_INIT;
@@ -943,6 +963,32 @@ STATIC mp_obj_t mp_machine_spi_read_from_mem(mp_uint_t n_args, const mp_obj_t *p
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(mp_machine_spi_read_from_mem_obj, 0, mp_machine_spi_read_from_mem);
 
+//----------------------------------------------------------------------
+STATIC mp_obj_t _spi_slavecmd(uint8_t cmd, uint32_t addr, uint32_t size)
+{
+    char buf[8];
+    buf[0] = cmd;
+    buf[1] = addr & 0xff;
+    buf[2] = (addr >> 8) & 0xff;
+    buf[3] = (addr >> 16) & 0xff;
+    buf[4] = size & 0xff;
+    buf[5] = (size >> 8) & 0xff;
+    buf[6] = (size >> 16) & 0xff;
+    buf[7] = 0;
+    for (int i=0; i<7; i++) {
+        buf[7] ^= buf[i];
+    }
+    return mp_obj_new_str_of_type(&mp_type_bytes, (const byte*)buf, 8);
+}
+//--------------------------------------------------------------------------
+STATIC mp_obj_t mp_machine_spi_slavecmd(size_t n_args, const mp_obj_t *args)
+{
+    machine_hw_spi_obj_t *self = args[0];
+    checkSPImaster(self);
+
+    return _spi_slavecmd((uint8_t)mp_obj_get_int(args[1]), (uint32_t)mp_obj_get_int(args[2]), (uint32_t)mp_obj_get_int(args[3]));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_spi_slavecmd_obj, 4, 4, mp_machine_spi_slavecmd);
 
 
 //------------------------------------------------------------------------
@@ -1512,6 +1558,7 @@ STATIC const mp_rom_map_elem_t machine_spi_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_readfrom_mem),        (mp_obj_t)&mp_machine_spi_read_from_mem_obj },
     { MP_ROM_QSTR(MP_QSTR_write),               (mp_obj_t)&mp_machine_spi_write_obj },
     { MP_ROM_QSTR(MP_QSTR_write_readinto),      (mp_obj_t)&mp_machine_spi_write_readinto_obj },
+    { MP_ROM_QSTR(MP_QSTR_slave_cmd),           (mp_obj_t)&mp_machine_spi_slavecmd_obj },
 
     // Slave methods
     { MP_ROM_QSTR(MP_QSTR_setdata),             (mp_obj_t)&mp_machine_spi_slave_setdata_obj },
@@ -1527,7 +1574,7 @@ STATIC const mp_rom_map_elem_t machine_spi_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_ws_show),             (mp_obj_t)&machine_neopixel_show_obj },
     { MP_ROM_QSTR(MP_QSTR_ws_HSBtoRGB),         (mp_obj_t)&machine_neopixel_HSBtoRGB_obj },
     { MP_ROM_QSTR(MP_QSTR_ws_RGBtoHSB),         (mp_obj_t)&machine_neopixel_RGBtoHSB_obj },
-    { MP_ROM_QSTR(MP_QSTR_ws_test),            (mp_obj_t)&machine_neopixel_test_obj },
+    { MP_ROM_QSTR(MP_QSTR_ws_test),             (mp_obj_t)&machine_neopixel_test_obj },
 
     // Constants
     { MP_ROM_QSTR(MP_QSTR_MSB),                 MP_ROM_INT(MICROPY_PY_MACHINE_SPI_MSB) },

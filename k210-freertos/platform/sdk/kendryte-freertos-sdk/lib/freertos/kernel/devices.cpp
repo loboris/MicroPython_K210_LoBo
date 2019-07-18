@@ -483,10 +483,10 @@ void i2s_stop(handle_t file)
 
 /* SPI */
 // LoBo: changed function
-void spi_slave_config(handle_t file, size_t data_bit_length, uint8_t *data, uint32_t len, uint32_t ro_len, spi_slave_receive_callback_t callback, spi_slave_csum_callback_t csum_callback, int priority)
+void spi_slave_config(handle_t file, size_t data_bit_length, uint8_t *data, uint32_t len, uint32_t ro_len, spi_slave_receive_callback_t callback, spi_slave_csum_callback_t csum_callback, int priority, int mosi, int miso)
 {
     COMMON_ENTRY(spi);
-    spi->slave_config(data_bit_length, data, len, ro_len, callback, csum_callback, priority);
+    spi->slave_config(data_bit_length, data, len, ro_len, callback, csum_callback, priority, mosi, miso);
 }
 
 // LoBo: added function
@@ -1045,9 +1045,9 @@ object_accessor<object_access> &sys::system_handle_to_object(handle_t file)
 // LoBo: changed
 uint32_t system_set_cpu_frequency(uint32_t frequency)
 {
-    sysctl_clock_set_threshold(SYSCTL_THRESHOLD_ACLK, 0);
-
-    sysctl_pll_set_freq(SYSCTL_PLL0, 2 * frequency);
+    uint32_t thr = (sysctl_pll_get_freq(SYSCTL_PLL0) / frequency) >> 2;
+    if (thr > 3) thr = 3;
+    sysctl_clock_set_threshold(SYSCTL_THRESHOLD_ACLK, thr);
 
     uxCPUClockRate = sysctl_clock_get_freq(SYSCTL_CLOCK_CPU);
     uarths_init(uarths_baudrate);

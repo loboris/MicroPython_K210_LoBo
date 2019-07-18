@@ -41,6 +41,7 @@
 #include "py/runtime.h"
 #include "py/mperrno.h"
 #include "mphalport.h"
+#include "modmachine.h"
 #include "littleflash.h"
 
 #define LITTLEFS_MUTEX_TIMEOUT  (600 / portTICK_PERIOD_MS)
@@ -142,12 +143,10 @@ static int internal_erase(const struct lfs_config *c, lfs_block_t block)
     {
         if (*pread != 0xFF) {
             //if (w25qxx_debug) LOGD(TAG, "[ERASE] physical erase %0xx", phy_addr);
-            w25qxx_sector_erase(phy_addr);
-            enum w25qxx_status_t res = w25qxx_wait_busy();
-            if (res != W25QXX_OK) {
+            if (w25qxx_sector_erase(phy_addr) != W25QXX_OK) {
                 //if (w25qxx_debug) LOGE(TAG, "erase err");
                 xSemaphoreGive(littlefs_mutex);
-                return res;
+                return W25QXX_BUSY;
             }
             break;
         }
@@ -362,27 +361,27 @@ MP_NOINLINE bool init_flash_filesystem()
     if (err != LFS_ERR_OK)
     {
         lfs_unmount(&littleFlash.lfs);
-        mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_CYAN)"Error mounting Flash file system, select an option\n"LOG_RESET_COLOR);
-        mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_BROWN)"A"LOG_RESET_COLOR" - continue without file system (default)\n");
-        mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_BROWN)"F"LOG_RESET_COLOR" - format Flash and try to mount again\n");
-        mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_BROWN)"E"LOG_RESET_COLOR" - erase Flash, format and try to mount again\n");
+        mp_printf(&mp_plat_print, "%sError mounting Flash file system, select an option\n%s", term_color(CYAN), term_color(DEFAULT));
+        mp_printf(&mp_plat_print, "%sA%s - continue without file system (default)\n", term_color(BROWN), term_color(DEFAULT));
+        mp_printf(&mp_plat_print, "%sF%s - format Flash and try to mount again\n", term_color(BROWN), term_color(DEFAULT));
+        mp_printf(&mp_plat_print, "%sE%s - erase Flash, format and try to mount again\n", term_color(BROWN), term_color(DEFAULT));
         char key = wait_key("", 10000);
 
         if ((key != 'F') && (key != 'f') && (key != 'E') && (key != 'e')) return false;
         if ((key == 'E') || (key == 'e')) {
             // erase flash
-            mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_PURPLE)"Erasing Flash, this can take some time...\n"LOG_RESET_COLOR);
+            mp_printf(&mp_plat_print, "%sErasing Flash, this can take some time...%s\n", term_color(PURPLE), term_color(DEFAULT));
             for (int i=0; i<(LITTLEFS_CFG_PHYS_SZ / w25qxx_FLASH_SECTOR_SIZE) ; i++) {
                 internal_erase(&littleFlash.lfs_cfg, i);
             }
-            mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_CYAN)"Flash erased\n"LOG_RESET_COLOR);
+            mp_printf(&mp_plat_print, "%sFlash erased%s\n", term_color(CYAN), term_color(DEFAULT));
         }
         else {
             // Erase first 4 blocks
             for (int i=0; i<4; i++) {
                 err = internal_erase(&littleFlash.lfs_cfg, i);
                 if (err != LFS_ERR_OK) {
-                    mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_RED)"Error erasing Flash\n"LOG_RESET_COLOR);
+                    mp_printf(&mp_plat_print, "%sError erasing Flash%s\n", term_color(RED), term_color(DEFAULT));
                     goto fail;
                 }
             }
@@ -394,7 +393,7 @@ MP_NOINLINE bool init_flash_filesystem()
         if (err < 0)
         {
             lfs_unmount(&littleFlash.lfs);
-            mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_RED)"Error formating (%d)\n"LOG_RESET_COLOR, err);
+            mp_printf(&mp_plat_print, "%sError formating (%d)%s\n",term_color(RED), err, term_color(DEFAULT));
             goto fail;
         }
         lfs_unmount(&littleFlash.lfs);
@@ -404,10 +403,10 @@ MP_NOINLINE bool init_flash_filesystem()
         if (err < 0)
         {
             lfs_unmount(&littleFlash.lfs);
-            mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_RED)"Error mounting after format\n"LOG_RESET_COLOR);
+            mp_printf(&mp_plat_print, "%sError mounting after format%s\n", term_color(RED), term_color(DEFAULT));
             goto fail;
         }
-        mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_CYAN)"Littlefs formated and mounted\n"LOG_RESET_COLOR);
+        mp_printf(&mp_plat_print, "%sLittlefs formated and mounted%s\n", term_color(CYAN), term_color(DEFAULT));
     }
     littleFlash.mounted = true;
 
@@ -1000,14 +999,14 @@ STATIC mp_obj_t vfs_littlefs_trim(size_t n_args, const mp_obj_t *args)
         }
     }
     else {
-        mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_RED)"Trim ERROR (traverse)\r\n"LOG_RESET_COLOR);
+        mp_printf(&mp_plat_print, "%sTrim ERROR (traverse)%s\r\n", term_color(RED), term_color(DEFAULT));
         return mp_const_none;
     }
-    mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_CYAN)" LittleFS blocks: used=%u, free=%u\r\n"LOG_RESET_COLOR, bused, bfree);
-    mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_BROWN)"Sectors to erase: %u, erased: %u\r\n"LOG_RESET_COLOR, sect_erase, sect_erased);
-    mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_BROWN)" Blocks to erase: %u, erased: %u\r\n"LOG_RESET_COLOR, blocks_erase, blocks_erased);
-    if (!do_erase) {
-        mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_PURPLE)"      Erase time: %.2f s\r\n"LOG_RESET_COLOR, (double)(sect_erased + blocks_erased) * 0.075);
+    mp_printf(&mp_plat_print, "%s     LittleFS blocks: used=%u, free=%u (%d bytes/block)%s\r\n", term_color(CYAN), bused, bfree, LITTLEFS_CFG_SECTOR_SIZE, term_color(DEFAULT));
+    mp_printf(&mp_plat_print, "%s  Free flash sectors: %u; needs erase: %u%s\r\n", term_color(BROWN), sect_erase, sect_erased, term_color(DEFAULT));
+    mp_printf(&mp_plat_print, "%s      Free FS blocks: %u; needs erase: %u%s\r\n", term_color(BROWN), blocks_erase, blocks_erased, term_color(DEFAULT));
+    if ((!do_erase) && ((sect_erased+blocks_erased) > 0)) {
+        mp_printf(&mp_plat_print, "%s Expected erase time: %.2f s%s\r\n", term_color(PURPLE), (double)(sect_erased + blocks_erased) * 0.075, term_color(DEFAULT));
     }
 
     return mp_const_none;

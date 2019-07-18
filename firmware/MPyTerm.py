@@ -9,29 +9,80 @@ import time
 import argparse
 import binascii
 import re
+import shutil
 from threading import Thread
 from datetime import datetime
 try:
     import serial
 except ImportError:
-    print("\033[1;31mPySerial must be installed, run \033[1;34m`pip3 install pyserial`\033[0m\r\n")
+    print("PySerial must be installed, run `pip3 install pyserial`\r\n")
     sys.exit(1)
+
+KEY_NONE      = 0x00
+KEY_LEFT      = 0x1f
+KEY_RIGHT     = 0x1e
+KEY_HOME      = 0x10
+KEY_END       = 0x03
+KEY_QUIT      = 0x11
+KEY_ENTER     = 0x0a
+KEY_BACKSPACE = 0x08
+KEY_DELETE    = 0x7f
+KEY_TAB       = 0x09
+KEY_DUP       = 0x04
 
 #============
 class PyTerm:
 
-    #-----------------------------------------------------------------
-    def __init__(self, baudrate=115200, device='/dev/ttyUSB0', rst=0):
+    KEYMAP = { ## Gets lengthy
+    "\x1b[D" : KEY_LEFT,
+    "\x1b[C" : KEY_RIGHT,
+    "\x1b[H" : KEY_HOME, ## in Linux Terminal
+    "\x1bOH" : KEY_HOME, ## Picocom, Minicom
+    "\x1b[1~": KEY_HOME, ## Putty
+    "\x1b[F" : KEY_END,  ## Linux Terminal
+    "\x1bOF" : KEY_END,  ## Picocom, Minicom
+    "\x1b[4~": KEY_END,  ## Putty
+    "\x03"   : KEY_DUP, ## Ctrl-C
+    "\r"     : KEY_ENTER,
+    "\x7f"   : KEY_BACKSPACE, ## Ctrl-? (127)
+    "\x1b[3~": KEY_DELETE,
+    "\x11"   : KEY_QUIT, ## Ctrl-Q
+    "\x1bq"  : KEY_QUIT, ## Alt-Q
+    "\n"     : KEY_ENTER,
+    "\x04"   : KEY_DUP, ## Ctrl-D
+    "\x09"   : KEY_TAB,
+    }
+
+    #----------------------------------------------------------------------------
+    def __init__(self, baudrate=115200, device='/dev/ttyUSB0', rst=0, clr=False):
         self.DEVICE     = device
         self.BAUDRATE   = baudrate
         self.ESCAPECHAR = "\033"
-        self.VERSION = "5.1.2"
+        self.VERSION = "5.1.3"
         self.ShutdownReceiver = False
         self.ReceiverToStdout = True
         self.DefaultTimeout = 0.1
+        self.width, self.height = shutil.get_terminal_size()
+        self.colors = clr;
+        if clr is True:
+            self.TCLR = dict(
+                NORMAL = '\033[0m',
+                RED    = '\033[1;31m',
+                BLUE   = '\033[1;34m',
+                YELLOW = '\033[1;33m',
+                WHITE  = '\033[1;37m'
+                )
+        else:
+            self.TCLR = dict(
+                NORMAL = '',
+                RED    = '',
+                BLUE   = '',
+                YELLOW = '',
+                WHITE  = ''
+                )
 
-        print("\n\033[1;31m--[ \033[1;34mMicroPython terminal \033[1;31m ver. \033[1;34m" + self.VERSION + "\033[1;31m ]-- \033[0m")
-        print("\033[1;31m--[ \033[1;34mPress ESC twice for command mode\033[1;31m ]-- \033[0m\n")
+        print("\n"+self.TCLR['RED']+"--[ "+self.TCLR['BLUE']+"MicroPython terminal "+self.TCLR['RED']+" ver. "+self.TCLR['BLUE']+self.VERSION + self.TCLR['RED']+" ]-- "+self.TCLR['NORMAL'])
+        print(self.TCLR['RED']+"--[ "+self.TCLR['BLUE']+"Press ESC twice for command mode"+self.TCLR['RED']+" ]-- "+self.TCLR['NORMAL']+"\n")
         # Open remote terminal device
         try:
             self.uart = serial.Serial(
@@ -49,8 +100,11 @@ class PyTerm:
                 self.uart.dtr = False
                 time.sleep(0.1)
                 self.uart.dtr = True
+            else:
+                self.uart.write(b'\r\n')
+
         except Exception as e:
-            raise Exception("\033[1;31mAccessing \033[1;37m" + self.DEVICE + " \033[1;31mfailed\r\n\033[1;37mPyTerm exit\033[0m\r\n")
+            raise Exception(self.TCLR['RED']+"Accessing "+self.TCLR['WHITE'] + self.DEVICE + " "+self.TCLR['RED']+"failed\r\n"+self.TCLR['WHITE']+"PyTerm exit"+self.TCLR['NORMAL']+"\r\n")
 
         # Setup local terminal
         self.stdinfd          = sys.stdin.fileno()
@@ -65,7 +119,7 @@ class PyTerm:
         try:
             self.HandleUnbufferedUserInput();
         except Exception as e:
-            print("\r\n\033[1;31mError: failed with the following exception:\033[0m\r\n")
+            print("\r\n"+self.TCLR['RED']+"Error: failed with the following exception:"+self.TCLR['NORMAL']+"\r\n")
             print(e, "\r\n")
 
         # Shutdown receiver thread
@@ -76,6 +130,84 @@ class PyTerm:
         # Clean up everything
         termios.tcsetattr(self.stdinfd, termios.TCSADRAIN, self.oldstdinsettings)
         self.uart.close()
+
+    #----------------------
+    def clear_to_eol(self):
+        sys.stdout.write("\x1b[0K")
+        sys.stdout.flush()
+
+    #-------------------
+    def get_input(self):  ## read from interface/keyboard one byte each and match against function keys
+        while True:
+            in_buffer = sys.stdin.read(1)
+            if in_buffer == '\x1b': ## starting with ESC, must be fct
+                while True:
+                    in_buffer += sys.stdin.read(1)
+                    c = in_buffer[-1]
+                    if c == '~' or (c.isalpha() and c != 'O'):
+                        break
+            if in_buffer in self.KEYMAP:
+                c = self.KEYMAP[in_buffer]
+                return c, None
+            elif ord(in_buffer[0]) >= 32:
+                return KEY_NONE, in_buffer
+
+    # Line editor
+    #------------------------------------------------
+    def line_edit(self, prompt, prompt_len, default):
+        # Write a message and move cursor back
+        push_msg = lambda msg: sys.stdout.write(msg + "\b" * len(msg))
+        sys.stdout.write(prompt)
+        sys.stdout.write(default)
+        sys.stdout.flush()
+        self.clear_to_eol()
+        res = default
+        pos = len(res)
+        while True:
+            key, char = self.get_input()  ## Get Char of Fct.
+            if key == KEY_NONE: ## char to be inserted
+                if (prompt_len + len(res)) < (self.width - 2):
+                    res = res[:pos] + char + res[pos:]
+                    sys.stdout.write(res[pos])
+                    sys.stdout.flush()
+                    pos += len(char)
+                    push_msg(res[pos:]) ## update tail
+                    sys.stdout.flush()
+            elif key in (KEY_ENTER, KEY_TAB): ## Finis
+                return res, len(res)
+            elif key in (KEY_QUIT, KEY_DUP): ## Abort
+                return None, len(res)
+            elif key == KEY_LEFT:
+                if pos > 0:
+                    sys.stdout.write("\b")
+                    sys.stdout.flush()
+                    pos -= 1
+            elif key == KEY_RIGHT:
+                if pos < len(res):
+                    sys.stdout.write(res[pos])
+                    sys.stdout.flush()
+                    pos += 1
+            elif key == KEY_HOME:
+                sys.stdout.write("\b" * pos)
+                sys.stdout.flush()
+                pos = 0
+            elif key == KEY_END:
+                sys.stdout.write(res[pos:])
+                sys.stdout.flush()
+                pos = len(res)
+            elif key == KEY_DELETE: ## Delete
+                if pos < len(res):
+                    res = res[:pos] + res[pos+1:]
+                    push_msg(res[pos:] + ' ') ## update tail
+                    sys.stdout.flush()
+            elif key == KEY_BACKSPACE: ## Backspace
+                if pos > 0:
+                    res = res[:pos-1] + res[pos:]
+                    sys.stdout.write("\b")
+                    sys.stdout.flush()
+                    pos -= 1
+                    push_msg(res[pos:] + ' ') ## update tail
+                    sys.stdout.flush()
 
     #-----------------------------------------
     def ReceiveData(self, uart, binary=False):
@@ -192,7 +324,7 @@ class PyTerm:
             print("Error opening file", end="\r\n")
             return
 
-        print("Sending local file \033[1;34m{}\033[0m to \033[1;34m{}\033[0m\r\n".format(src_fname, dest_fname), end="\r\n")
+        print("Sending local file "+self.TCLR['BLUE']+src_fname+self.TCLR['NORMAL']+" to "+self.TCLR['BLUE']+dest_fname+self.TCLR['NORMAL']+"\r\n", end="\r\n")
 
         if not self.EnterRawREPL(b'import os\r\n', bytes(send_cmd.encode('utf-8'))):
             return
@@ -246,7 +378,7 @@ class PyTerm:
         print("", end="\r\n")
         if bytes_remaining <= 0:
             end_time = time.time()
-            print("OK, took \033[1;34m%.3f\033[0m seconds, \033[1;34m%.3f\033[0m KB/s" % (end_time - start_time, (filesize / (end_time - start_time)) / 1024), end="\r\n")
+            print("OK, took "+self.TCLR['BLUE'] + "%.3f" % (end_time - start_time) + self.TCLR['NORMAL']+" seconds, " + self.TCLR['BLUE'] + "%.3f" % ((filesize / (end_time - start_time)) / 1024) + self.TCLR['NORMAL']+" KB/s", end="\r\n")
         self.ExitRawREPL()
 
     #------------------------------------------------------
@@ -258,7 +390,7 @@ class PyTerm:
             print("Error opening file", end="\r\n")
             return
 
-        print("Receiving remote file \033[1;34m{}\033[0m to \033[1;34m{}\033[0m\r\n".format(src_fname, dest_fname), end="\r\n")
+        print("Receiving remote file "+self.TCLR['BLUE']+src_fname+self.TCLR['NORMAL']+" to "+self.TCLR['BLUE']+dest_fname+self.TCLR['NORMAL']+"\r\n", end="\r\n")
 
         if not self.EnterRawREPL(b'import os\r\n', bytes(recv_cmd.encode('utf-8'))):
             return
@@ -347,7 +479,7 @@ class PyTerm:
         print("", end="\r\n")
         if bytes_remaining <= 0:
             end_time = time.time()
-            print("OK, took \033[1;34m%.3f\033[0m seconds, \033[1;34m%.3f\033[0m KB/s" % (end_time - start_time, (filesize / (end_time - start_time)) / 1024), end="\r\n")
+            print("OK, took "+self.TCLR['BLUE']+"%.3f" % (end_time - start_time) + self.TCLR['NORMAL']+" seconds, "+self.TCLR['BLUE']+"%.3f" % ((filesize / (end_time - start_time)) / 1024)+self.TCLR['NORMAL']+" KB/s", end="\r\n")
         dst_file.close()
         self.ExitRawREPL()
 
@@ -406,26 +538,6 @@ class PyTerm:
                     pass
         return dirlist
 
-    #---------------------
-    def ReadCommand(self):
-        char    = ""
-        command = ""
-
-        while True:
-            char = sys.stdin.read(1)
-            if char == "\r":
-                break
-            elif char == self.ESCAPECHAR:
-                if len(command) == 0:
-                    command = self.ESCAPECHAR
-                break
-            else:
-                sys.stdout.write(char)
-                sys.stdout.flush()
-                command += char
-
-        return command
-
     #----------------------
     def Get2ndEscape(self):
             char = sys.stdin.read(1)
@@ -447,16 +559,19 @@ class PyTerm:
 
             if char == self.ESCAPECHAR:
                 if self.Get2ndEscape():
-                    print("\r\n\033[1;31m--[\033[1;34mmpTerm command: \033[0m", end="")
-                    command = self.ReadCommand()
+                    prompt = self.TCLR['RED']+"--["+self.TCLR['BLUE']+"mpTerm command: "+self.TCLR['NORMAL']
+                    print("\r\n")
+                    command, cmd_len = self.line_edit(prompt, 19, '')
 
-                    if command == self.ESCAPECHAR:
-                        sys.stdout.write("\r\n")
-                        sys.stdout.flush()
-                        self.uart.write(self.ESCAPECHAR.encode("utf-8"))
+                    if command is None:
+                        if self.colors is True:
+                            print("\r{}".format(prompt) + self.TCLR['WHITE']+"aborted"+self.TCLR['NORMAL']+"\033[0K", end="\r\n")
+                        else:
+                            cmd_blank = " "*cmd_len
+                            print("\r{}".format(prompt) + self.TCLR['WHITE']+"aborted"+self.TCLR['NORMAL']+cmd_blank, end="\r\n")
 
-                    if command == "exit":
-                        print("\r\n\033[1;34m Exit PyTerm \033[1;31m]--\033[0m\r\n", end="")
+                    elif command == "exit":
+                        print("\r\n"+self.TCLR['BLUE']+" Exit PyTerm "+self.TCLR['RED']+"]--"+self.TCLR['NORMAL']+"\r\n", end="")
                         break
 
                     elif command == "version":
@@ -588,6 +703,52 @@ class PyTerm:
                         except Exception as e:
                             print("\r\nError", e, end="\r\n")
 
+                    elif command[0:8] == "lslocal ":
+                        try:
+                            cmd = re.sub(' +', ' ', command.strip()).split(' ')
+                            if (len(cmd) == 2) or (len(cmd) == 3):
+                                short_list = False
+                                if (len(cmd) == 3):
+                                    if cmd[2] == "short":
+                                        short_list = True
+                                rdir = cmd[1]
+                                lpath = os.path.abspath(rdir)
+                                dirlst = os.listdir(rdir)
+                                    
+                                if len(dirlst) > 0:
+                                    sys.stdout.write("\r\n\r\nList of directory '{}':\r\n".format(lpath))
+                                    sys.stdout.write("{}\r\n".format("".rjust(21+len(lpath), '-')))
+                                    if short_list is False:
+                                        dirlist = []
+                                        for f in dirlst:
+                                            file_path = os.path.abspath(lpath + "/" + f)
+                                            st = os.stat(file_path)
+                                            dirlist.append((f, (st[0] & 0x8000) == 0, st[6], st[8]))
+
+                                        dirlist.sort(key=lambda x: (not x[1], x[0].lower()))
+
+                                        max_name_len = 0
+                                        max_size_len = 0
+                                        for f in dirlist:
+                                            if len(f[0]) > max_name_len:
+                                                max_name_len = len(f[0])
+                                            if len(str(f[2])) > max_size_len:
+                                                max_size_len = len(str(f[2]))
+                                        max_name_len += 1
+                                        max_size_len += 1
+                                        for f in dirlist:
+                                            print("{}  {} {}  {}".format(f[0].rjust(max_name_len), " <dir>" if f[1] else "<file>", str(f[2]).rjust(max_size_len), datetime.utcfromtimestamp(f[3]).strftime('%Y-%m-%d %H:%M:%S')), end="\r\n")
+                                    else:
+                                        dirlst.sort(key=lambda name: name.lower())
+                                        for f in dirlst:
+                                            print("{}".format(f), end="\r\n")
+                                else:
+                                    print("\r\nNo files to list\r\n{}\r\n".format(dirlist))
+                            else:
+                                print("\r\nWrong command arguments", end="\r\n")
+                        except Exception as e:
+                            print("\r\nError", e, end="\r\n")
+
                     elif command[0:9] == "baudrate ":
                         try:
                             cmd = re.sub(' +', ' ', command.strip()).split(' ')
@@ -621,20 +782,28 @@ class PyTerm:
                             print("Error", end="\r\n")
 
                     else:
-                        print(""" \033[1;37munknown command\033[0m, use one of the following commands:\r
-\033[1;34m        exit                \033[0m - exit the terminal\r
-\033[1;34m     version                \033[0m - print version info\r
-\033[1;34m    synctime                \033[0m - synchronize device time to the PC time\r
-\033[1;34m    baudrate <bdr>          \033[0m - set terminal baudrate\r
-\033[1;34mset_baudrate <bdr>          \033[0m - set device and terminal baudrate\r
-\033[1;34m        send <lfile> <rfile>\033[0m - send file to device\r
-\033[1;34m        recv <rfile> <lfile>\033[0m - receive file from device\r
-\033[1;34m     senddir <ldir>  <rdir> \033[0m - send all files from local directory to device's directory\r
-\033[1;34m     recvdir <rdir>  <ldir> \033[0m - receive all files from device's directory to local directory\r
-\033[1;34m          ls <rdir>  [short]\033[0m - list remote directory, if 'short' is given, only file names are printed\r
-""")
+                        if self.colors is True:
+                            print("\r{}".format(prompt)+self.TCLR['RED']+"unknown command !"+self.TCLR['NORMAL']+"\033[0K"+"\r\n", end="\r\n")
+                        else:
+                            cmd_blank = " "*cmd_len
+                            print("\r{}".format(prompt)+self.TCLR['RED']+"unknown command !"+self.TCLR['NORMAL']+cmd_blank+"\r\n", end="\r\n")
+                        print(self.TCLR['WHITE']+"Available commands:"+self.TCLR['NORMAL'], end="\r\n")
+                        print(self.TCLR['BLUE']  +"        exit              "+self.TCLR['NORMAL']+" - exit the terminal", end="\r\n")
+                        print(self.TCLR['BLUE']  +"     version              "+self.TCLR['NORMAL']+" - print version info", end="\r\n")
+                        print(self.TCLR['BLUE']  +"    synctime              "+self.TCLR['NORMAL']+" - synchronize device time to the PC time", end="\r\n")
+                        print(self.TCLR['BLUE']  +"    baudrate "+self.TCLR['WHITE']+"bdr          "+self.TCLR['NORMAL']+" - set terminal baudrate", end="\r\n")
+                        print(self.TCLR['BLUE']  +"set_baudrate "+self.TCLR['WHITE']+"bdr          "+self.TCLR['NORMAL']+" - set device and terminal baudrate", end="\r\n")
+                        print(self.TCLR['BLUE']  +"        send "+self.TCLR['WHITE']+"lfile rfile"+self.TCLR['NORMAL']+"   - send file to device", end="\r\n")
+                        print(self.TCLR['BLUE']  +"        recv "+self.TCLR['WHITE']+"rfile lfile"+self.TCLR['NORMAL']+"   - receive file from device", end="\r\n")
+                        print(self.TCLR['BLUE']  +"     senddir "+self.TCLR['WHITE']+"ldir  rdir "+self.TCLR['NORMAL']+"   - send all files from local directory to device's directory", end="\r\n")
+                        print(self.TCLR['BLUE']  +"     recvdir "+self.TCLR['WHITE']+"rdir  ldir "+self.TCLR['NORMAL']+"   - receive all files from device's directory to local directory", end="\r\n")
+                        print(self.TCLR['BLUE']  +"          ls "+self.TCLR['WHITE']+"rdir  [short]"+self.TCLR['NORMAL']+" - list remote directory, if 'short' is given, only file names are printed", end="\r\n")
+                        print(self.TCLR['BLUE']  +"     lslocal "+self.TCLR['WHITE']+"rdir  [short]"+self.TCLR['NORMAL']+" - list local directory, if 'short' is given, only file names are printed", end="\r\n")
+                        print(self.TCLR['YELLOW']+"       Enter              "+self.TCLR['NORMAL']+" - accept and execute command", end="\r\n")
+                        print(self.TCLR['YELLOW']+"      Ctrl-Q              "+self.TCLR['NORMAL']+" - aborts command mode\r", end="\r\n")
 
-                    print("\033[1;34mback to device \033[1;31m]--\033[0m\r\n", end="")
+                    print(self.TCLR['BLUE']+"back to device "+self.TCLR['RED']+"]--"+self.TCLR['NORMAL']+"\r\n", end="")
+                    self.uart.write(b'\r\n')
             else:
                 data = char.encode("utf-8")
                 self.uart.write(data)
@@ -650,9 +819,11 @@ if __name__ == '__main__':
         help="The baudrate used for the communication.")
     cli.add_argument("-r", "--reset",    default=False,          type=str, action="store",
         help="Reset the device on start")
+    cli.add_argument("-c", "--color",    default=True,           type=str, action="store",
+        help="Use ANSI colors or not")
     cli.add_argument("-d", "--device",   default='/dev/ttyUSB0', type=str, action="store",
         help="Path to the serial communication device.")
 
     args = cli.parse_args()
 
-    trm = PyTerm(baudrate=args.baudrate, device=args.device, rst=args.reset)
+    trm = PyTerm(baudrate=args.baudrate, device=args.device, rst=args.reset, clr=args.color)

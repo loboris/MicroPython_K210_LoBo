@@ -52,7 +52,7 @@
 #include "gpiohs.h"
 
 
-#define WAIT_CYCLE      4U
+#define WAIT_CYCLE  0U
 #define LCD_X_MAX   240
 #define LCD_Y_MAX   320
 #define TFT_BGR     8
@@ -112,6 +112,7 @@ static bool display_pins_init = false;
 static int tft_rst_gpionum = 0;
 static int tft_dc_gpionum = 0;
 static mp_fpioa_cfg_item_t disp_pin_func[DISP_NUM_FUNC];
+static uint32_t tft_spi_speed = SPI_DEFAULT_SPEED;
 
 // ====================================================
 // ==== Global variables, default values ==============
@@ -130,7 +131,6 @@ uint8_t tft_touch_type = TOUCH_TYPE_NONE;
 
 uint8_t TFT_RGB_BGR = 0;
 uint8_t gamma_curve = 0;
-uint32_t spi_speed = 4000000;
 
 uint16_t *tft_frame_buffer = NULL;
 // ====================================================
@@ -179,13 +179,18 @@ static void set_dcx_data()
     gpiohs_set_pin(tft_dc_gpionum, GPIO_PV_HIGH);
 }
 
-//----------------------
-uint32_t tft_set_speed()
+//--------------------------------
+void tft_set_speed(uint32_t speed)
 {
-    spi_dev_set_clock_rate(spi_dfs8, 3000000);
-    uint32_t speed = (uint32_t)spi_dev_set_clock_rate(spi_dfs16, spi_speed);
-    spi_dev_set_clock_rate(spi_dfs32, spi_speed);
-    return speed;
+    spi_dev_set_clock_rate(spi_dfs8, SPI_DFS8_SPEED);
+    tft_spi_speed = (uint32_t)spi_dev_set_clock_rate(spi_dfs16, speed);
+    spi_dev_set_clock_rate(spi_dfs32, speed);
+}
+
+//----------------------
+uint32_t tft_get_speed()
+{
+    return tft_spi_speed;
 }
 
 //-----------------------------
@@ -247,7 +252,7 @@ static bool tft_hard_init(void)
     if (spi_dfs32 == 0) return false;
     spi_dev_config_non_standard(spi_dfs32, INSTRUCTION_LEN_0, ADDRESS_LEN_32, WAIT_CYCLE, SPI_AITM_AS_FRAME_FORMAT);
 
-    tft_set_speed();
+    tft_set_speed(tft_spi_speed);
 
     return true;
 }
@@ -569,7 +574,7 @@ void TFT_display_setvars(display_config_t *dconfig)
     _height = dconfig->height;
     TFT_RGB_BGR = dconfig->bgr;
     gamma_curve = dconfig->gamma;
-    spi_speed = dconfig->speed;
+    tft_spi_speed = dconfig->speed;
     invertrot = dconfig->invrot;
     // ===================================================
 }

@@ -229,6 +229,8 @@
                 				
                 <buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
                 				
+                <buildArguments/>
+                				
                 <stopOnError>true</stopOnError>
                 				
                 <useDefaultCommand>false</useDefaultCommand>
@@ -241,7 +243,21 @@
                 				
                 <buildCommand>${PWD}/k210-freertos/CLEAN.sh</buildCommand>
                 				
-                <buildArguments/>
+                <stopOnError>true</stopOnError>
+                				
+                <useDefaultCommand>false</useDefaultCommand>
+                				
+                <runAllBuilders>true</runAllBuilders>
+                			
+            </target>
+            			
+            <target name="BUILD (verbose)" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
+                				
+                <buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
+                				
+                <buildArguments>-V</buildArguments>
+                				
+                <buildTarget/>
                 				
                 <stopOnError>true</stopOnError>
                 				

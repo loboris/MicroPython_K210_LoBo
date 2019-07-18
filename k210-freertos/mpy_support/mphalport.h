@@ -43,8 +43,6 @@
 #define TASK_IPC_RESP_BUF_MAX_SIZE  (32 * 1024)
 #define SYS_DEVICE_TASK_PRIORITY    14
 
-#define SYS_RAMBUF_SIZE             1024
-
 typedef struct {
     uint8_t     *buf;
     uint32_t    len;
@@ -72,10 +70,10 @@ extern SemaphoreHandle_t inter_proc_mutex;
 extern mp_obj_t ipc_callback_1;
 extern mp_obj_t main_task_callback;
 extern uint64_t sys_us_counter_cpu;
+extern uint64_t sys_us_counter;
 extern bool use_vm_hook;
 extern bool wdt_reset_in_vm_hook;
 extern uint32_t system_status;
-extern uintptr_t sys_rambuf_ptr;
 
 void mp_hal_set_cpu_frequency(uint32_t freq);
 

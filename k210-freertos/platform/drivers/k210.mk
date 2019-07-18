@@ -18,7 +18,7 @@ CFLAGS = \
 	-fstrict-volatile-bitfields \
 	-fno-zero-initialized-in-bss \
 	-falign-functions=64 \
-	-O2 \
+        -O2 \
 	-ggdb \
 	-std=gnu11 \
 	-Wall \

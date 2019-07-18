@@ -67,11 +67,9 @@ s32_t sys_spiffs_erase(int addr, int size)
     for (int index = 0; index < w25qxx_FLASH_SECTOR_SIZE; index++)
     {
         if (*pread != 0xFF) {
-            w25qxx_sector_erase(addr);
-            enum w25qxx_status_t res = w25qxx_wait_busy();
-            if (res != W25QXX_OK) {
+            if (w25qxx_sector_erase(addr) != W25QXX_OK) {
                 LOGE(TAG, "spifalsh erase err");
-                return res;
+                return W25QXX_BUSY;
             }
             break;
         }

@@ -102,11 +102,12 @@
  *   enable filtering of non-printable characters
  */
 //--------------------------------
-uint32_t user_log_level = 2;
-QueueHandle_t syslog_mutex = NULL;
-int kprint_filter_nonprint = 1;
-char kprint_nonprint_char = '~';
-uint8_t kprint_cr_lf = 1;
+uint32_t        user_log_level = 2;
+uint32_t        user_log_color = 1;
+QueueHandle_t   syslog_mutex = NULL;
+int             kprint_filter_nonprint = 1;
+char            kprint_nonprint_char = '~';
+uint8_t         kprint_cr_lf = 1;
 //--------------------------------
 
 /*

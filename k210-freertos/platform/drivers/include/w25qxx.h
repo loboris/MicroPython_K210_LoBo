@@ -42,9 +42,18 @@
 #define _W25QXX_H
 #include <stdint.h>
 
+// 83 MHz max speed results in SPI3 clocks:
+// 82.333 MHz at PLL0 = 988 MHz (115 us for 4096 bytes read)
+// 67.166 MHz at PLL0 = 806 MHz (142 us for 4096 bytes read)
+#define WQ25QXX_MAX_SPEED                   83000000
+// SPI3 clock for sending/reading commands
+#define SPI_STAND_CLOCK_RATE                20000000
+
 #define CHIP_SELECT                         1
 #define WAIT_CYCLE                          8
 #define FRAME_LENGTH                        8
+#define FRAME_LENGTH_DUAL                   32
+#define FRAME_LENGTH_QUAD                   32
 #define INSTRUCTION_LENGTH                  8
 #define ADDRESS_LENGTH                      24
 
@@ -66,11 +75,11 @@
 #define READ_DATA                           0x03
 #define FAST_READ                           0x0B
 #define FAST_READ_DUAL_OUTPUT               0x3B
-#define FAST_READ_QUAL_OUTPUT               0x6B
+#define FAST_READ_QUAD_OUTPUT               0x6B
 #define FAST_READ_DUAL_IO                   0xBB
-#define FAST_READ_QUAL_IO                   0xEB
+#define FAST_READ_QUAD_IO                   0xEB
 #define DUAL_READ_RESET                     0xFFFF
-#define QUAL_READ_RESET                     0xFF
+#define QUAD_READ_RESET                     0xFF
 #define PAGE_PROGRAM                        0x02
 #define QUAD_PAGE_PROGRAM                   0x32
 #define SECTOR_ERASE                        0x20
@@ -84,7 +93,8 @@
 #define RESET_DEVICE                        0x99
 
 #define REG1_BUSY_MASK                      0x01
-#define REG2_QUAL_MASK                      0x02
+#define REG1_WEL_MASK                       0x02
+#define REG2_QUAD_MASK                      0x02
 
 #define LETOBE(x)     ((x >> 24) | ((x & 0x00FF0000) >> 8) | ((x & 0x0000FF00) << 8) | (x << 24))
 /* clang-format on */
@@ -109,14 +119,11 @@ extern uint8_t work_trans_mode;
 
 void w25qxx_clear_counters();
 void w25qxx_get_counters(uint32_t *r, uint32_t *w, uint32_t *e, uint64_t *time);
-uint32_t w25qxx_max_speed();
 
 uint32_t w25qxx_init(uintptr_t spi_in, uint8_t mode, double clock_rate);
 enum w25qxx_status_t w25qxx_write_data(uint32_t addr, uint8_t* data_buf, uint32_t length);
 enum w25qxx_status_t w25qxx_read_data(uint32_t addr, uint8_t* data_buf, uint32_t length);
 enum w25qxx_status_t w25qxx_sector_erase(uint32_t addr);
-enum w25qxx_status_t w25qxx_is_busy(void);
-enum w25qxx_status_t w25qxx_wait_busy();
 enum w25qxx_status_t w25qxx_read_id(uint8_t *manuf_id, uint8_t *device_id);
 enum w25qxx_status_t w25qxx_enable_xip_mode(void);
 enum w25qxx_status_t w25qxx_disable_xip_mode(void);

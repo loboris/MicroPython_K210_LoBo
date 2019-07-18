@@ -96,6 +96,8 @@ typedef uint16_t color_t;
 #define DEFAULT_TFT_DISPLAY_HEIGHT 320
 #define DEFAULT_DISP_TYPE   DISP_TYPE_ILI9341
 
+#define SPI_DFS8_SPEED      4000000
+#define SPI_DEFAULT_SPEED   16000000
 
 // ##############################################################
 // #### Global variables                                     ####
@@ -116,7 +118,6 @@ extern uint8_t tft_touch_type;
 
 //extern uint8_t TFT_RGB_BGR;
 extern uint8_t gamma_curve;
-extern uint32_t spi_speed;
 
 extern uint16_t *tft_frame_buffer;
 
@@ -221,7 +222,8 @@ void send_data(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf);
 void TFT_pushColorRep(int x1, int y1, int x2, int y2, color_t data, uint32_t len);
 void send_frame_buffer();
 void TFT_display_setvars(display_config_t *dconfig);
-uint32_t tft_set_speed();
+void tft_set_speed(uint32_t speed);
+uint32_t tft_get_speed();
 int get_framebuffer(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf);
 
 // Change the screen rotation.

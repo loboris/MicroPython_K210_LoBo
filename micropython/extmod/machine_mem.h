@@ -40,6 +40,7 @@ extern const machine_mem_obj_t machine_mem8_obj;
 extern const machine_mem_obj_t machine_mem16_obj;
 extern const machine_mem_obj_t machine_mem32_obj;
 extern const machine_mem_obj_t machine_mem64_obj;
+extern const machine_mem_obj_t machine_memstr_obj;
 
 #if defined(MICROPY_MACHINE_MEM_GET_READ_ADDR)
 uintptr_t MICROPY_MACHINE_MEM_GET_READ_ADDR(mp_obj_t addr_o, uint align);

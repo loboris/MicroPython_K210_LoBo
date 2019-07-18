@@ -23,6 +23,9 @@ add_compile_flags(BOTH
         -fdata-sections
         -fstrict-volatile-bitfields
         -falign-functions=64
+        -ffast-math
+        -fno-math-errno
+        -fsingle-precision-constant
         -O2
         -ggdb
         )

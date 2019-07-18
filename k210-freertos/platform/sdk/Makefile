@@ -44,7 +44,7 @@ MK_VALUE +="platform-lds += "$(CUR_DIR_ADDR)$(SDK_DIR_NAME)"/lds/kendryte.ld""\r
 all: compile update_mk
 
 compile:
-	-mkdir build
+	-mkdir build > /dev/null 2>&1
 	cd build && cmake ../$(SDK_DIR_NAME)/ -DPROJ=hello_world -DTOOLCHAIN=$(subst bin/,bin,$(dir $(CROSS_COMPILE))) && make
 
 update_mk:

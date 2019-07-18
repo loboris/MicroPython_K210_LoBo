@@ -57,6 +57,8 @@ uint32_t mp_used_gpiohs = 0;
 machine_pin_def_t mp_used_pins[FPIOA_NUM_IO] = {0};
 handle_t flash_spi = 0;
 
+uintptr_t sys_rambuf_ptr = 0;
+
 const char *gpiohs_funcs[14] = {
         "Not used",
         "Flash",
@@ -134,6 +136,24 @@ static const char *log_levels[6] = {
         "LOG_VERBOSE"     /*!< Bigger chunks of debugging information, or frequent messages which can potentially flood the output. */
 };
 
+const char *term_colors[8] = {
+        LOG_BOLD(LOG_COLOR_BLACK),
+        LOG_BOLD(LOG_COLOR_RED),
+        LOG_BOLD(LOG_COLOR_GREEN),
+        LOG_BOLD(LOG_COLOR_BROWN),
+        LOG_BOLD(LOG_COLOR_BLUE),
+        LOG_BOLD(LOG_COLOR_PURPLE),
+        LOG_BOLD(LOG_COLOR_CYAN),
+        LOG_RESET_COLOR,
+};
+
+//----------------------------------------------
+const char *term_color(enum term_colors_t color)
+{
+    if (mpy_config.config.log_color) return term_colors[color];
+    else return "";
+}
+
 //---------------------------
 bool mpy_config_crc(bool set)
 {
@@ -191,6 +211,7 @@ void mpy_config_set_default()
     mpy_config.config.boot_menu_pin = MICRO_PY_BOOT_MENU_PIN;
     mpy_config.config.log_level = LOG_WARN;
     mpy_config.config.vm_divisor = MICROPY_PY_THREAD_GIL_VM_DIVISOR;
+    mpy_config.config.log_color = MICROPY_PY_USE_LOG_COLORS;
 
     bool res = mpy_config_crc(true);
     LOGM("CONFIG", "Default flash configuration set (%d)", res);
@@ -323,35 +344,36 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_0(machine_pinstat_obj, machine_pinstat);
 //---------------------------------------------------------------
 STATIC mp_obj_t machine_freq(size_t n_args, const mp_obj_t *args)
 {
-    mp_obj_t tuple[2];
-    if (n_args == 0) {
-        // get CPU frequency and Flash SPI speed
-        tuple[0] = mp_obj_new_int(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU));
-        tuple[1] = mp_obj_new_int(w25qxx_actual_speed);
-    }
-    else {
+    uint32_t pll0 = 0;
+    if (n_args > 0) {
+        if (n_args > 1) {
+            // Set PLL0
+            pll0 = (uint32_t)mp_obj_get_int(args[1]);
+            if ((pll0 != 800) && (pll0 != 1000)) {
+                mp_raise_ValueError("Allowed PLL0 frequencies: 800 & 1000 MHz");
+            }
+            pll0 *= 1000000;
+        }
         // set CPU frequency
         mp_int_t freq = mp_obj_get_int(args[0]);
-        freq = (freq / 50) * 50;
-        if ((freq < 200) || (freq > MICRO_PY_CPU_MAX_FREQ)) {
-            #if MICRO_PY_ALLOW_OVERCLOCK
-            mp_raise_ValueError("Allowed CPU frequencies: 200 - 750 MHz");
-            #else
-            mp_raise_ValueError("Allowed CPU frequencies: 200 - 500 MHz");
-            #endif
+        freq = (freq / 10) * 10;
+        if ((freq != 100) && (freq != 200) && (freq != 400)) {
+            mp_raise_ValueError("Allowed CPU frequencies: 100, 400, 400 MHz");
         }
-
         freq *= 1000000;
+        if (pll0 > 0) sysctl_pll_set_freq(SYSCTL_PLL0, pll0);
 
         mp_hal_set_cpu_frequency(freq);
-
-        tuple[0] = mp_obj_new_int(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU));
-        tuple[1] = mp_obj_new_int(w25qxx_actual_speed);
     }
+
+    mp_obj_t tuple[2];
+    tuple[0] = mp_obj_new_int(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU));
+    tuple[1] = mp_obj_new_int(sysctl_clock_get_freq(SYSCTL_CLOCK_PLL0));
     return mp_obj_new_tuple(2, tuple);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_freq_obj, 0, 1, machine_freq);
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_freq_obj, 0, 2, machine_freq);
 
+/*
 //-------------------------------------------------------------------
 STATIC mp_obj_t machine_setflash(size_t n_args, const mp_obj_t *args)
 {
@@ -381,6 +403,7 @@ STATIC mp_obj_t machine_setflash(size_t n_args, const mp_obj_t *args)
     return mp_obj_new_tuple(2, tuple);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_setflash_obj, 0, 2, machine_setflash);
+*/
 
 // Assumes 0 <= max <= RAND_MAX
 // Returns in the closed interval [0, max]
@@ -472,7 +495,7 @@ STATIC mp_obj_t mod_machine_base64(mp_obj_t buf_in)
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_base64_obj, mod_machine_base64);
 
-//---------------------------------------------------
+//-----------------------------------------------------------------------
 STATIC mp_obj_t mod_machine_baudrate(size_t n_args, const mp_obj_t *args)
 {
     if (n_args > 0) {
@@ -515,30 +538,81 @@ STATIC mp_obj_t mod_machine_flash_spi_check(mp_obj_t dbg_in)
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_flash_spi_check_obj, mod_machine_flash_spi_check);
 
 #if INCLUDE_FLASH_TEST
-//---------------------------------------------------------------------------------------
-STATIC mp_obj_t machine_test_flash(mp_obj_t mode_in, mp_obj_t speed_in, mp_obj_t type_in)
+//--------------------------------------------------------------------------------------------
+STATIC mp_obj_t machine_test_flash(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
-    uint32_t oldmode = work_trans_mode;
-    uint32_t oldspeed =w25qxx_flash_speed;
-    int mode = mp_obj_get_int(mode_in);
-    if ((mode < 0) || (mode > 2)) mode = 2;
-    int speed = mp_obj_get_int(speed_in);
-    int type = mp_obj_get_int(type_in);
-    if ((speed < 1000000) || (speed > 100000000)) speed = 10000000;
+    enum { ARG_mode, ARG_type, ARG_pll0, ARG_cpufreq, ARG_speed };
+    const mp_arg_t allowed_args[] = {
+       { MP_QSTR_mode,      MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_type,      MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_pll0,      MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_cpufreq,   MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_speed,     MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+    };
+
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    uint8_t type = 0;
+    bool freq_changed = false;
+
+    uint32_t old_pll0 = sysctl_clock_get_freq(SYSCTL_CLOCK_PLL0);
+    uint32_t old_cpufreq = sysctl_clock_get_freq(SYSCTL_CLOCK_CPU);
+    uint8_t oldmode = work_trans_mode;
+    uint32_t oldspeed = w25qxx_flash_speed;
+
+    uint32_t pll0 = sysctl_clock_get_freq(SYSCTL_CLOCK_PLL0);
+    uint32_t cpufreq = sysctl_clock_get_freq(SYSCTL_CLOCK_CPU);
+    uint8_t mode = work_trans_mode;
+    uint32_t speed = w25qxx_flash_speed;
+
+    if (args[ARG_type].u_obj != mp_const_none) type = (uint8_t)mp_obj_get_int(args[ARG_type].u_obj);
+    if (args[ARG_mode].u_obj != mp_const_none) mode = mp_obj_get_int(args[ARG_mode].u_obj) & 0x03;
+    if (args[ARG_pll0].u_obj != mp_const_none) pll0 = (uint32_t)mp_obj_get_int(args[ARG_pll0].u_obj);
+    if (args[ARG_cpufreq].u_obj != mp_const_none) cpufreq = (uint32_t)mp_obj_get_int(args[ARG_cpufreq].u_obj);
+    if (args[ARG_speed].u_obj != mp_const_none) speed = (uint32_t)mp_obj_get_int(args[ARG_speed].u_obj);
+
+    if (mode > 2) mode = 2;
+    if (speed > 85000000) speed = oldspeed;
+    if ((pll0 < 247000000) || (pll0 > 1000000000)) pll0 = old_pll0;
+    if ((cpufreq < 30000000) || (cpufreq > 500000000)) cpufreq = old_cpufreq;
+
+    if ((cpufreq != old_cpufreq) || (pll0 != old_pll0)) {
+        freq_changed = true;
+        sysctl_pll_set_freq(SYSCTL_PLL0, PLL0_MAX_OUTPUT_FREQ);
+        system_set_cpu_frequency(124000000);
+        sysctl_pll_set_freq(SYSCTL_PLL0, pll0);
+        system_set_cpu_frequency(cpufreq);
+        uint64_t count_us = mp_hal_ticks_us();
+        sys_us_counter_cpu = read_csr64(mcycle);
+        sys_us_counter = count_us;
+        uarths_init(uarths_baudrate);
+    }
+
     uint32_t real_speed = w25qxx_init(flash_spi, mode, speed);
     uint32_t spi_speed = sysctl_clock_get_freq(SYSCTL_CLOCK_SPI3);
 
-    mp_printf(&mp_plat_print, "\nFLASH CPU: %u, PLL0=%u, test: mode=%d, speed=%d (%u, spi_clk=%u)\n",
+    mp_printf(&mp_plat_print, "\nFLASH_TEST: CPU_freq=%u, PLL0=%u, flash_mode=%d, flash_speed=%d (%u, spi_clk=%u)\n",
             sysctl_clock_get_freq(SYSCTL_CLOCK_CPU), sysctl_clock_get_freq(SYSCTL_CLOCK_PLL0), mode, speed, real_speed, spi_speed);
-    mp_printf(&mp_plat_print, "-----------\n\n");
+    mp_printf(&mp_plat_print, "-----------\n");
+    vTaskDelay(50);
+
     if (type == 0) {
+        if (freq_changed) {
+            sysctl_pll_set_freq(SYSCTL_PLL0, PLL0_MAX_OUTPUT_FREQ);
+            system_set_cpu_frequency(124000000);
+            sysctl_pll_set_freq(SYSCTL_PLL0, old_pll0);
+            system_set_cpu_frequency(old_cpufreq);
+            vTaskDelay(10);
+        }
         w25qxx_init(flash_spi, oldmode, oldspeed);
         return mp_const_none;
     }
 
-    uint32_t rd;
-    uint32_t wr;
-    uint32_t er;
+    uint32_t rd = 0;
+    uint32_t wr = 0;
+    uint32_t er = 0;
+    uint64_t wqtime = 0;
     uint32_t sector;
     uint32_t start_addr = MICRO_PY_FLASH_USED_END;
     uint32_t end_addr = MICRO_PY_FLASH_SIZE - start_addr;
@@ -547,124 +621,165 @@ STATIC mp_obj_t machine_test_flash(mp_obj_t mode_in, mp_obj_t speed_in, mp_obj_t
 
     int count = 0;
     enum w25qxx_status_t res;
-    uint64_t start_time, end_time, op_time;
-    uint8_t buf[4096];
-    uint8_t rdbuf[4096];
+    uint64_t start_time, end_time;
+    uint8_t __attribute__((aligned(8))) buf[4096];
+    uint8_t __attribute__((aligned(8))) rdbuf[4096];
 
-    w25qxx_clear_counters();
-    if (type > 1) {
-        mp_printf(&mp_plat_print, "ERASE test\n");
+    bool old_spicheck = w25qxx_spi_check;
+    w25qxx_spi_check = false;
+
+    if ((type & 0x0f) > 1) {
+        mp_printf(&mp_plat_print, "\nERASE flash\n");
         count = 0;
+        w25qxx_clear_counters();
         start_time = mp_hal_ticks_us();
         for (sector = start_addr; sector < end_addr; sector+=4096) {
             memset(rdbuf, 0, 4096);
-            w25qxx_sector_erase(sector);
-            res = w25qxx_wait_busy();
+            res = w25qxx_sector_erase(sector);
             if (res != W25QXX_OK) {
-                mp_printf(&mp_plat_print, "Erase error at %x\n", sector);
+                mp_printf(&mp_plat_print, "  Erase error at %x\n", sector);
                 goto exit;
             }
             count++;
             mp_hal_wdt_reset();
         }
         end_time = mp_hal_ticks_us();
-        mp_printf(&mp_plat_print, "Erase time: %lu, %lu/sector\n", end_time-start_time, (end_time-start_time) / count);
-        w25qxx_get_counters(&rd, &wr, &er, NULL);
-        mp_printf(&mp_plat_print, "Flash counters: reads: %u, writes: %u, erases: %u\n", rd, wr, er);
+        mp_printf(&mp_plat_print, "  Erase time: %luus, %luus/sector\n", end_time-start_time, (end_time-start_time) / count);
+        w25qxx_get_counters(&rd, &wr, &er, &wqtime);
+        mp_printf(&mp_plat_print, "  Flash counters: reads: %u, writes: %u, erases: %u, time=%lu\n", rd, wr, er, wqtime);
 
+        count = 0;
         w25qxx_clear_counters();
         start_time = mp_hal_ticks_us();
         for (sector = start_addr; sector < end_addr; sector+=4096) {
             res = w25qxx_read_data(sector, rdbuf, 4096);
             if (res != W25QXX_OK) {
-                mp_printf(&mp_plat_print, "Erase test error (compare) at sector %x\n", sector);
+                mp_printf(&mp_plat_print, "  Erase read back error at sector %x\n", sector);
                 goto exit;
             }
             for (int i=0; i<4096; i++) {
                 if (rdbuf[i] != 0xFF) {
-                    mp_printf(&mp_plat_print, "Erase test error at sector %x, pos %d (%2x)\n", sector, i, rdbuf[i]);
+                    mp_printf(&mp_plat_print, "Erase compare error at sector %x, pos %d (%2x)\n", sector, i, rdbuf[i]);
                     goto exit;
                 }
             }
             count++;
         }
         end_time = mp_hal_ticks_us();
-        mp_printf(&mp_plat_print, "\nRead time: %lu, %lu/sector\n", end_time-start_time, (end_time-start_time) / count);
-        w25qxx_get_counters(&rd, &wr, &er, NULL);
-        mp_printf(&mp_plat_print, "Flash counters: reads: %u, writes: %u, erases: %u\n", rd, wr, er);
+        w25qxx_get_counters(&rd, &wr, &er, &wqtime);
+        mp_printf(&mp_plat_print, "  Read/compare time: %luus, %luus/sector\n", end_time-start_time, (end_time-start_time) / count);
+        mp_printf(&mp_plat_print, "  Flash counters: reads: %u, writes: %u, erases: %u, time=%lu\n", rd, wr, er, wqtime);
     }
 
     mp_hal_wdt_reset();
-    mp_printf(&mp_plat_print, "FLASH test\n");
     for (int n=0; n<4096; n++) {
         if (n & 1) buf[n] = 0x55;
         else buf[n] = 0xaa;
     }
-    w25qxx_clear_counters();
-    count = 0;
-    start_time = mp_hal_ticks_us();
-    for (sector = start_addr; sector < end_addr; sector+=4096) {
-        // write sector
-        res = w25qxx_write_data(sector, buf, 4096);
-        if (res != W25QXX_OK) {
-            mp_printf(&mp_plat_print, "Write error at %x\n", sector);
-            goto exit;
-        }
-        count++;
-    }
-    end_time = mp_hal_ticks_us();
-    mp_printf(&mp_plat_print, "Read test, buffers written in %lu, %lu/sector\n", end_time-start_time, (end_time-start_time) / count);
 
-    bool old_spicheck = w25qxx_spi_check;
-    w25qxx_spi_check = true;
-    count = 0;
-    op_time = 0;
-    for (int n=0; n<20; n++) {
+    if (type & 0xf0) {
+        mp_printf(&mp_plat_print, "\nFLASH program\n");
+        count = 0;
+        w25qxx_clear_counters();
+        start_time = mp_hal_ticks_us();
         for (sector = start_addr; sector < end_addr; sector+=4096) {
-            start_time = mp_hal_ticks_us();
+            // write sector with known pattern
+            buf[0] = 0x3c;
+            buf[1] = (uint8_t)(count & 0xff);
+            buf[2] = (uint8_t)((count>>8) & 0xff);
+            res = w25qxx_write_data(sector, buf, 4096);
+            if (res != W25QXX_OK) {
+                mp_printf(&mp_plat_print, "  Write error at %x\n", sector);
+                goto exit;
+            }
+            count++;
+        }
+        end_time = mp_hal_ticks_us();
+        w25qxx_get_counters(&rd, &wr, &er, &wqtime);
+        mp_printf(&mp_plat_print, "  Program time for %d sectors %luus, %luus/sector\n", count, end_time-start_time, (end_time-start_time) / count);
+        mp_printf(&mp_plat_print, "  Flash counters: reads: %u, writes: %u, erases: %u, time=%lu\n", rd, wr, er, wqtime);
+    }
+
+    mp_printf(&mp_plat_print, "\nFLASH read\n");
+    w25qxx_clear_counters();
+    for (int n=0; n<16; n++) {
+        count = 0;
+        for (sector = start_addr; sector < end_addr; sector+=4096) {
             res = w25qxx_read_data(sector, rdbuf, 4096);
             if (res != W25QXX_OK) {
-                mp_printf(&mp_plat_print, "Read test error at sector %x, pass=%d\n", sector, n);
+                mp_printf(&mp_plat_print, "  Read error at sector %08X, pass=%d\n", sector, n);
                 w25qxx_spi_check = old_spicheck;
                 goto exit;
             }
-            op_time += (mp_hal_ticks_us() - start_time);
-            // read sector and compare
-            res = w25qxx_read_data(sector, rdbuf, 4096);
-            if (res != W25QXX_OK) {
-                mp_printf(&mp_plat_print, "Read test error (compare) at sector %x, pass=%d\n", sector, n);
-                w25qxx_spi_check = old_spicheck;
-                goto exit;
-            }
-            for (int i=0; i<4096; i++) {
-                if (buf[i] != rdbuf[i]) {
-                    mp_printf(&mp_plat_print, "Compare error at sector %x, pos %d (%2x <> %2x)\n", sector, i, rdbuf[i], buf[i]);
-                    w25qxx_spi_check = old_spicheck;
-                    goto exit;
+            if (type & 0xf0) {
+                buf[0] = 0x3c;
+                buf[1] = (uint8_t)(count & 0xff);
+                buf[2] = (uint8_t)((count>>8) & 0xff);
+                // compare sector
+                for (int i=0; i<4096; i++) {
+                    if (buf[i] != rdbuf[i]) {
+                        mp_printf(&mp_plat_print, "  Compare error at sector %d, addr=%08X, pos=%d, pass=%d\n", count, sector, i, n);
+                        for (int k=0; k<16; k++) {
+                            mp_printf(&mp_plat_print, "%02X ", rdbuf[k]);
+                        }
+                        mp_printf(&mp_plat_print, " [");
+                        for (int k=0; k<16; k++) {
+                            mp_printf(&mp_plat_print, "%02X ", buf[k]);
+                        }
+                        mp_printf(&mp_plat_print, "]\n");
+                        w25qxx_spi_check = old_spicheck;
+                        goto exit;
+                    }
                 }
+            }
+            else if ((count == 8) && (n == 0)) {
+                buf[0] = 0x3c;
+                buf[1] = (uint8_t)(count & 0xff);
+                buf[2] = (uint8_t)((count>>8) & 0xff);
+                mp_printf(&mp_plat_print, "  Sector %d (addr=%08X) content:\n  ", count, sector);
+                for (int k=0; k<16; k++) {
+                    mp_printf(&mp_plat_print, "%02X ", rdbuf[k]);
+                }
+                mp_printf(&mp_plat_print, " [");
+                for (int k=0; k<16; k++) {
+                    mp_printf(&mp_plat_print, "%02X ", buf[k]);
+                }
+                mp_printf(&mp_plat_print, "]\n");
             }
             count++;
         }
         mp_hal_wdt_reset();
     }
     end_time = mp_hal_ticks_us();
+    w25qxx_get_counters(&rd, &wr, &er, &wqtime);
     w25qxx_spi_check = old_spicheck;
-    mp_printf(&mp_plat_print, "\nRead time: %lu, %lu/sector\n", op_time, op_time / count);
-    w25qxx_get_counters(&rd, &wr, &er, NULL);
-    mp_printf(&mp_plat_print, "Flash counters: reads: %u, writes: %u, erases: %u\n", rd, wr, er);
+    mp_printf(&mp_plat_print, "  Read time for %d sectors: %luus, %luus/sector\n", rd, wqtime, wqtime / rd);
+    mp_printf(&mp_plat_print, "  Flash counters: reads: %u, writes: %u, erases: %u, time=%lu\n\n", rd, wr, er, wqtime);
 
 exit:
+    vTaskDelay(50);
+    if (freq_changed) {
+        sysctl_pll_set_freq(SYSCTL_PLL0, PLL0_MAX_OUTPUT_FREQ);
+        system_set_cpu_frequency(124000000);
+        sysctl_pll_set_freq(SYSCTL_PLL0, old_pll0);
+        system_set_cpu_frequency(old_cpufreq);
+        uint64_t count_us = mp_hal_ticks_us();
+        sys_us_counter_cpu = read_csr64(mcycle);
+        sys_us_counter = count_us;
+        uarths_init(uarths_baudrate);
+        vTaskDelay(10);
+    }
     w25qxx_init(flash_spi, oldmode, oldspeed);
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_3(machine_test_flash_obj, machine_test_flash);
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(machine_test_flash_obj, 0, machine_test_flash);
 #endif
 
 
 //--------------------------------------------------------------------------------------------
 STATIC mp_obj_t machine_mpy_config(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
-    enum { ARG_twotasks, ARG_pystacken, ARG_heap, ARG_pyssize, ARG_mainssize, ARG_freq, ARG_bdr, ARG_pin, ARG_logl, ARG_vmd, ARG_print };
+    enum { ARG_twotasks, ARG_pystacken, ARG_heap, ARG_pyssize, ARG_mainssize, ARG_freq, ARG_bdr, ARG_pin, ARG_logl, ARG_logcolor, ARG_vmd, ARG_print };
     const mp_arg_t allowed_args[] = {
        { MP_QSTR_two_tasks_enable,  MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
        { MP_QSTR_pystack_enable,    MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
@@ -675,6 +790,7 @@ STATIC mp_obj_t machine_mpy_config(size_t n_args, const mp_obj_t *pos_args, mp_m
        { MP_QSTR_repl_baudrate,     MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
        { MP_QSTR_bootmenu_pin,      MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
        { MP_QSTR_log_level,         MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_log_color,         MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
        { MP_QSTR_vm_divisor,        MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
        { MP_QSTR_print,             MP_ARG_KW_ONLY | MP_ARG_BOOL, { .u_bool = true } },
     };
@@ -771,6 +887,11 @@ STATIC mp_obj_t machine_mpy_config(size_t n_args, const mp_obj_t *pos_args, mp_m
         }
         config.config.vm_divisor = iarg;
     }
+    if (args[ARG_logcolor].u_obj != mp_const_none) {
+        barg = mp_obj_is_true(args[ARG_logcolor].u_obj);
+        config.config.log_color = barg;
+    }
+
     // Check configuration values
     if (mpy_config.config.use_two_main_tasks != config.config.use_two_main_tasks) changed = true;
     if (mpy_config.config.heap_size1 != config.config.heap_size1) changed = true;
@@ -782,10 +903,11 @@ STATIC mp_obj_t machine_mpy_config(size_t n_args, const mp_obj_t *pos_args, mp_m
     if (mpy_config.config.repl_bdr != config.config.repl_bdr) changed = true;
     if (mpy_config.config.boot_menu_pin != config.config.boot_menu_pin) changed = true;
     if (mpy_config.config.log_level != config.config.log_level) changed = true;
+    if (mpy_config.config.log_color != config.config.log_color) changed = true;
     if (mpy_config.config.vm_divisor != config.config.vm_divisor) changed = true;
 
     if (args[ARG_print].u_bool) {
-        mp_printf(&mp_plat_print, "\r\nMicroPython configuration:\r\n--------------------------\r\n");
+        mp_printf(&mp_plat_print, "\r\n%sMicroPython configuration:\r\n--------------------------%s\r\n", term_color(CYAN), term_color(DEFAULT));
         mp_printf(&mp_plat_print, "   MPy version code: %06X\r\n", config.config.ver);
         mp_printf(&mp_plat_print, "  Two MPy instances: %s\r\n", (config.config.use_two_main_tasks) ? "True" : "False");
         mp_printf(&mp_plat_print, "       PyStack used: %s\r\n", (config.config.pystack_enabled) ? "True" : "False");
@@ -803,9 +925,10 @@ STATIC mp_obj_t machine_mpy_config(size_t n_args, const mp_obj_t *pos_args, mp_m
         mp_printf(&mp_plat_print, "      REPL baudrate: %u bd\r\n", config.config.repl_bdr);
         mp_printf(&mp_plat_print, "      Boot menu pin: %d\r\n", config.config.boot_menu_pin);
         mp_printf(&mp_plat_print, "  Default log level: %u (%s)\r\n", config.config.log_level, log_levels[config.config.log_level]);
+        mp_printf(&mp_plat_print, "     Use log colors: %u (%s)\r\n", config.config.log_color, (config.config.log_color) ? "True" : "False");
         mp_printf(&mp_plat_print, "         VM divisor: %u bytecodes\r\n", config.config.vm_divisor);
         if (changed) {
-            mp_printf(&mp_plat_print, "\r\nPress "LOG_BOLD(LOG_COLOR_BROWN)"Y"LOG_RESET_COLOR" to save");
+            mp_printf(&mp_plat_print, "\r\nPress %sY%s to save", term_color(BROWN), term_color(DEFAULT));
             char key = '\0';
             key = wait_key("", 10000);
             if ((key == 'y') || (key == 'Y')) {
@@ -815,14 +938,14 @@ STATIC mp_obj_t machine_mpy_config(size_t n_args, const mp_obj_t *pos_args, mp_m
                     mp_printf(&mp_plat_print, "\r\n");
                     mp_raise_msg(&mp_type_OSError, "Error saving configuration to Flash");
                 }
-                mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_CYAN)"\rNew configuration saved\r\n"LOG_RESET_COLOR);
+                mp_printf(&mp_plat_print, "%s\rNew configuration saved\r\n%s", term_color(CYAN), term_color(DEFAULT));
             }
             else {
-                mp_printf(&mp_plat_print, LOG_BOLD(LOG_COLOR_RED)"\rNew configuration not saved\r\n"LOG_RESET_COLOR);
+                mp_printf(&mp_plat_print, "%s\rNew configuration not saved\r\n%s", term_color(CYAN), term_color(DEFAULT));
             }
         }
     }
-    mp_obj_t cfg_tuple[12];
+    mp_obj_t cfg_tuple[13];
     cfg_tuple[0] = (mpy_config.config.use_two_main_tasks) ? mp_const_true : mp_const_false;
     cfg_tuple[1] = (mpy_config.config.pystack_enabled) ? mp_const_true : mp_const_false;
     cfg_tuple[2] = mp_obj_new_int(MICRO_PY_MAX_HEAP_SIZE);
@@ -834,9 +957,10 @@ STATIC mp_obj_t machine_mpy_config(size_t n_args, const mp_obj_t *pos_args, mp_m
     cfg_tuple[8] = mp_obj_new_int(mpy_config.config.repl_bdr);
     cfg_tuple[9] = mp_obj_new_int(mpy_config.config.boot_menu_pin);
     cfg_tuple[10] = mp_obj_new_int(mpy_config.config.log_level);
-    cfg_tuple[11] = mp_obj_new_int(mpy_config.config.vm_divisor);
+    cfg_tuple[11] = (mpy_config.config.log_color) ? mp_const_true : mp_const_false;
+    cfg_tuple[12] = mp_obj_new_int(mpy_config.config.vm_divisor);
 
-    return mp_obj_new_tuple(12, cfg_tuple);
+    return mp_obj_new_tuple(13, cfg_tuple);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(machine_mpy_config_obj, 0, machine_mpy_config);
 
@@ -891,8 +1015,8 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_test_obj, mod_machine_test);
 STATIC mp_obj_t mod_machine_get_rambuf()
 {
     mp_obj_t tuple[2];
-    tuple[0] = mp_obj_new_int(sys_rambuf_ptr);
-    tuple[1] = mp_obj_new_int(SYS_RAMBUF_SIZE);
+    tuple[0] = mp_obj_new_int(sys_rambuf_ptr - K210_SRAM_START_ADDRESS);
+    tuple[1] = mp_obj_new_int(MYCROPY_SYS_RAMBUF_SIZE);
     return mp_obj_new_tuple(2, tuple);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_machine_get_rambuf_obj, mod_machine_get_rambuf);
@@ -914,6 +1038,42 @@ STATIC mp_obj_t mod_machine_reset_reason()
     return mp_obj_new_tuple(2, tuple);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_machine_reset_reason_obj, mod_machine_reset_reason);
+
+//------------------------------------------------------
+STATIC mp_obj_t mod_machine_flash_read(mp_obj_t addr_in)
+{
+    uint32_t addr = mp_obj_get_int(addr_in);
+    uint8_t buf[512] = {0};
+    enum w25qxx_status_t res;
+
+    res = w25qxx_read_data(addr, buf, 512);
+    if (res == W25QXX_OK) {
+        for (int k=0; k<512; k++) {
+            if ((k & 0x1f) == 0) mp_printf(&mp_plat_print, "\n[%08X] ", addr+k);
+            mp_printf(&mp_plat_print, "%02X ", buf[k]);
+        }
+        mp_printf(&mp_plat_print, "\n");
+    }
+
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_flash_read_obj, mod_machine_flash_read);
+
+//----------------------------------------------------
+STATIC mp_obj_t mod_machine_membytes(mp_obj_t size_in)
+{
+    uint16_t size = mp_obj_get_int(size_in);
+    if ((size < 9) || (size > MYCROPY_SYS_RAMBUF_SIZE)) {
+        mp_raise_ValueError("Out pf membytes size range (9 ~ ");
+        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "Out pf membytes size range (9 ~ %d)", MYCROPY_SYS_RAMBUF_SIZE));
+    }
+    machine_mem_obj_t *self = m_new_obj(machine_mem_obj_t);
+    self->base.type = &machine_mem_type;
+    self->elem_size = size;
+
+    return self;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_membytes_obj, mod_machine_membytes);
 
 /*
 // double / float test
@@ -952,10 +1112,12 @@ STATIC const mp_map_elem_t machine_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_mem16),           MP_ROM_PTR(&machine_mem16_obj) },
     { MP_ROM_QSTR(MP_QSTR_mem32),           MP_ROM_PTR(&machine_mem32_obj) },
     { MP_ROM_QSTR(MP_QSTR_mem64),           MP_ROM_PTR(&machine_mem64_obj) },
+    { MP_ROM_QSTR(MP_QSTR_memstr),          MP_ROM_PTR(&machine_memstr_obj) },
+    { MP_ROM_QSTR(MP_QSTR_membytes),        MP_ROM_PTR(&mod_machine_membytes_obj) },
     { MP_ROM_QSTR(MP_QSTR_rambuf),          MP_ROM_PTR(&mod_machine_get_rambuf_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_freq),            MP_ROM_PTR(&machine_freq_obj) },
-    { MP_ROM_QSTR(MP_QSTR_flash_setup),     MP_ROM_PTR(&machine_setflash_obj) },
+    //{ MP_ROM_QSTR(MP_QSTR_flash_setup),     MP_ROM_PTR(&machine_setflash_obj) },
     { MP_ROM_QSTR(MP_QSTR_random),          MP_ROM_PTR(&machine_random_obj) },
     { MP_ROM_QSTR(MP_QSTR_reset),           MP_ROM_PTR(&machine_reset_obj) },
     { MP_ROM_QSTR(MP_QSTR_reset_reason),    MP_ROM_PTR(&mod_machine_reset_reason_obj) },
@@ -973,6 +1135,7 @@ STATIC const mp_map_elem_t machine_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_mpy_config),      MP_ROM_PTR(&machine_mpy_config_obj) },
     { MP_ROM_QSTR(MP_QSTR_vm_hook),         MP_ROM_PTR(&mod_machine_vm_hook_obj) },
     { MP_ROM_QSTR(MP_QSTR_vm_hook_wdt),     MP_ROM_PTR(&mod_machine_wdt_reset_in_vm_hook_obj) },
+    { MP_ROM_QSTR(MP_QSTR_flash_read),      MP_ROM_PTR(&mod_machine_flash_read_obj) },
     #if INCLUDE_FLASH_TEST
     { MP_ROM_QSTR(MP_QSTR_test_flash),      MP_ROM_PTR(&machine_test_flash_obj) },
     #endif
@@ -983,6 +1146,7 @@ STATIC const mp_map_elem_t machine_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_I2C),             MP_ROM_PTR(&machine_hw_i2c_type) },
     { MP_ROM_QSTR(MP_QSTR_SPI),             MP_ROM_PTR(&machine_hw_spi_type) },
 
+    { MP_ROM_QSTR(MP_QSTR_RAM_START),       MP_ROM_INT(K210_SRAM_START_ADDRESS) },
     { MP_ROM_QSTR(MP_QSTR_LOG_NONE),        MP_ROM_INT(LOG_NONE) },
     { MP_ROM_QSTR(MP_QSTR_LOG_ERROR),       MP_ROM_INT(LOG_ERROR) },
     { MP_ROM_QSTR(MP_QSTR_LOG_WARN),        MP_ROM_INT(LOG_WARN) },
