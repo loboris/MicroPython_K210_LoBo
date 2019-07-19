@@ -136,14 +136,14 @@ fi
 if [ "${FLASH_TYPE}" == "512KB" ]; then
 	BOOT_CONFIG_BLANK=""
 else
-	BOOT_CONFIG_BLANK="0xfa000 ../bin/blank.bin"
+	BOOT_CONFIG_BLANK="0xfa000 ../blank.bin"
 fi
 
 # ==== set bootloader address and file name ====
 if [ "${FLASH_TYPE}" == "512KB" ]; then
-FLASH_BOOT="0x00000 ../bin/bootloader_noota.bin"
+FLASH_BOOT="0x00000 ../bootloader_noota.bin"
 else
-FLASH_BOOT="0x00000 ../bin/bootloader.bin"
+FLASH_BOOT="0x00000 ../bootloader.bin"
 fi
 
 # ==== set flash address ====
@@ -164,37 +164,37 @@ FLASH_ADDRESS_HEX=$( printf "06X" ${FLASH_ADDRESS} )
 # ==== else select the correct addresses based on flash size       ====
 if [ "${ERASE_FLASH}" == "no" ]; then
 	if [ "${FLASH_TYPE}" == "512KB" ]; then
-		FLASH_BLANKS="0x7e000 ../bin/blank.bin ${BOOT_CONFIG_BLANK}"
+		FLASH_BLANKS="0x7e000 ../blank.bin ${BOOT_CONFIG_BLANK}"
 	else
-		FLASH_BLANKS="0xfe000 ../bin/blank.bin ${BOOT_CONFIG_BLANK}"
+		FLASH_BLANKS="0xfe000 ../blank.bin ${BOOT_CONFIG_BLANK}"
 	fi
 fi
 
 # ==== Set sector addresses and file names for the default data and CA certificate ====
 if [ "${FLASH_TYPE}" == "512KB" ]; then
-	FLASH_CRT="0x76000 ../bin/esp_ca_cert.bin"
-	FLASH_DEF="0x7c000 ../bin/esp_init_data_default_v08.bin"
+	FLASH_CRT="0x76000 ../esp_ca_cert.bin"
+	FLASH_DEF="0x7c000 ../esp_init_data_default_v08.bin"
 else
-	FLASH_CRT="0x7b000 ../bin/esp_ca_cert.bin"
-	FLASH_DEF="0xfc000 ../bin/esp_init_data_default_v08.bin"
+	FLASH_CRT="0x7b000 ../esp_ca_cert.bin"
+	FLASH_DEF="0xfc000 ../esp_init_data_default_v08.bin"
 fi
 
 # ==== Set the firmware name, For 'dout' flash mode select ESP8285 firmware ====
 if [ "${FLASH_MODE}" == "dout" ]; then
-    FLASH_APP="../bin/upgrade/esp8285_AT_${USER_APP}_2.bin"
+    FLASH_APP="../upgrade/esp8285_AT_${USER_APP}_2.bin"
 else
 	if [ "${FLASH_TYPE}" == "512KB" ]; then
-		FLASH_APP="../bin/upgrade/esp8266_AT_${USER_APP}_0.bin"
+		FLASH_APP="../upgrade/esp8266_AT_${USER_APP}_0.bin"
 	elif [ "${FLASH_TYPE}" == "1MB" ]; then
-		FLASH_APP="../bin/upgrade/esp8266_AT_${USER_APP}_2.bin"
+		FLASH_APP="../upgrade/esp8266_AT_${USER_APP}_2.bin"
 	elif [ "${FLASH_TYPE}" == "2MB" ]; then
-		FLASH_APP="../bin/upgrade/esp8266_AT_${USER_APP}_3.bin"
+		FLASH_APP="../upgrade/esp8266_AT_${USER_APP}_3.bin"
 	elif [ "${FLASH_TYPE}" == "4MB" ]; then
-		FLASH_APP="../bin/upgrade/esp8266_AT_${USER_APP}_4.bin"
+		FLASH_APP="../upgrade/esp8266_AT_${USER_APP}_4.bin"
 	elif [ "${FLASH_TYPE}" == "2MB-c1" ]; then
-		FLASH_APP="../bin/upgrade/esp8266_AT_${USER_APP}_5.bin"
+		FLASH_APP="../upgrade/esp8266_AT_${USER_APP}_5.bin"
 	elif [ "${FLASH_TYPE}" == "4MB-c1" ]; then
-		FLASH_APP="../bin/upgrade/esp8266_AT_${USER_APP}_6.bin"
+		FLASH_APP="../upgrade/esp8266_AT_${USER_APP}_6.bin"
 	fi
 fi
 

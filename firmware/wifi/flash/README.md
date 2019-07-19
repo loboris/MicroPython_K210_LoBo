@@ -49,31 +49,31 @@ The default comm port is `/dev/ttyUSB0`, you can use a different com port by add
 
 Flash to ESP8285, 1MB, 512+512 map, in dout mode:
 ```
-.\flash.sh -t 1MB -m DOUT
+./flash.sh -t 1MB -m DOUT
 ```
 Flash to ESP8266, 1MB, 512+512 map, in qio mode:
 ```
-.\flash.sh -t 1MB
+./flash.sh -t 1MB
 ```
 Flash to ESP8266, 2MB, 512+512 map, in qio mode:
 ```
-.\flash.sh -t 2MB
+./flash.sh -t 2MB
 ```
 Flash to ESP8266, 4MB, 512+512 map, in qio mode:
 ```
-.\flash.sh -t 4MB
+./flash.sh -t 4MB
 ```
 Flash to ESP8266, 2MB, 1024+1024 map, in qio mode:
 ```
-.\flash.sh -t 2MB-c1
+./flash.sh -t 2MB-c1
 ```
 Flash to ESP8266, 4MB, 1024+1024 map, in qio mode:
 ```
-.\flash.sh -t 4MB-c1
+./flash.sh -t 4MB-c1
 ```
 Flash to ESP8266, 512KB, single firmware, no OTA:
 ```
-.\flash.sh -t 512KB
+./flash.sh -t 512KB
 ```
 
 ---
@@ -86,11 +86,11 @@ Flash to ESP8266, 512KB, single firmware, no OTA:
 1. Connect some _USBtoSerial_ adapter to the board, connetc adapter's Tx to the Rx pin on the image, adapter's Rx to the Tx pin on the image
 1. Connect the **ESP8285 boot** pin (the M1 module's corner pin near the WiFi antenna) to the ground before powering the the board, after power on, the pin can be released
 1. Power on the board (connect USB cable to the board's USB-C connector)
-1. Execute `.\flash.sh -eo -t 1MB -m DOUT` to erase the existing firmware
+1. Execute `./flash.sh -eo -t 1MB -m DOUT` to erase the existing firmware
 1. Power off the board (disconnect USB cable from the board's USB-C connector)
 1. Connect the **ESP8285 boot** pin to the ground before powering the the board, after power on, the pin can be released
 1. Power on the board (connect USB cable to the board's USB-C connector)
-1. Execute `.\flash.sh -t 1MB -m DOUT` to flash the new firmware
+1. Execute `./flash.sh -t 1MB -m DOUT` to flash the new firmware
 1. Power off the board
 
 After booting to MicroPython, test the WiFi functionality:
