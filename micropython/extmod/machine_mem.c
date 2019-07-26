@@ -59,7 +59,7 @@ STATIC uintptr_t machine_mem_get_addr(mp_obj_t addr_o, uint align) {
 STATIC void machine_mem_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     (void)kind;
     machine_mem_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    if ((self->elem_size > 0) && (self->elem_size < 8)) mp_printf(print, "<%u-bit memory>", 8 * self->elem_size);
+    if ((self->elem_size > 0) && (self->elem_size <= 8)) mp_printf(print, "<%u-bit memory>", 8 * self->elem_size);
     else if (self->elem_size > 8) mp_printf(print, "<%u bytes memory>", self->elem_size);
     else mp_printf(print, "<string memory>");
 }
@@ -79,7 +79,7 @@ STATIC mp_obj_t machine_mem_subscr(mp_obj_t self_in, mp_obj_t index, mp_obj_t va
         uintptr_t ram_addr = addr + K210_SRAM_START_ADDRESS;
         int max_len = K210_SRAM_SIZE - addr;
 
-        if ((self->elem_size > 0) && (self->elem_size < 8)) val_len = self->elem_size * 8;
+        if ((self->elem_size > 0) && (self->elem_size <= 8)) val_len = self->elem_size * 8;
         else if (self->elem_size > 8) {
             // membytes
             memcpy(strval, (uint8_t*)ram_addr, (MYCROPY_SYS_RAMBUF_SIZE > max_len) ? max_len : MYCROPY_SYS_RAMBUF_SIZE);
@@ -111,7 +111,7 @@ STATIC mp_obj_t machine_mem_subscr(mp_obj_t self_in, mp_obj_t index, mp_obj_t va
         uint64_t val = 0;
         size_t val_len = 0;
         const char *strval = NULL;
-        if ((self->elem_size > 0) && (self->elem_size < 8)) {
+        if ((self->elem_size > 0) && (self->elem_size <= 8)) {
             val = mp_obj_get_int_truncated(value);
             val_len = self->elem_size* 8;
         }

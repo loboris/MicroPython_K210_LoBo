@@ -358,7 +358,7 @@ STATIC mp_obj_t machine_freq(size_t n_args, const mp_obj_t *args)
         mp_int_t freq = mp_obj_get_int(args[0]);
         freq = (freq / 10) * 10;
         if ((freq != 100) && (freq != 200) && (freq != 400)) {
-            mp_raise_ValueError("Allowed CPU frequencies: 100, 400, 400 MHz");
+            mp_raise_ValueError("Allowed CPU frequencies: 100, 200, 400 MHz");
         }
         freq *= 1000000;
         if (pll0 > 0) sysctl_pll_set_freq(SYSCTL_PLL0, pll0);
@@ -785,7 +785,6 @@ STATIC mp_obj_t mod_machine_membytes(mp_obj_t size_in)
 {
     uint16_t size = mp_obj_get_int(size_in);
     if ((size < 9) || (size > MYCROPY_SYS_RAMBUF_SIZE)) {
-        mp_raise_ValueError("Out pf membytes size range (9 ~ ");
         nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "Out pf membytes size range (9 ~ %d)", MYCROPY_SYS_RAMBUF_SIZE));
     }
     machine_mem_obj_t *self = m_new_obj(machine_mem_obj_t);
