@@ -28,12 +28,12 @@ If using the dafault Flash file system parameters defined in `mpconfigport.h`, y
 
 Execute:
 ```
-./mklfs
+./mklfs <image_input_dir> <imafe_name>
 ```
 
 Example:
 ```
-./mklfs
+./mklfs internalfs_image maixpy_lfs.img
 
 Creating LittleFS image
 =======================
