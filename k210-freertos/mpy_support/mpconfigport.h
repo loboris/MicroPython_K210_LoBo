@@ -440,6 +440,7 @@ extern const struct _mp_print_t mp_debug_print;
 //-----------------
 // extended modules
 //-----------------
+#define MICROPY_PY_USE_TEST_MODULE              (0)  // used only for testing, should not be included in releases
 #define MICROPY_PY_USE_GSM                      (1)
 #define MICROPY_PY_USE_WIFI                     (1)
 #define MICROPY_PY_USE_MQTT                     (1)
@@ -591,6 +592,13 @@ extern const struct _mp_obj_module_t mp_module_usqlite3;
 #define BUILTIN_MODULE_SQLITE
 #endif
 
+#if MICROPY_PY_USE_TEST_MODULE
+extern const struct _mp_obj_module_t mp_test_module;
+#define BUILTIN_MODULE_TEST { MP_OBJ_NEW_QSTR(MP_QSTR_test), (mp_obj_t)&mp_test_module },
+#else
+#define BUILTIN_MODULE_TEST
+#endif
+
 #define MICROPY_PORT_BUILTIN_MODULES \
     { MP_OBJ_NEW_QSTR(MP_QSTR_os),          (mp_obj_t)&uos_module }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_time),        (mp_obj_t)&utime_module }, \
@@ -611,6 +619,7 @@ extern const struct _mp_obj_module_t mp_module_usqlite3;
     BUILTIN_MODULE_DISPLAY \
     BUILTIN_MODULE_UTIMEQ_K210 \
     BUILTIN_MODULE_SQLITE \
+    BUILTIN_MODULE_TEST \
 
 /*
 #define MICROPY_PORT_BUILTIN_MODULE_WEAK_LINKS \

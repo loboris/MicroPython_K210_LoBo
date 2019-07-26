@@ -28,7 +28,7 @@ If using the dafault Flash file system parameters defined in `mpconfigport.h`, y
 
 Execute:
 ```
-./mklfs <image_input_dir> <imafe_name>
+./mklfs <image_input_dir> <image_name>
 ```
 
 Example:
