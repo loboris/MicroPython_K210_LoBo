@@ -195,7 +195,9 @@
         		
         <configuration configurationName="Default">
             			
-            <resource resourceType="PROJECT" workspacePath="/MaixPy-FreeRTOS"/>
+            <resource resourceType="FOLDER" workspacePath="/MaixPy-FreeRTOS/k210-freertos/mpy_support/build/genhdr/qstr"/>
+            			
+            <resource resourceType="FOLDER" workspacePath="/MaixPy-FreeRTOS/k210-freertos/mpy_support/build/genhdr"/>
             		
         </configuration>
         	
@@ -229,8 +231,6 @@
                 				
                 <buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
                 				
-                <buildArguments/>
-                				
                 <stopOnError>true</stopOnError>
                 				
                 <useDefaultCommand>false</useDefaultCommand>
@@ -242,6 +242,8 @@
             <target name="CLEAN" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
                 				
                 <buildCommand>${PWD}/k210-freertos/CLEAN.sh</buildCommand>
+                				
+                <buildArguments/>
                 				
                 <stopOnError>true</stopOnError>
                 				
@@ -255,7 +257,39 @@
                 				
                 <buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
                 				
-                <buildArguments>-V</buildArguments>
+                <buildArguments>-v</buildArguments>
+                				
+                <buildTarget/>
+                				
+                <stopOnError>true</stopOnError>
+                				
+                <useDefaultCommand>false</useDefaultCommand>
+                				
+                <runAllBuilders>true</runAllBuilders>
+                			
+            </target>
+            			
+            <target name="BUILD_Fast" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
+                				
+                <buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
+                				
+                <buildArguments>-j8</buildArguments>
+                				
+                <buildTarget/>
+                				
+                <stopOnError>true</stopOnError>
+                				
+                <useDefaultCommand>false</useDefaultCommand>
+                				
+                <runAllBuilders>true</runAllBuilders>
+                			
+            </target>
+            			
+            <target name="BUILD_Fast (verbose)" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
+                				
+                <buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
+                				
+                <buildArguments>-v -j8</buildArguments>
                 				
                 <buildTarget/>
                 				

@@ -16,8 +16,14 @@ CXX ?= $(CROSS_COMPILE)c++
 AR ?= $(CROSS_COMPILE)AR
 OBJCOPY ?= $(CROSS_COMPILE)objcopy
 SIZE = $(CROSS_COMPILE)size
-CRT_DIR_ADDR ?=$(dir $(CROSS_COMPILE))/../lib/gcc/riscv64-unknown-elf/8.2.0/
-VERBOSE ?= V=1 --silent
+ifeq ("$(wildcard $(CROSS_COMPILE))/../lib/gcc/riscv64-unknown-elf/8.3.0)","")
+	CRT_DIR_ADDR ?=$(dir $(CROSS_COMPILE))/../lib/gcc/riscv64-unknown-elf/8.3.0/
+else
+	CRT_DIR_ADDR ?=$(dir $(CROSS_COMPILE))/../lib/gcc/riscv64-unknown-elf/8.2.0/
+endif
+CRT_DIR_ADDR ?=$(dir $(CROSS_COMPILE))/../lib/gcc/riscv64-unknown-elf/8.3.0/
+VERBOSE ?= "--silent"
+MAKE_OPT ?=
 LOG_FILE := > build.log 2>&1
 ###############################################################################
 # Optional options
@@ -147,7 +153,7 @@ sub_compile:
 	$(info =====[ Compiling $(SUBDIRS) ... ]=====)
 	$(foreach n,$(FILE_MAKEFILE),$(call sub_make, $(dir $(n))))
 	$(info =====[ compile $(SUBDIRS) . ]=====)
-	$(MAKE) $(VERBOSE) -C mpy_support all CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM)
+	$(MAKE) $(MAKE_OPT) $(VERBOSE) -C mpy_support all CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM)
 
 update_mk:
 	$(info =====[ update mk file ... ]=====)

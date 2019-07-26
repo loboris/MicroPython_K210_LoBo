@@ -18,7 +18,7 @@ CFLAGS = \
 	-fstrict-volatile-bitfields \
 	-fno-zero-initialized-in-bss \
 	-falign-functions=64 \
-        -O2 \
+	-O2 \
 	-ggdb \
 	-std=gnu11 \
 	-Wall \
@@ -83,8 +83,6 @@ CXXFLAGS := \
 do_mk:
 	$(shell touch ./k210_env)
 	$(shell echo "export LD_LIBRARY_PATH=$$""LD_LIBRARY_PATH:"$(dir $(CROSS_COMPILE)) > ./k210_env)
-	$(info -----[ source k210_env ... ]-----)
-	$(info -----[ k210_env $(shell cat ./k210_env) ... ]------)
 	$(shell source ./k210_env)
 	source ./k210_env
 	

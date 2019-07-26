@@ -123,7 +123,7 @@ static enum w25qxx_status_t w25qxx_is_busy(void)
 //--------------------------------------------
 static enum w25qxx_status_t w25qxx_wait_busy()
 {
-    uint64_t start_time = mp_hal_ticks_us();
+    uint64_t start_time = sys_ticks_us();
     uint64_t busy_time = 0;
     uint8_t status;
 
@@ -131,7 +131,7 @@ static enum w25qxx_status_t w25qxx_wait_busy()
         w25qxx_read_status_reg1(&status);
         if ((status & REG1_BUSY_MASK) == 0) {
             // not busy
-            busy_time = mp_hal_ticks_us() - start_time;
+            busy_time = sys_ticks_us() - start_time;
             op_time += busy_time;
             if (busy_time > 600000) {
                 LOGW("w25qxx_wait_busy", "BUSY for %lu us", op_time);
@@ -248,7 +248,7 @@ static enum w25qxx_status_t w25qxx_read_data_less_64kb(uint32_t addr, uint8_t* d
 static enum w25qxx_status_t _w25qxx_read_data(uint32_t addr, uint8_t* data_buf, uint32_t length)
 {
     uint32_t len;
-    uint64_t ticks_start = mp_hal_ticks_us();
+    uint64_t ticks_start = sys_ticks_us();
     uint64_t ticks;
     while (length) {
         len = length >= 0x010000 ? 0x010000 : length;
@@ -257,7 +257,7 @@ static enum w25qxx_status_t _w25qxx_read_data(uint32_t addr, uint8_t* data_buf, 
         data_buf += len;
         length -= len;
     }
-    ticks = mp_hal_ticks_us();
+    ticks = sys_ticks_us();
     rd_count++;
     op_time += (ticks - ticks_start);
 

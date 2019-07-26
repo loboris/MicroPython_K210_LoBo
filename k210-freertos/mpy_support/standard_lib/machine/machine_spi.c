@@ -88,6 +88,9 @@
 #define SPI_MASTER_WS2812_1     3
 #define SPI_SLAVE               4
 
+#define SLAVE_TASK_REINIT       1001
+#define SLAVE_TASK_CALLBACK     1006
+
 typedef union _ws2812b_rgb {
     struct
     {
@@ -124,7 +127,7 @@ typedef struct _machine_hw_spi_obj_t {
     uint8_t     *slave_buffer;
     uint32_t    buffer_size;
     uint32_t    slave_ro_size;
-    bool        slave_biffer_allocated;
+    bool        slave_buffer_allocated;
     uint32_t    *slave_cb;          // slave callback function
     ws2812b_buffer_t ws2812_buffer;
     uint16_t    ws2812_lo;
@@ -142,7 +145,7 @@ typedef struct _machine_hw_spi_obj_t {
     } state;
 } machine_hw_spi_obj_t;
 
-static const char *slave_err[8] = {
+static const char *slave_err[10] = {
     "Ok",
     "Wrong command",
     "Cmd CSUM error",
@@ -151,10 +154,26 @@ static const char *slave_err[8] = {
     "Wrong length",
     "Timeout",
     "Error",
+    "Fatal Error, SLAVE reset",
+    "Unknown",
+};
+
+static const char *slave_commands[9] = {
+    "No command",
+    "Test",
+    "Read info",
+    "Status",
+    "Write data",
+    "Write data with csum",
+    "Read data",
+    "Read data with csum",
+    "Unknown",
 };
 
 static const char *TAG = "[SPI]";
 static machine_hw_spi_obj_t *slave_obj = NULL;
+static TaskHandle_t slave_task = NULL;
+static QueueHandle_t slave_task_queue = NULL;
 
 static bool neopixel_show(machine_hw_spi_obj_t *self, bool test);
 
@@ -448,28 +467,87 @@ STATIC void checkSPIws2812(machine_hw_spi_obj_t *self)
     }
 }
 
-//-----------------------------------
-int spi_slave_receive_hook(void *ctx)
+//------------------------------------------
+static int spi_slave_receive_hook(void *ctx)
 {
-    spi_slave_command_t *slv_cmd = (spi_slave_command_t *)ctx;
-
-    if ((slave_obj) && (slave_obj->slave_cb)) {
-        // schedule callback function
-        mp_obj_t tuple[4];
-        tuple[0] = mp_obj_new_int(slv_cmd->cmd);
-        tuple[1] = mp_obj_new_int(slv_cmd->err);
-        tuple[2] = mp_obj_new_int(slv_cmd->addr);
-        tuple[3] = mp_obj_new_int(slv_cmd->len);
-
-        mp_sched_schedule(slave_obj->slave_cb, mp_obj_new_tuple(4, tuple));
-    }
-    else {
-        LOGD("[SPI_SLAVE]", "cmd=%u, err=%u (%s), addr=%u, len=%u, time=%lu",
-                slv_cmd->cmd, slv_cmd->err, slave_err[slv_cmd->err], slv_cmd->addr, slv_cmd->len, slv_cmd->time);
-    }
+    if (slave_task_queue) xQueueSend(slave_task_queue, ctx, 0);
     return 0;
 }
 
+//--------------------------------------------
+static void spi_slave_task(void *pvParameters)
+{
+    if (slave_task_queue == NULL) {
+        slave_task_queue = xQueueCreate( 8, sizeof(spi_slave_command_t) );
+        if (slave_task_queue == NULL) {
+            LOGE("[SPI_SLAVE_TASK]", "Error creating message queue");
+            slave_task = NULL;
+            vTaskDelete(NULL);
+        }
+    }
+    spi_slave_command_t slv_cmd = {0};
+
+    while (1) {
+        // Check notification
+        if (xQueueReceive(slave_task_queue, &slv_cmd, 1000 / portTICK_RATE_MS) == pdTRUE) {
+            if (slave_obj->state == MACHINE_HW_SPI_STATE_INIT) {
+                if (slv_cmd.err == SPI_CMD_ERR_FATAL) {
+                    if (slv_cmd.cmd > SPI_CMD_MAX) slv_cmd.cmd = SPI_CMD_MAX;
+                    if (slv_cmd.err > SPI_CMD_ERR_MAX) slv_cmd.err = SPI_CMD_ERR_MAX;
+                    LOGW("[SPI_SLAVE_TASK]", "SPI Slave fatal error, reseting");
+                    // spi slave unusable, needs to be reinitialized
+                    // Deinit
+                    if (slave_obj->spi_num == SPI_SLAVE) spi_slave_deinit(slave_obj->handle);
+                    io_close(slave_obj->handle);
+                    slave_obj->handle = 0;
+                    spi_hard_deinit(slave_obj);
+                    slave_obj->state = MACHINE_HW_SPI_STATE_NONE;
+
+                    // Initialize again
+                    slave_obj->handle = io_open("/dev/spi_slave");
+                    if (slave_obj->handle == 0) {
+                        LOGE("[SPI_SLAVE_TASK]", "Error reseting spi slave");
+                    }
+                    else {
+                        if (spi_slave_hard_init(slave_obj->mosi, slave_obj->miso, slave_obj->sck, slave_obj->cs, GPIO_FUNC_SPI_SLAVE) != 0) {
+                            LOGE("[SPI_SLAVE_TASK]", "Error reseting spi slave");
+                        }
+                        else {
+                            spi_slave_config(slave_obj->handle, slave_obj->nbits, slave_obj->slave_buffer, slave_obj->buffer_size, slave_obj->slave_ro_size,
+                                    spi_slave_receive_hook, mp_hal_crc16, MICROPY_TASK_PRIORITY, slave_obj->mosi, slave_obj->miso);
+                            slave_obj->state = MACHINE_HW_SPI_STATE_INIT;
+                        }
+                    }
+                }
+                if (slave_obj->state == MACHINE_HW_SPI_STATE_INIT) {
+                    if ((slave_obj) && (slave_obj->slave_cb)) {
+                        // schedule callback function
+                        mp_obj_t tuple[4];
+                        tuple[0] = mp_obj_new_int(slv_cmd.cmd);
+                        tuple[1] = mp_obj_new_int(slv_cmd.err);
+                        tuple[2] = mp_obj_new_int(slv_cmd.addr);
+                        tuple[3] = mp_obj_new_int(slv_cmd.len);
+
+                        mp_sched_schedule(slave_obj->slave_cb, mp_obj_new_tuple(4, tuple));
+                    }
+                    else {
+                        if (slv_cmd.err == SPI_CMD_ERR_OK) {
+                            LOGD("[SPI_SLAVE]", "cmd=%u (%s), err=%u (%s), addr=%u, len=%u, time=%lu",
+                                    slv_cmd.cmd, slave_commands[slv_cmd.cmd], slv_cmd.err, slave_err[slv_cmd.err], slv_cmd.addr, slv_cmd.len, slv_cmd.time);
+                        }
+                        else {
+                            LOGD("[SPI_SLAVE]", "err=%u (%s), time=%lu", slv_cmd.err, slave_err[slv_cmd.err], slv_cmd.time);
+                        }
+                    }
+                }
+            }
+        }
+    } // task's main loop
+
+    // Terminate task
+    slave_task = NULL;
+    vTaskDelete(NULL);
+}
 
 //---------------------------------------------------------------------------------------------------------------
 mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args)
@@ -648,6 +726,19 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
     }
     else {
         // SPI Slave
+        BaseType_t res = xTaskCreate(
+                spi_slave_task,             // function entry
+                "spi_slave_task",           // task name
+                configMINIMAL_STACK_SIZE,   // stack_deepth
+                NULL,                       // function argument
+                MICROPY_TASK_PRIORITY+1,    // task priority
+                &slave_task);               // task handle
+        if (res != pdPASS) slave_task = NULL;
+        vTaskDelay(2);
+        if (slave_task == NULL) {
+            mp_raise_ValueError("error creating spi slave task");
+        }
+
         self->freq = 0;
         self->duplex = false;
 
@@ -665,7 +756,7 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
                 spi_hard_deinit(self);
                 mp_raise_ValueError("Error allocating SPI slave buffer");
             }
-            self->slave_biffer_allocated = true;
+            self->slave_buffer_allocated = true;
         }
         else {
             mp_buffer_info_t bufinfo;
@@ -677,7 +768,7 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
             }
             self->buffer_size = bufinfo.len - 8;
             self->slave_buffer = (uint8_t *)bufinfo.buf;
-            self->slave_biffer_allocated = false;
+            self->slave_buffer_allocated = false;
         }
         if (self->slave_ro_size > (self->buffer_size / 2)) self->slave_ro_size = self->buffer_size / 2;
 
@@ -769,7 +860,7 @@ STATIC mp_obj_t machine_hw_spi_deinit(mp_obj_t self_in)
     self->handle = 0;
     spi_hard_deinit(self);
 
-    if ((self->slave_biffer_allocated) && (self->slave_buffer)) vPortFree(self->slave_buffer);
+    if ((self->slave_buffer_allocated) && (self->slave_buffer)) vPortFree(self->slave_buffer);
     if (self->ws2812_buffer.rgb_buffer) vPortFree(self->ws2812_buffer.rgb_buffer);
 
     self->state = MACHINE_HW_SPI_STATE_NONE;

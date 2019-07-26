@@ -139,6 +139,7 @@ typedef enum {
     SPI_CMD_WRITE_DATA_BLOCK_CSUM,
     SPI_CMD_READ_DATA_BLOCK,
     SPI_CMD_READ_DATA_BLOCK_CSUM,
+    SPI_CMD_MAX,
 } spi_slave_command_e;
 
 // LoBo: added
@@ -151,6 +152,8 @@ typedef enum {
     SPI_CMD_ERR_LENGTH,
     SPI_CMD_ERR_TIMEOUT,
     SPI_CMD_ERR_ERROR,
+    SPI_CMD_ERR_FATAL,
+    SPI_CMD_ERR_MAX,
 } spi_slave_command_errors_t;
 
 // Lobo: changed

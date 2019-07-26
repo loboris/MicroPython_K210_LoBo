@@ -5,6 +5,7 @@
 LIB_NAME ?= sdk
 CROSS_COMPILE ?=
 OUTPUT_DIR :=build/
+MAKE_OPT ?=
 ####################################
 # Optional options
 PLATFORM ?=
@@ -44,8 +45,8 @@ MK_VALUE +="platform-lds += "$(CUR_DIR_ADDR)$(SDK_DIR_NAME)"/lds/kendryte.ld""\r
 all: compile update_mk
 
 compile:
-	-mkdir build > /dev/null 2>&1
-	cd build && cmake ../$(SDK_DIR_NAME)/ -DPROJ=hello_world -DTOOLCHAIN=$(subst bin/,bin,$(dir $(CROSS_COMPILE))) && make
+	mkdir -p build
+	cd build && cmake ../$(SDK_DIR_NAME)/ -DTOOLCHAIN=$(subst bin/,bin,$(dir $(CROSS_COMPILE))) && make $(MAKE_OPT)
 
 update_mk:
 	$(info =====[ update mk file ... ]=====)

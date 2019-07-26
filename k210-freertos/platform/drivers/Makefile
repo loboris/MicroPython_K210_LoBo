@@ -78,7 +78,7 @@ $(SRC_C_OBJ):%.o:%.c
 FILE_MAKEFILE := $(foreach n,$(SUBDIRS) , $(wildcard $(n)/Makefile))
 
 all: compile
-	$(info =====[ CUR_DIR $(CUR_DIR) ... ]=====)
+	$(info =====[ CUR_DIR $(CUR_DIR_ADDR) ... ]=====)
 
 $(OUTPUT_STATIC_LIB):$(CXX_OBJ) $(SRC_C_OBJ)
 	$(Q)$(AR) rcs -o $(OUTPUT_DIR)$@ $(addprefix $(OUTPUT_DIR), $(SRC_C_OBJ) $(CXX_OBJ))

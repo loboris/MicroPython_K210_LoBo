@@ -1,12 +1,40 @@
 #!/bin/bash
 
-TOOLS_VER=ver20190409.id
+TOOLS_VER=ver20190410.id
+TOOLCHAIN_ARCHIVE_NAME="kendryte-toolchain_v2a.tar.xz"
 
-if [ "$1" != "-V" ]; then
-VERBOSE="no"
-else
-VERBOSE="yes"
-fi
+VERBOSE=""
+J_OPTION=""
+
+# Get arguments
+POSITIONAL_ARGS=()
+arg_key="$1"
+
+while [[ $# -gt 0 ]]
+do
+	arg_key="$1"
+	case $arg_key in
+	    -v|--verbose)
+	    VERBOSE+="yes"
+	    shift # past argument
+	    ;;
+		-V|--VERBOSE)
+	    VERBOSE="yesyes"
+	    shift # past argument
+	    ;;
+	    *)    # unknown option
+	    arg_opt="$1"
+	    if [ "${arg_opt:0:2}" == "-j" ]; then
+	        J_OPTION=${arg_opt}
+	    else
+	        POSITIONAL_ARGS+=("$1") # save it in an array for later
+	    fi
+	    shift # past argument
+	    ;;
+	esac
+done
+#set -- "${POSITIONAL_ARGS[@]}" # restore positional parameters
+
 
 cd k210-freertos > /dev/null 2>&1
 
@@ -16,20 +44,20 @@ cd k210-freertos > /dev/null 2>&1
 if [ ! -d "${PWD}/../kendryte-toolchain" ]; then
     cd ..
     rm -f kendryte-toolchain.tar.xz > /dev/null 2>&1
-    rm -f kendryte-toolchain_v2.tar.xz > /dev/null 2>&1
+    rm -f ${TOOLCHAIN_ARCHIVE_NAME} > /dev/null 2>&1
     echo "Downloading kendryte-toolchain, please wait ..."
-    wget https://loboris.eu/sipeed/kendryte-toolchain_v2.tar.xz > /dev/null 2>&1
+    wget https://loboris.eu/sipeed/${TOOLCHAIN_ARCHIVE_NAME} > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo "'kendryte-toolchain' download FAILED"
         exit 1
     fi
     echo "Unpacking kendryte-toolchain"
-    tar -xf kendryte-toolchain_v2.tar.xz > /dev/null 2>&1
+    tar -xf ${TOOLCHAIN_ARCHIVE_NAME} > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo "unpacking 'kendryte-toolchain' FAILED"
         exit 1
     fi
-    rm -f kendryte-toolchain_v2.tar.xz > /dev/null 2>&1
+    rm -f ${TOOLCHAIN_ARCHIVE_NAME} > /dev/null 2>&1
 
     cd k210-freertos
     echo "'kendryte-toolchain' prepared, ready to build"
@@ -44,27 +72,27 @@ if [ ! -f "${PWD}/../kendryte-toolchain/${TOOLS_VER}" ]; then
 	make -C ../mklittlefs > /dev/null 2>&1
 
     echo "Kendryte toolchain needs to be upgraded."
-    echo "Removing old tools version and cleaning build..."
+    echo "Removing old tools version and cleaning the build..."
     # Remove directories from previous version
     rm -rf ${PWD}/../kendryte-toolchain/ > /dev/null 2>&1
     rmdir ${PWD}/../kendryte-toolchain > /dev/null 2>&1
 
     cd ..
     rm -f kendryte-toolchain.tar.xz > /dev/null 2>&1
-    rm -f kendryte-toolchain_v2.tar.xz > /dev/null 2>&1
+    rm -f ${TOOLCHAIN_ARCHIVE_NAME} > /dev/null 2>&1
     echo "Downloading new version of kendryte-toolchain, please wait ..."
-    wget https://loboris.eu/sipeed/kendryte-toolchain_v2.tar.xz > /dev/null 2>&1
+    wget https://loboris.eu/sipeed/${TOOLCHAIN_ARCHIVE_NAME} > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo "'kendryte-toolchain' download FAILED"
         exit 1
     fi
     echo "Unpacking kendryte-toolchain"
-    tar -xf kendryte-toolchain_v2.tar.xz > /dev/null 2>&1
+    tar -xf ${TOOLCHAIN_ARCHIVE_NAME} > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo "unpacking 'kendryte-toolchain' FAILED"
         exit 1
     fi
-    rm -f kendryte-toolchain_v2.tar.xz > /dev/null 2>&1
+    rm -f ${TOOLCHAIN_ARCHIVE_NAME} > /dev/null 2>&1
 
     cd k210-freertos
     if [ ! -f "${PWD}/../kendryte-toolchain/${TOOLS_VER}" ]; then
@@ -98,8 +126,8 @@ FLASH_START_ADDRES=$(( ${MICROPY_FLASH_START} ))
 
 FS_USED=$(cat mpy_support/mpconfigport.h | grep "#define MICRO_PY_FLASHFS_USED" | cut -d'(' -f 2)
 if [ "${FS_USED}" == "MICRO_PY_FLASHFS_LITTLEFS)" ]; then
-	# Do not compile spiffs
-	mv third_party/spiffs/Makefile third_party/spiffs/Makefile.notused
+	# Do not compile spiffs if not used
+	mv third_party/spiffs/Makefile third_party/spiffs/Makefile.notused > /dev/null 2>&1
 else
 	if [ -f third_party/spiffs/Makefile.notused ]; then
 		mv third_party/spiffs/Makefile.notused third_party/spiffs/Makefile
@@ -125,8 +153,12 @@ fi
 
 export CROSS_COMPILE=${PWD}/../kendryte-toolchain/bin/riscv64-unknown-elf-
 export PLATFORM=k210
+export MAKE_OPT="${J_OPTION}"
 
 if [ "${VERBOSE}" == "yes" ]; then
+make all
+elif [ "${VERBOSE}" == "yesyes" ]; then
+export VERBOSE=""
 make all
 else
 make all > /dev/null

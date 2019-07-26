@@ -90,6 +90,13 @@ mp_uint_t mp_hal_ticks_us(void)
     return ((read_csr64(mcycle) - sys_us_counter_cpu) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000)) + sys_us_counter;
 }
 
+// Used for FreeRTOS syslog
+//--------------------------
+mp_uint_t sys_ticks_us(void)
+{
+    return ((read_csr64(mcycle) - sys_us_counter_cpu) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000)) + sys_us_counter;
+}
+
 //-----------------------------
 mp_uint_t mp_hal_ticks_ms(void)
 {

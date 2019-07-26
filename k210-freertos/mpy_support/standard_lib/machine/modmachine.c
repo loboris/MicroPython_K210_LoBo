@@ -537,6 +537,298 @@ STATIC mp_obj_t mod_machine_flash_spi_check(mp_obj_t dbg_in)
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_flash_spi_check_obj, mod_machine_flash_spi_check);
 
+//--------------------------------------------------------------------------------------------
+STATIC mp_obj_t machine_mpy_config(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
+{
+    enum { ARG_twotasks, ARG_pystacken, ARG_heap, ARG_pyssize, ARG_mainssize, ARG_freq, ARG_bdr, ARG_pin, ARG_logl, ARG_logcolor, ARG_vmd, ARG_print };
+    const mp_arg_t allowed_args[] = {
+       { MP_QSTR_two_tasks_enable,  MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_pystack_enable,    MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_heap,              MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_pystack_size,      MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_main_stack_size,   MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_cpu_freq,          MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_repl_baudrate,     MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_bootmenu_pin,      MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_log_level,         MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_log_color,         MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_vm_divisor,        MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
+       { MP_QSTR_print,             MP_ARG_KW_ONLY | MP_ARG_BOOL, { .u_bool = true } },
+    };
+
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    bool barg;
+    int iarg;
+    bool changed=false;
+    mpy_config_t config;
+    memcpy((void *)&config, (void *)&mpy_config, sizeof(mpy_config_t));
+
+    if (args[ARG_twotasks].u_obj != mp_const_none) {
+        barg = mp_obj_is_true(args[ARG_twotasks].u_obj);
+        config.config.use_two_main_tasks = barg;
+    }
+    if (args[ARG_pystacken].u_obj != mp_const_none) {
+        barg = mp_obj_is_true(args[ARG_pystacken].u_obj);
+        config.config.pystack_enabled = barg;
+    }
+    if (args[ARG_heap].u_obj != mp_const_none) {
+        iarg = mp_obj_get_int(args[ARG_heap].u_obj);
+        iarg = (iarg / 1024) * 1024;
+    }
+    else iarg = config.config.heap_size1;
+    // Check heap(s)
+    if (config.config.use_two_main_tasks) {
+        if ((iarg < MICRO_PY_MIN_HEAP_SIZE) || (iarg > (MICRO_PY_MAX_HEAP_SIZE - MICRO_PY_MIN_HEAP_SIZE))) {
+            LOGE("CONFIG", "Heap #1 size out of range (%dKB - %luKB)", MICRO_PY_MIN_HEAP_SIZE/1024, (MICRO_PY_MAX_HEAP_SIZE - MICRO_PY_MIN_HEAP_SIZE)/1024);
+            mp_raise_ValueError("Heap #1 size out of range");
+        }
+        config.config.heap_size1 = iarg;
+        config.config.heap_size2 = MICRO_PY_MAX_HEAP_SIZE - config.config.heap_size1;
+    }
+    else {
+        config.config.heap_size1 = MICRO_PY_MAX_HEAP_SIZE;
+        config.config.heap_size2 = 0;
+    }
+
+    if (args[ARG_pyssize].u_obj != mp_const_none) {
+        iarg = mp_obj_get_int(args[ARG_pyssize].u_obj);
+        iarg = (iarg / 1024) * 1024;
+        if ((iarg < MICRO_PY_MIN_PYSTACK_SIZE) || (iarg > MICRO_PY_MAX_PYSTACK_SIZE)) {
+            mp_raise_ValueError("PyStack size out of range");
+        }
+        config.config.pystack_size = iarg;
+    }
+    if (args[ARG_mainssize].u_obj != mp_const_none) {
+        iarg = mp_obj_get_int(args[ARG_mainssize].u_obj);
+        iarg = (iarg / 1024) * 1024;
+        if ((iarg < 8192) || (iarg > 65536)) {
+            mp_raise_ValueError("Main task stack size out of range");
+        }
+        iarg /= sizeof(StackType_t);
+        config.config.main_task_stack_size = iarg;
+    }
+    if (args[ARG_freq].u_obj != mp_const_none) {
+        iarg = mp_obj_get_int(args[ARG_freq].u_obj);
+        iarg = (iarg / 50) * 50;
+        if ((iarg < 200) || (iarg > MICRO_PY_CPU_MAX_FREQ)) {
+            mp_raise_ValueError("CPU frequency out of range");
+        }
+
+        iarg *= 1000000;
+        config.config.cpu_clock = iarg;
+    }
+    if (args[ARG_bdr].u_obj != mp_const_none) {
+        iarg = mp_obj_get_int(args[ARG_bdr].u_obj);
+        if ((iarg < 115200) || (iarg > 4000000)) {
+            mp_raise_ValueError("Baudrate out of range");
+        }
+        config.config.repl_bdr = iarg;
+    }
+    if (args[ARG_pin].u_obj != mp_const_none) {
+        iarg = mp_obj_get_int(args[ARG_pin].u_obj);
+        if ((iarg < 0) || (iarg >= FPIOA_NUM_IO)) {
+            mp_raise_ValueError("Invalid boot menu pin");
+        }
+        config.config.boot_menu_pin = iarg;
+        changed = true;
+    }
+    if (args[ARG_logl].u_obj != mp_const_none) {
+        iarg = mp_obj_get_int(args[ARG_logl].u_obj);
+        if ((iarg < LOG_NONE) || (iarg > LOG_VERBOSE)) {
+            mp_raise_ValueError("Log level 0~5 expected");
+        }
+        config.config.log_level = iarg;
+    }
+    if (args[ARG_vmd].u_obj != mp_const_none) {
+        iarg = mp_obj_get_int(args[ARG_vmd].u_obj);
+        if ((iarg < 1) || (iarg > 128)) {
+            mp_raise_ValueError("VM divisor out of range");
+        }
+        config.config.vm_divisor = iarg;
+    }
+    if (args[ARG_logcolor].u_obj != mp_const_none) {
+        barg = mp_obj_is_true(args[ARG_logcolor].u_obj);
+        config.config.log_color = barg;
+    }
+
+    // Check configuration values
+    if (mpy_config.config.use_two_main_tasks != config.config.use_two_main_tasks) changed = true;
+    if (mpy_config.config.heap_size1 != config.config.heap_size1) changed = true;
+    if (mpy_config.config.heap_size2 != config.config.heap_size2) changed = true;
+    if (mpy_config.config.pystack_enabled != config.config.pystack_enabled) changed = true;
+    if (mpy_config.config.pystack_size != config.config.pystack_size) changed = true;
+    if (mpy_config.config.main_task_stack_size != config.config.main_task_stack_size) changed = true;
+    if (mpy_config.config.cpu_clock != config.config.cpu_clock) changed = true;
+    if (mpy_config.config.repl_bdr != config.config.repl_bdr) changed = true;
+    if (mpy_config.config.boot_menu_pin != config.config.boot_menu_pin) changed = true;
+    if (mpy_config.config.log_level != config.config.log_level) changed = true;
+    if (mpy_config.config.log_color != config.config.log_color) changed = true;
+    if (mpy_config.config.vm_divisor != config.config.vm_divisor) changed = true;
+
+    if (args[ARG_print].u_bool) {
+        mp_printf(&mp_plat_print, "\r\n%sMicroPython configuration:\r\n--------------------------%s\r\n", term_color(CYAN), term_color(DEFAULT));
+        mp_printf(&mp_plat_print, "   MPy version code: %06X\r\n", config.config.ver);
+        mp_printf(&mp_plat_print, "  Two MPy instances: %s\r\n", (config.config.use_two_main_tasks) ? "True" : "False");
+        mp_printf(&mp_plat_print, "       PyStack used: %s\r\n", (config.config.pystack_enabled) ? "True" : "False");
+        mp_printf(&mp_plat_print, "Available heap size: %u KB\r\n", MICRO_PY_MAX_HEAP_SIZE / 1024);
+        if (config.config.use_two_main_tasks) {
+            mp_printf(&mp_plat_print, "    MPy#1 heap size: %u KB\r\n", config.config.heap_size1 / 1024);
+            mp_printf(&mp_plat_print, "    MPy#2 heap size: %u KB\r\n", config.config.heap_size2 / 1024);
+        }
+        else {
+            mp_printf(&mp_plat_print, "      MPy heap size: %u KB\r\n", config.config.heap_size1 / 1024);
+        }
+        mp_printf(&mp_plat_print, "       PyStack size: %u B\r\n", config.config.pystack_size);
+        mp_printf(&mp_plat_print, "     MPy stack size: %u B\r\n", config.config.main_task_stack_size * sizeof(StackType_t));
+        mp_printf(&mp_plat_print, "      CPU frequency: %u MHz\r\n", config.config.cpu_clock / 1000000);
+        mp_printf(&mp_plat_print, "      REPL baudrate: %u bd\r\n", config.config.repl_bdr);
+        mp_printf(&mp_plat_print, "      Boot menu pin: %d\r\n", config.config.boot_menu_pin);
+        mp_printf(&mp_plat_print, "  Default log level: %u (%s)\r\n", config.config.log_level, log_levels[config.config.log_level]);
+        mp_printf(&mp_plat_print, "     Use log colors: %u (%s)\r\n", config.config.log_color, (config.config.log_color) ? "True" : "False");
+        mp_printf(&mp_plat_print, "         VM divisor: %u bytecodes\r\n", config.config.vm_divisor);
+        if (changed) {
+            mp_printf(&mp_plat_print, "\r\nPress %sY%s to save", term_color(BROWN), term_color(DEFAULT));
+            char key = '\0';
+            key = wait_key("", 10000);
+            if ((key == 'y') || (key == 'Y')) {
+                memcpy((void *)&mpy_config, (void *)&config, sizeof(mpy_config_t));
+                bool res = mpy_config_crc(true);
+                if (!res) {
+                    mp_printf(&mp_plat_print, "\r\n");
+                    mp_raise_msg(&mp_type_OSError, "Error saving configuration to Flash");
+                }
+                mp_printf(&mp_plat_print, "%s\rNew configuration saved\r\n%s", term_color(CYAN), term_color(DEFAULT));
+            }
+            else {
+                mp_printf(&mp_plat_print, "%s\rNew configuration not saved\r\n%s", term_color(CYAN), term_color(DEFAULT));
+            }
+        }
+    }
+    mp_obj_t cfg_tuple[13];
+    cfg_tuple[0] = (mpy_config.config.use_two_main_tasks) ? mp_const_true : mp_const_false;
+    cfg_tuple[1] = (mpy_config.config.pystack_enabled) ? mp_const_true : mp_const_false;
+    cfg_tuple[2] = mp_obj_new_int(MICRO_PY_MAX_HEAP_SIZE);
+    cfg_tuple[3] = mp_obj_new_int(mpy_config.config.heap_size1);
+    cfg_tuple[4] = mp_obj_new_int(mpy_config.config.heap_size2);
+    cfg_tuple[5] = mp_obj_new_int(mpy_config.config.pystack_size);
+    cfg_tuple[6] = mp_obj_new_int(mpy_config.config.main_task_stack_size * sizeof(StackType_t));
+    cfg_tuple[7] = mp_obj_new_int(mpy_config.config.cpu_clock);
+    cfg_tuple[8] = mp_obj_new_int(mpy_config.config.repl_bdr);
+    cfg_tuple[9] = mp_obj_new_int(mpy_config.config.boot_menu_pin);
+    cfg_tuple[10] = mp_obj_new_int(mpy_config.config.log_level);
+    cfg_tuple[11] = (mpy_config.config.log_color) ? mp_const_true : mp_const_false;
+    cfg_tuple[12] = mp_obj_new_int(mpy_config.config.vm_divisor);
+
+    return mp_obj_new_tuple(13, cfg_tuple);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(machine_mpy_config_obj, 0, machine_mpy_config);
+
+//-----------------------------------------------
+STATIC mp_obj_t mod_machine_wdt (mp_obj_t tmo_in)
+{
+    int tmo = mp_obj_get_int(tmo_in);
+    if (tmo <= 0) mp_hal_wtd_enable(false, 6);
+    else if (tmo > 120) {
+        mp_raise_ValueError("Timeout range is 0 ~ 120 seconds");
+    }
+    else mp_hal_wtd_enable(true, tmo);
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_wdt_obj, mod_machine_wdt);
+
+//-------------------------------------
+STATIC mp_obj_t mod_machine_wdt_reset()
+{
+    mp_hal_wdt_reset();
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_machine_wdt_reset_obj, mod_machine_wdt_reset);
+
+//--------------------------------------------------
+STATIC mp_obj_t mod_machine_vm_hook (mp_obj_t state)
+{
+    bool f = mp_obj_is_true(state);
+    use_vm_hook = f;
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_vm_hook_obj, mod_machine_vm_hook);
+
+//---------------------------------------------------------------
+STATIC mp_obj_t mod_machine_wdt_reset_in_vm_hook (mp_obj_t state)
+{
+    bool f = mp_obj_is_true(state);
+    wdt_reset_in_vm_hook = f;
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_wdt_reset_in_vm_hook_obj, mod_machine_wdt_reset_in_vm_hook);
+
+//--------------------------------------
+STATIC mp_obj_t mod_machine_get_rambuf()
+{
+    mp_obj_t tuple[2];
+    tuple[0] = mp_obj_new_int(sys_rambuf_ptr - K210_SRAM_START_ADDRESS);
+    tuple[1] = mp_obj_new_int(MYCROPY_SYS_RAMBUF_SIZE);
+    return mp_obj_new_tuple(2, tuple);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_machine_get_rambuf_obj, mod_machine_get_rambuf);
+
+//----------------------------------------
+STATIC mp_obj_t mod_machine_reset_reason()
+{
+    uint8_t rst_stat = system_status & 0x0F;
+    uint8_t rst = 0;
+    for (uint8_t i=0; i<4; i++) {
+        if ((rst_stat >> i) & 1) {
+            rst = i+1;
+            break;
+        }
+    }
+    mp_obj_t tuple[2];
+    tuple[0] = mp_obj_new_int(rst_stat);
+    tuple[1] = mp_obj_new_str(reset_reason[rst], strlen(reset_reason[rst]));
+    return mp_obj_new_tuple(2, tuple);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_machine_reset_reason_obj, mod_machine_reset_reason);
+
+//------------------------------------------------------
+STATIC mp_obj_t mod_machine_flash_read(mp_obj_t addr_in)
+{
+    uint32_t addr = mp_obj_get_int(addr_in);
+    uint8_t buf[512] = {0};
+    enum w25qxx_status_t res;
+
+    res = w25qxx_read_data(addr, buf, 512);
+    if (res == W25QXX_OK) {
+        for (int k=0; k<512; k++) {
+            if ((k & 0x1f) == 0) mp_printf(&mp_plat_print, "\n[%08X] ", addr+k);
+            mp_printf(&mp_plat_print, "%02X ", buf[k]);
+        }
+        mp_printf(&mp_plat_print, "\n");
+    }
+
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_flash_read_obj, mod_machine_flash_read);
+
+//----------------------------------------------------
+STATIC mp_obj_t mod_machine_membytes(mp_obj_t size_in)
+{
+    uint16_t size = mp_obj_get_int(size_in);
+    if ((size < 9) || (size > MYCROPY_SYS_RAMBUF_SIZE)) {
+        mp_raise_ValueError("Out pf membytes size range (9 ~ ");
+        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "Out pf membytes size range (9 ~ %d)", MYCROPY_SYS_RAMBUF_SIZE));
+    }
+    machine_mem_obj_t *self = m_new_obj(machine_mem_obj_t);
+    self->base.type = &machine_mem_type;
+    self->elem_size = size;
+
+    return self;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_membytes_obj, mod_machine_membytes);
+
+
 #if INCLUDE_FLASH_TEST
 //--------------------------------------------------------------------------------------------
 STATIC mp_obj_t machine_test_flash(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
@@ -776,232 +1068,49 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_KW(machine_test_flash_obj, 0, machine_test_flash)
 #endif
 
 
-//--------------------------------------------------------------------------------------------
-STATIC mp_obj_t machine_mpy_config(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
+// double / float test
+#include <math.h>
+//-----------------------------------------------------------
+STATIC mp_obj_t mod_machine_ftest(mp_obj_t in1, mp_obj_t in2)
 {
-    enum { ARG_twotasks, ARG_pystacken, ARG_heap, ARG_pyssize, ARG_mainssize, ARG_freq, ARG_bdr, ARG_pin, ARG_logl, ARG_logcolor, ARG_vmd, ARG_print };
-    const mp_arg_t allowed_args[] = {
-       { MP_QSTR_two_tasks_enable,  MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-       { MP_QSTR_pystack_enable,    MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-       { MP_QSTR_heap,              MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-       { MP_QSTR_pystack_size,      MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-       { MP_QSTR_main_stack_size,   MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-       { MP_QSTR_cpu_freq,          MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-       { MP_QSTR_repl_baudrate,     MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-       { MP_QSTR_bootmenu_pin,      MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-       { MP_QSTR_log_level,         MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-       { MP_QSTR_log_color,         MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-       { MP_QSTR_vm_divisor,        MP_ARG_KW_ONLY | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-       { MP_QSTR_print,             MP_ARG_KW_ONLY | MP_ARG_BOOL, { .u_bool = true } },
-    };
+    double d1, d2, d3, d4;
+    float f1, f2, f3, f4;
+    uint64_t start_time, end_time;
 
-    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
-    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+    d1 = (double)mp_obj_get_float(in1);
+    d2 = (double)mp_obj_get_float(in2);
+    f1 = (float)mp_obj_get_float(in1);
+    f2 = (float)mp_obj_get_float(in2);
 
-    bool barg;
-    int iarg;
-    bool changed=false;
-    mpy_config_t config;
-    memcpy((void *)&config, (void *)&mpy_config, sizeof(mpy_config_t));
+    d3 = d2 / d1;
+    d4 = sqrt(d3);
+    printf("%.22f %.22f\r\n", d3, d4);
+    start_time = mp_hal_ticks_us();
+    for (int i=0; i<10000; i++) {
+        d3 = d2 / d1;
+        d4 = sqrt(d3);
+        d1 += (double)0.1;
+    }
+    end_time = mp_hal_ticks_us();
+    printf("%.22f %.22f (%lu us)\r\n", d3, d4, end_time-start_time);
+    mp_printf(&mp_plat_print, "%.22f %.22f (%lu us)\r\n\r\n", d3, d4, end_time-start_time);
 
-    if (args[ARG_twotasks].u_obj != mp_const_none) {
-        barg = mp_obj_is_true(args[ARG_twotasks].u_obj);
-        config.config.use_two_main_tasks = barg;
+    f3 = f2 / f1;
+    f4 = sqrt(f3);
+    printf("%.22f %.22f\r\n", f3, f4);
+    start_time = mp_hal_ticks_us();
+    for (int i=0; i<10000; i++) {
+        f3 = f2 / f1;
+        f4 = sqrt(f3);
+        f1 += (float)0.1;
     }
-    if (args[ARG_pystacken].u_obj != mp_const_none) {
-        barg = mp_obj_is_true(args[ARG_pystacken].u_obj);
-        config.config.pystack_enabled = barg;
-    }
-    if (args[ARG_heap].u_obj != mp_const_none) {
-        iarg = mp_obj_get_int(args[ARG_heap].u_obj);
-        iarg = (iarg / 1024) * 1024;
-    }
-    else iarg = config.config.heap_size1;
-    // Check heap(s)
-    if (config.config.use_two_main_tasks) {
-        if ((iarg < MICRO_PY_MIN_HEAP_SIZE) || (iarg > (MICRO_PY_MAX_HEAP_SIZE - MICRO_PY_MIN_HEAP_SIZE))) {
-            LOGE("CONFIG", "Heap #1 size out of range (%dKB - %luKB)", MICRO_PY_MIN_HEAP_SIZE/1024, (MICRO_PY_MAX_HEAP_SIZE - MICRO_PY_MIN_HEAP_SIZE)/1024);
-            mp_raise_ValueError("Heap #1 size out of range");
-        }
-        config.config.heap_size1 = iarg;
-        config.config.heap_size2 = MICRO_PY_MAX_HEAP_SIZE - config.config.heap_size1;
-    }
-    else {
-        config.config.heap_size1 = MICRO_PY_MAX_HEAP_SIZE;
-        config.config.heap_size2 = 0;
-    }
+    end_time = mp_hal_ticks_us();
+    printf("%.22f %.22f (%lu us)\r\n", f3, f4, end_time-start_time);
+    mp_printf(&mp_plat_print, "%.22f %.22f (%lu us)\r\n", f3, f4, end_time-start_time);
 
-    if (args[ARG_pyssize].u_obj != mp_const_none) {
-        iarg = mp_obj_get_int(args[ARG_pyssize].u_obj);
-        iarg = (iarg / 1024) * 1024;
-        if ((iarg < MICRO_PY_MIN_PYSTACK_SIZE) || (iarg > MICRO_PY_MAX_PYSTACK_SIZE)) {
-            mp_raise_ValueError("PyStack size out of range");
-        }
-        config.config.pystack_size = iarg;
-    }
-    if (args[ARG_mainssize].u_obj != mp_const_none) {
-        iarg = mp_obj_get_int(args[ARG_mainssize].u_obj);
-        iarg = (iarg / 1024) * 1024;
-        if ((iarg < 8192) || (iarg > 65536)) {
-            mp_raise_ValueError("Main task stack size out of range");
-        }
-        iarg /= sizeof(StackType_t);
-        config.config.main_task_stack_size = iarg;
-    }
-    if (args[ARG_freq].u_obj != mp_const_none) {
-        iarg = mp_obj_get_int(args[ARG_freq].u_obj);
-        iarg = (iarg / 50) * 50;
-        if ((iarg < 200) || (iarg > MICRO_PY_CPU_MAX_FREQ)) {
-            mp_raise_ValueError("CPU frequency out of range");
-        }
-
-        iarg *= 1000000;
-        config.config.cpu_clock = iarg;
-    }
-    if (args[ARG_bdr].u_obj != mp_const_none) {
-        iarg = mp_obj_get_int(args[ARG_bdr].u_obj);
-        if ((iarg < 115200) || (iarg > 4000000)) {
-            mp_raise_ValueError("Baudrate out of range");
-        }
-        config.config.repl_bdr = iarg;
-    }
-    if (args[ARG_pin].u_obj != mp_const_none) {
-        iarg = mp_obj_get_int(args[ARG_pin].u_obj);
-        if ((iarg < 0) || (iarg >= FPIOA_NUM_IO)) {
-            mp_raise_ValueError("Invalid boot menu pin");
-        }
-        config.config.boot_menu_pin = iarg;
-        changed = true;
-    }
-    if (args[ARG_logl].u_obj != mp_const_none) {
-        iarg = mp_obj_get_int(args[ARG_logl].u_obj);
-        if ((iarg < LOG_NONE) || (iarg > LOG_VERBOSE)) {
-            mp_raise_ValueError("Log level 0~5 expected");
-        }
-        config.config.log_level = iarg;
-    }
-    if (args[ARG_vmd].u_obj != mp_const_none) {
-        iarg = mp_obj_get_int(args[ARG_vmd].u_obj);
-        if ((iarg < 1) || (iarg > 128)) {
-            mp_raise_ValueError("VM divisor out of range");
-        }
-        config.config.vm_divisor = iarg;
-    }
-    if (args[ARG_logcolor].u_obj != mp_const_none) {
-        barg = mp_obj_is_true(args[ARG_logcolor].u_obj);
-        config.config.log_color = barg;
-    }
-
-    // Check configuration values
-    if (mpy_config.config.use_two_main_tasks != config.config.use_two_main_tasks) changed = true;
-    if (mpy_config.config.heap_size1 != config.config.heap_size1) changed = true;
-    if (mpy_config.config.heap_size2 != config.config.heap_size2) changed = true;
-    if (mpy_config.config.pystack_enabled != config.config.pystack_enabled) changed = true;
-    if (mpy_config.config.pystack_size != config.config.pystack_size) changed = true;
-    if (mpy_config.config.main_task_stack_size != config.config.main_task_stack_size) changed = true;
-    if (mpy_config.config.cpu_clock != config.config.cpu_clock) changed = true;
-    if (mpy_config.config.repl_bdr != config.config.repl_bdr) changed = true;
-    if (mpy_config.config.boot_menu_pin != config.config.boot_menu_pin) changed = true;
-    if (mpy_config.config.log_level != config.config.log_level) changed = true;
-    if (mpy_config.config.log_color != config.config.log_color) changed = true;
-    if (mpy_config.config.vm_divisor != config.config.vm_divisor) changed = true;
-
-    if (args[ARG_print].u_bool) {
-        mp_printf(&mp_plat_print, "\r\n%sMicroPython configuration:\r\n--------------------------%s\r\n", term_color(CYAN), term_color(DEFAULT));
-        mp_printf(&mp_plat_print, "   MPy version code: %06X\r\n", config.config.ver);
-        mp_printf(&mp_plat_print, "  Two MPy instances: %s\r\n", (config.config.use_two_main_tasks) ? "True" : "False");
-        mp_printf(&mp_plat_print, "       PyStack used: %s\r\n", (config.config.pystack_enabled) ? "True" : "False");
-        mp_printf(&mp_plat_print, "Available heap size: %u KB\r\n", MICRO_PY_MAX_HEAP_SIZE / 1024);
-        if (config.config.use_two_main_tasks) {
-            mp_printf(&mp_plat_print, "    MPy#1 heap size: %u KB\r\n", config.config.heap_size1 / 1024);
-            mp_printf(&mp_plat_print, "    MPy#2 heap size: %u KB\r\n", config.config.heap_size2 / 1024);
-        }
-        else {
-            mp_printf(&mp_plat_print, "      MPy heap size: %u KB\r\n", config.config.heap_size1 / 1024);
-        }
-        mp_printf(&mp_plat_print, "       PyStack size: %u B\r\n", config.config.pystack_size);
-        mp_printf(&mp_plat_print, "     MPy stack size: %u B\r\n", config.config.main_task_stack_size * sizeof(StackType_t));
-        mp_printf(&mp_plat_print, "      CPU frequency: %u MHz\r\n", config.config.cpu_clock / 1000000);
-        mp_printf(&mp_plat_print, "      REPL baudrate: %u bd\r\n", config.config.repl_bdr);
-        mp_printf(&mp_plat_print, "      Boot menu pin: %d\r\n", config.config.boot_menu_pin);
-        mp_printf(&mp_plat_print, "  Default log level: %u (%s)\r\n", config.config.log_level, log_levels[config.config.log_level]);
-        mp_printf(&mp_plat_print, "     Use log colors: %u (%s)\r\n", config.config.log_color, (config.config.log_color) ? "True" : "False");
-        mp_printf(&mp_plat_print, "         VM divisor: %u bytecodes\r\n", config.config.vm_divisor);
-        if (changed) {
-            mp_printf(&mp_plat_print, "\r\nPress %sY%s to save", term_color(BROWN), term_color(DEFAULT));
-            char key = '\0';
-            key = wait_key("", 10000);
-            if ((key == 'y') || (key == 'Y')) {
-                memcpy((void *)&mpy_config, (void *)&config, sizeof(mpy_config_t));
-                bool res = mpy_config_crc(true);
-                if (!res) {
-                    mp_printf(&mp_plat_print, "\r\n");
-                    mp_raise_msg(&mp_type_OSError, "Error saving configuration to Flash");
-                }
-                mp_printf(&mp_plat_print, "%s\rNew configuration saved\r\n%s", term_color(CYAN), term_color(DEFAULT));
-            }
-            else {
-                mp_printf(&mp_plat_print, "%s\rNew configuration not saved\r\n%s", term_color(CYAN), term_color(DEFAULT));
-            }
-        }
-    }
-    mp_obj_t cfg_tuple[13];
-    cfg_tuple[0] = (mpy_config.config.use_two_main_tasks) ? mp_const_true : mp_const_false;
-    cfg_tuple[1] = (mpy_config.config.pystack_enabled) ? mp_const_true : mp_const_false;
-    cfg_tuple[2] = mp_obj_new_int(MICRO_PY_MAX_HEAP_SIZE);
-    cfg_tuple[3] = mp_obj_new_int(mpy_config.config.heap_size1);
-    cfg_tuple[4] = mp_obj_new_int(mpy_config.config.heap_size2);
-    cfg_tuple[5] = mp_obj_new_int(mpy_config.config.pystack_size);
-    cfg_tuple[6] = mp_obj_new_int(mpy_config.config.main_task_stack_size * sizeof(StackType_t));
-    cfg_tuple[7] = mp_obj_new_int(mpy_config.config.cpu_clock);
-    cfg_tuple[8] = mp_obj_new_int(mpy_config.config.repl_bdr);
-    cfg_tuple[9] = mp_obj_new_int(mpy_config.config.boot_menu_pin);
-    cfg_tuple[10] = mp_obj_new_int(mpy_config.config.log_level);
-    cfg_tuple[11] = (mpy_config.config.log_color) ? mp_const_true : mp_const_false;
-    cfg_tuple[12] = mp_obj_new_int(mpy_config.config.vm_divisor);
-
-    return mp_obj_new_tuple(13, cfg_tuple);
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_KW(machine_mpy_config_obj, 0, machine_mpy_config);
-
-//-----------------------------------------------
-STATIC mp_obj_t mod_machine_wdt (mp_obj_t tmo_in)
-{
-    int tmo = mp_obj_get_int(tmo_in);
-    if (tmo <= 0) mp_hal_wtd_enable(false, 6);
-    else if (tmo > 120) {
-        mp_raise_ValueError("Timeout range is 0 ~ 120 seconds");
-    }
-    else mp_hal_wtd_enable(true, tmo);
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_wdt_obj, mod_machine_wdt);
-
-//-------------------------------------
-STATIC mp_obj_t mod_machine_wdt_reset()
-{
-    mp_hal_wdt_reset();
-    return mp_const_none;
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_machine_wdt_reset_obj, mod_machine_wdt_reset);
-
-//--------------------------------------------------
-STATIC mp_obj_t mod_machine_vm_hook (mp_obj_t state)
-{
-    bool f = mp_obj_is_true(state);
-    use_vm_hook = f;
-    return mp_const_none;
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_vm_hook_obj, mod_machine_vm_hook);
-
-//---------------------------------------------------------------
-STATIC mp_obj_t mod_machine_wdt_reset_in_vm_hook (mp_obj_t state)
-{
-    bool f = mp_obj_is_true(state);
-    wdt_reset_in_vm_hook = f;
-    return mp_const_none;
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_wdt_reset_in_vm_hook_obj, mod_machine_wdt_reset_in_vm_hook);
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(mod_machine_ftest_obj, mod_machine_ftest);
 
 //------------------------------------------------
 STATIC mp_obj_t mod_machine_test (mp_obj_t obj_in)
@@ -1011,98 +1120,6 @@ STATIC mp_obj_t mod_machine_test (mp_obj_t obj_in)
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_test_obj, mod_machine_test);
 
-//--------------------------------------
-STATIC mp_obj_t mod_machine_get_rambuf()
-{
-    mp_obj_t tuple[2];
-    tuple[0] = mp_obj_new_int(sys_rambuf_ptr - K210_SRAM_START_ADDRESS);
-    tuple[1] = mp_obj_new_int(MYCROPY_SYS_RAMBUF_SIZE);
-    return mp_obj_new_tuple(2, tuple);
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_machine_get_rambuf_obj, mod_machine_get_rambuf);
-
-//----------------------------------------
-STATIC mp_obj_t mod_machine_reset_reason()
-{
-    uint8_t rst_stat = system_status & 0x0F;
-    uint8_t rst = 0;
-    for (uint8_t i=0; i<4; i++) {
-        if ((rst_stat >> i) & 1) {
-            rst = i+1;
-            break;
-        }
-    }
-    mp_obj_t tuple[2];
-    tuple[0] = mp_obj_new_int(rst_stat);
-    tuple[1] = mp_obj_new_str(reset_reason[rst], strlen(reset_reason[rst]));
-    return mp_obj_new_tuple(2, tuple);
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_machine_reset_reason_obj, mod_machine_reset_reason);
-
-//------------------------------------------------------
-STATIC mp_obj_t mod_machine_flash_read(mp_obj_t addr_in)
-{
-    uint32_t addr = mp_obj_get_int(addr_in);
-    uint8_t buf[512] = {0};
-    enum w25qxx_status_t res;
-
-    res = w25qxx_read_data(addr, buf, 512);
-    if (res == W25QXX_OK) {
-        for (int k=0; k<512; k++) {
-            if ((k & 0x1f) == 0) mp_printf(&mp_plat_print, "\n[%08X] ", addr+k);
-            mp_printf(&mp_plat_print, "%02X ", buf[k]);
-        }
-        mp_printf(&mp_plat_print, "\n");
-    }
-
-    return mp_const_none;
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_flash_read_obj, mod_machine_flash_read);
-
-//----------------------------------------------------
-STATIC mp_obj_t mod_machine_membytes(mp_obj_t size_in)
-{
-    uint16_t size = mp_obj_get_int(size_in);
-    if ((size < 9) || (size > MYCROPY_SYS_RAMBUF_SIZE)) {
-        mp_raise_ValueError("Out pf membytes size range (9 ~ ");
-        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "Out pf membytes size range (9 ~ %d)", MYCROPY_SYS_RAMBUF_SIZE));
-    }
-    machine_mem_obj_t *self = m_new_obj(machine_mem_obj_t);
-    self->base.type = &machine_mem_type;
-    self->elem_size = size;
-
-    return self;
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_membytes_obj, mod_machine_membytes);
-
-/*
-// double / float test
-#include <math.h>
-//-----------------------------------------------------------
-STATIC mp_obj_t mod_machine_ftest(mp_obj_t in1, mp_obj_t in2)
-{
-    double d1, d2, d3, d4;
-    d1 = mp_obj_get_float(in1);
-    d2 = mp_obj_get_float(in2);
-    d3 = d2 / d1;
-    d4 = sqrt(d3);
-
-    float f1, f2, f3, f4;
-    f1 = (float)mp_obj_get_float(in1);
-    f2 = (float)mp_obj_get_float(in2);
-    f3 = f2 / f1;
-    f4 = sqrt(f3);
-    mp_obj_t tuple[4];
-
-    tuple[0] = mp_obj_new_float(d3);
-    tuple[1] = mp_obj_new_float(f3);
-    tuple[2] = mp_obj_new_float(d4);
-    tuple[3] = mp_obj_new_float(f4);
-    printf("%.22f %.22f %.22f %.22f\r\n", d3, f3, d4, f4);
-    return mp_obj_new_tuple(4, tuple);
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_2(mod_machine_ftest_obj, mod_machine_ftest);
-*/
 
 //===========================================================
 STATIC const mp_map_elem_t machine_module_globals_table[] = {
@@ -1131,7 +1148,6 @@ STATIC const mp_map_elem_t machine_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_wdt_reset),       MP_ROM_PTR(&mod_machine_wdt_reset_obj) },
     { MP_ROM_QSTR(MP_QSTR_fsdebug),         MP_ROM_PTR(&mod_machine_fsdebug_obj) },
     { MP_ROM_QSTR(MP_QSTR_fs_spicheck),     MP_ROM_PTR(&mod_machine_flash_spi_check_obj) },
-    { MP_ROM_QSTR(MP_QSTR_test),            MP_ROM_PTR(&mod_machine_test_obj) },
     { MP_ROM_QSTR(MP_QSTR_mpy_config),      MP_ROM_PTR(&machine_mpy_config_obj) },
     { MP_ROM_QSTR(MP_QSTR_vm_hook),         MP_ROM_PTR(&mod_machine_vm_hook_obj) },
     { MP_ROM_QSTR(MP_QSTR_vm_hook_wdt),     MP_ROM_PTR(&mod_machine_wdt_reset_in_vm_hook_obj) },
@@ -1139,7 +1155,8 @@ STATIC const mp_map_elem_t machine_module_globals_table[] = {
     #if INCLUDE_FLASH_TEST
     { MP_ROM_QSTR(MP_QSTR_test_flash),      MP_ROM_PTR(&machine_test_flash_obj) },
     #endif
-    //{ MP_ROM_QSTR(MP_QSTR_ftest),          MP_ROM_PTR(&mod_machine_ftest_obj) },
+    { MP_ROM_QSTR(MP_QSTR_ftest),           MP_ROM_PTR(&mod_machine_ftest_obj) },
+    { MP_ROM_QSTR(MP_QSTR_test),            MP_ROM_PTR(&mod_machine_test_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_Pin),             MP_ROM_PTR(&machine_pin_type) },
     { MP_ROM_QSTR(MP_QSTR_UART),            MP_ROM_PTR(&machine_uart_type) },

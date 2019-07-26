@@ -27,6 +27,9 @@
 #include <utility.h>
 #include <syslog.h>
 
+// LoBo:
+uint64_t dmac_intstatus = 0;
+
 using namespace sys;
 
 /* DMAC */
@@ -515,18 +518,16 @@ private:
         auto &dmac = driver.dmac_.dmac();
         volatile dmac_channel_t &dma = dmac.channel[driver.channel_];
 
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
         //configASSERT(dma.intstatus & 0x2);
-        // LoBo
-        if ((dma.intstatus & 0x2) == 0) {
-            uint64_t intstatus = dma.intstatus;
-            dma.intclear = 0xFFFFFFFF;
-            //driver.dmac_.release_axi_master(driver.session_.axi_master);
-            LOGW("[DMAC]", "ISR, wrong int status (%08lx)", intstatus);
-            return;
+        // LoBo: do not assert, but provide the interrupt status in global variable
+        //       to be used by caller function
+        dmac_intstatus = dma.intstatus;
+        if ((dmac_intstatus & 0x2) == 0) {
+            LOGW("[DMAC]", "ISR, wrong int status (%08lx)", dmac_intstatus);
         }
         dma.intclear = 0xFFFFFFFF;
-
-        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
         if (driver.session_.is_loop)
         {
@@ -586,7 +587,9 @@ private:
                     }
                 }
                 else if (driver.session_.flow_control == DMAC_MEM2PRF_DMA)
+                {
                     ;
+                }
                 else
                 {
                     configASSERT(!"Impossible");

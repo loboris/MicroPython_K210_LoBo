@@ -33,14 +33,14 @@ void *g_pthread_keep[] = {
 };
 
 static const pthread_attr_t s_default_thread_attributes = {
-    .is_initialized = 0,
-    .stackaddr = NULL,
-    .stacksize = 4096*8,
-    .contentionscope = 0,
-    .inheritsched = 0,
-    .schedpolicy = 0,
-    .schedparam = { .sched_priority = tskIDLE_PRIORITY },
-    .detachstate = PTHREAD_CREATE_JOINABLE,
+        .is_initialized = 0,
+        .stackaddr = NULL,
+        .stacksize = 4096*8,
+        .contentionscope = 0,
+        .inheritsched = 0,
+        .schedpolicy = 0,
+        .schedparam = { .sched_priority = tskIDLE_PRIORITY },
+        .detachstate = PTHREAD_CREATE_JOINABLE,
 };
 
 struct k_pthread_key

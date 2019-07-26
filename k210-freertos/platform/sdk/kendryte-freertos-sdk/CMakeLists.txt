@@ -7,21 +7,27 @@ set_property(GLOBAL PROPERTY RULE_MESSAGES OFF)
 
 # basic config
 if (NOT PROJ)
-    message(FATAL_ERROR "PROJ must be set. e.g. -DPROJ=hello_world")
+    message("FreeRTOS SDK: only compiling libraries")
+    set(PROJ "Dummy")
 else()
-    #message("PROJ = ${PROJ}")
+    message("PROJ = ${PROJ}")
 endif ()
+
 cmake_minimum_required(VERSION 3.0)
 include(./cmake/common.cmake)
+
 project(${PROJ})
 
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_LIST_DIR}/lib/arch/include ${CMAKE_CURRENT_LIST_DIR}/lib/utils/include)
 # config self use headers
 header_directories(${SDK_ROOT}/lib)
+
 # build library first
 add_subdirectory(lib SDK)
 add_subdirectory(third_party)
 
-# LoBo: do not compile project
-#add_source_files(src/${PROJ}/*.c src/${PROJ}/*.s src/${PROJ}/*.S src/${PROJ}/*.cpp)
-#include(./cmake/executable.cmake)
+# Do not compile project if not given
+if (NOT PROJ STREQUAL "Dummy")
+    add_source_files(src/${PROJ}/*.c src/${PROJ}/*.s src/${PROJ}/*.S src/${PROJ}/*.cpp)
+    include(./cmake/executable.cmake)
+endif ()

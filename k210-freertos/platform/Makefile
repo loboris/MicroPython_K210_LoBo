@@ -52,10 +52,9 @@ SRC_CPP := $(wildcard *.cpp)
 FILE_MAKEFILE := $(foreach n,$(SUBDIRS) , $(wildcard $(n)/Makefile))
 
 all: compile
-	$(info =====[ CUR_DIR $(CUR_DIR) ... ]======)
+	$(info =====[ CUR_DIR $(CUR_DIR_ADDR) ... ]======)
 
 compile:
-	$(info =====[ AllDirs $(AllDirs) ... ]======)
 	$(foreach n,$(FILE_MAKEFILE),$(call sub_make,$(n)))
 
 update_mk:

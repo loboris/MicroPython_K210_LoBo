@@ -92,9 +92,9 @@ public:
 
         uint32_t threshold;
         i2s_word_select_cycles_t wsc;
-        i2s_word_length_t wlen = IGNORE_WORD_LENGTH;
-        size_t block_align = 4;
-        uint32_t dma_divide16 = 0;
+        i2s_word_length_t wlen = RESOLUTION_16_BIT;
+        size_t block_align = format.channels * 2;
+        uint32_t dma_divide16 = 1;
 
         extract_params(format, threshold, wsc, wlen, block_align, dma_divide16);
 
@@ -198,8 +198,8 @@ public:
 
         uint32_t threshold;
         i2s_word_select_cycles_t wsc;
-        i2s_word_length_t wlen = IGNORE_WORD_LENGTH;
-        size_t block_align = 4;
+        i2s_word_length_t wlen = RESOLUTION_16_BIT;
+        size_t block_align = format.channels * 2;
         uint32_t dma_divide16;
 
         extract_params(format, threshold, wsc, wlen, block_align, dma_divide16);

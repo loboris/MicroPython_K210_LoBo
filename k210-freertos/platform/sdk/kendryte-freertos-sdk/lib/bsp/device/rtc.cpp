@@ -67,9 +67,6 @@ public:
         rtc_date_t timer_date = read_pod(rtc_.date);
         rtc_time_t timer_time = read_pod(rtc_.time);
         rtc_extended_t timer_extended = read_pod(rtc_.extended);
-        /*printf("[GET_TIME] %u, %u, %u, %u, %u, %u\r\n",
-                (timer_date.year % 100) + (timer_extended.century * 100), timer_date.month, timer_date.day,
-                timer_time.hour, timer_time.minute, timer_time.second);*/
         datetime.tm_sec = timer_time.second % 60;
         datetime.tm_min = timer_time.minute % 60;
         datetime.tm_hour = timer_time.hour % 24;
@@ -157,9 +154,6 @@ public:
         write_pod(rtc_.date, timer_date);
         write_pod(rtc_.time, timer_time);
         write_pod(rtc_.extended, timer_extended);
-        //printf("[SET_TIME] %u, %u, %u, %u, %u, %u\r\n",
-        //        (timer_date.year % 100) + (timer_extended.century * 100), timer_date.month, timer_date.day,
-        //        timer_time.hour, timer_time.minute, timer_time.second);
         // LoBo: wait for data synchronization 100 ns
         /* Get CPU current freq */
         unsigned long freq = sysctl_clock_get_freq(SYSCTL_CLOCK_CPU);
