@@ -128,7 +128,7 @@ typedef struct _machine_hw_spi_obj_t {
     uint32_t    buffer_size;
     uint32_t    slave_ro_size;
     bool        slave_buffer_allocated;
-    uint32_t    *slave_cb;          // slave callback function
+    mp_obj_t    slave_cb;           // slave callback function
     ws2812b_buffer_t ws2812_buffer;
     uint16_t    ws2812_lo;
     uint16_t    ws2812_hi;
@@ -232,7 +232,7 @@ STATIC void machine_hw_spi_print(const mp_print_t *print, mp_obj_t self_in, mp_p
     mp_printf(print, "\r\n          (pin value of -1 means the pin is not used)");
 
     if (self->spi_num == SPI_SLAVE) mp_printf(print, "\r\n    buffer_size=%u (%u read_only), callback: %s",
-            self->buffer_size, self->slave_ro_size, (self->slave_cb == NULL) ? "False" : "True");
+            self->buffer_size, self->slave_ro_size, (self->slave_cb == mp_const_none) ? "False" : "True");
 
     if ((self->spi_num == SPI_MASTER_WS2812_0) || (self->spi_num == SPI_MASTER_WS2812_1)) {
         mp_printf(print, "\r\n    ws2812: pixels=%u, buffer size=%u (needs=%u)", self->ws2812_buffer.num_pix, self->buffer_size, self->ws_needed_buf_size);
@@ -485,7 +485,12 @@ static void spi_slave_task(void *pvParameters)
             vTaskDelete(NULL);
         }
     }
+    TaskHandle_t task_handle = (TaskHandle_t)pvParameters;
     spi_slave_command_t slv_cmd = {0};
+    // if the task uses some MicroPython functions, we have to save
+    // MicroPython state in local storage pointers
+    vTaskSetThreadLocalStoragePointer(NULL, THREAD_LSP_STATE, pvTaskGetThreadLocalStoragePointer(task_handle, THREAD_LSP_STATE));
+    vTaskSetThreadLocalStoragePointer(NULL, THREAD_LSP_ARGS, pvTaskGetThreadLocalStoragePointer(task_handle, THREAD_LSP_ARGS));
 
     while (1) {
         // Check notification
@@ -520,7 +525,7 @@ static void spi_slave_task(void *pvParameters)
                     }
                 }
                 if (slave_obj->state == MACHINE_HW_SPI_STATE_INIT) {
-                    if ((slave_obj) && (slave_obj->slave_cb)) {
+                    if ((slave_obj) && (slave_obj->slave_cb != mp_const_none)) {
                         // schedule callback function
                         mp_obj_t tuple[4];
                         tuple[0] = mp_obj_new_int(slv_cmd.cmd);
@@ -561,10 +566,10 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
         { MP_QSTR_polarity,         MP_ARG_KW_ONLY                    | MP_ARG_BOOL, {.u_bool = false} },
         { MP_QSTR_phase,            MP_ARG_KW_ONLY                    | MP_ARG_BOOL, {.u_bool = false} },
         { MP_QSTR_firstbit,         MP_ARG_KW_ONLY                    | MP_ARG_INT,  {.u_int = MICROPY_PY_MACHINE_SPI_MSB} },
-        { MP_QSTR_sck,              MP_ARG_KW_ONLY  | MP_ARG_REQUIRED | MP_ARG_INT,  {.u_int = -1} },
+        { MP_QSTR_sck,              MP_ARG_KW_ONLY                    | MP_ARG_INT,  {.u_int = -1} },
         { MP_QSTR_mosi,             MP_ARG_KW_ONLY  | MP_ARG_REQUIRED | MP_ARG_INT,  {.u_int = -1} },
         { MP_QSTR_miso,             MP_ARG_KW_ONLY                    | MP_ARG_INT,  {.u_int = -1} },
-        { MP_QSTR_cs,               MP_ARG_KW_ONLY  | MP_ARG_REQUIRED | MP_ARG_INT,  {.u_int = -1} },
+        { MP_QSTR_cs,               MP_ARG_KW_ONLY                    | MP_ARG_INT,  {.u_int = -1} },
         { MP_QSTR_duplex,           MP_ARG_KW_ONLY                    | MP_ARG_BOOL, {.u_bool = true} },
         { MP_QSTR_bits,             MP_ARG_KW_ONLY                    | MP_ARG_INT,  {.u_int = 8} },
         { MP_QSTR_slave_buffer,     MP_ARG_KW_ONLY                    | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
@@ -618,11 +623,13 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
     bool flag = true;
     if ((args[ARG_mosi].u_int < 0) || (args[ARG_mosi].u_int >= FPIOA_NUM_IO)) flag = false;
     else if (self->spi_num == SPI_SLAVE) {
+        // in SLAVE mode cs, sck & mosi are required
         if ((args[ARG_sck].u_int < 0) || (args[ARG_sck].u_int >= FPIOA_NUM_IO)) flag = false;
         else if ((args[ARG_cs].u_int < 0) || (args[ARG_cs].u_int >= FPIOA_NUM_IO)) flag = false;
         else if ((args[ARG_miso].u_int < -1) || (args[ARG_miso].u_int >= FPIOA_NUM_IO)) flag = false;
     }
     else if (self->spi_num <= SPI_MASTER_1) {
+        // in MASTER mode sck & mosi are required
         if ((args[ARG_sck].u_int < 0) || (args[ARG_sck].u_int >= FPIOA_NUM_IO)) flag = false;
         else if ((args[ARG_cs].u_int < -1) || (args[ARG_cs].u_int >= FPIOA_NUM_IO)) flag = false;
         else if ((args[ARG_miso].u_int < -1) || (args[ARG_miso].u_int >= FPIOA_NUM_IO)) flag = false;
@@ -679,7 +686,7 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
     self->sck = args[ARG_sck].u_int;
     self->cs = args[ARG_cs].u_int;
     self->slave_buffer = NULL;
-    self->slave_cb = NULL;
+    self->slave_cb = mp_const_none;
     if (args[ARG_rolen].u_int < 0) self->slave_ro_size = 0;
     else self->slave_ro_size = args[ARG_rolen].u_int;
 
@@ -727,12 +734,12 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
     else {
         // SPI Slave
         BaseType_t res = xTaskCreate(
-                spi_slave_task,             // function entry
-                "spi_slave_task",           // task name
-                configMINIMAL_STACK_SIZE,   // stack_deepth
-                NULL,                       // function argument
-                MICROPY_TASK_PRIORITY+1,    // task priority
-                &slave_task);               // task handle
+                spi_slave_task,                         // function entry
+                "spi_slave_task",                       // task name
+                configMINIMAL_STACK_SIZE,               // stack_deepth
+                (void *)xTaskGetCurrentTaskHandle(),    // function argument
+                MICROPY_TASK_PRIORITY+1,                // task priority
+                &slave_task);                           // task handle
         if (res != pdPASS) slave_task = NULL;
         vTaskDelay(2);
         if (slave_task == NULL) {
@@ -759,6 +766,7 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
             self->slave_buffer_allocated = true;
         }
         else {
+            // MPy buffer object is provided
             mp_buffer_info_t bufinfo;
             mp_get_buffer_raise(args[ARG_buffer].u_obj, &bufinfo, MP_BUFFER_RW);
             if (bufinfo.len < SLAVE_BUFFER_MIN_SIZE) {
@@ -766,7 +774,7 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
                 spi_hard_deinit(self);
                 mp_raise_ValueError("SPI slave buffer size out of range");
             }
-            self->buffer_size = bufinfo.len - 8;
+            self->buffer_size = ((bufinfo.len * 8) / 8) - 8;
             self->slave_buffer = (uint8_t *)bufinfo.buf;
             self->slave_buffer_allocated = false;
         }
@@ -1160,8 +1168,7 @@ STATIC mp_obj_t mp_machine_spi_slave_callback(mp_obj_t self_in, mp_obj_t func)
         nlr_raise(mp_obj_new_exception_msg(&mp_type_ValueError, "Function argument required"));
     }
 
-    if (func == mp_const_none) self->slave_cb = NULL;
-    else self->slave_cb = func;
+    self->slave_cb = func;
 
     return mp_const_none;
 }

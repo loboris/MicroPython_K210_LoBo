@@ -892,6 +892,4 @@ def pye(file_name, tab_size=4, undo=50):
     edit.deinit_tty()
     edit.yank_buffer = []
 ## close
-    mem_info()
     edit = None
-    gc.collect()
