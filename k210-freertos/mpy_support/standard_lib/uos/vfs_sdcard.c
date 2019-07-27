@@ -435,10 +435,12 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_2(sdcard_vfs_rmdir_obj, sdcard_vfs_rmdir);
 STATIC mp_obj_t sdcard_vfs_rename(mp_obj_t vfs_in, mp_obj_t path_in, mp_obj_t path_out)
 {
     mp_obj_sdcard_vfs_t *self = MP_OBJ_TO_PTR(vfs_in);
+    static char local_newpath[FF_MAX_LFN] = {'\0'};
+    static char local_oldpath[FF_MAX_LFN] = {'\0'};
     const char *old_path = mp_obj_str_get_str(path_in);
     const char *new_path = mp_obj_str_get_str(path_out);
-    const char *local_oldpath = sdcard_local_path(old_path, self);
-    const char *local_newpath = sdcard_local_path(new_path, self);
+    strcpy(local_oldpath, sdcard_local_path(old_path, self));
+    strcpy(local_newpath, sdcard_local_path(new_path, self));
 
     FRESULT res = f_rename(local_oldpath, local_newpath);
     if (res == FR_EXIST) {

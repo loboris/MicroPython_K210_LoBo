@@ -658,10 +658,12 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_2(littlefs_vfs_remove_obj, littlefs_vfs_remove);
 STATIC mp_obj_t littlefs_vfs_rename(mp_obj_t vfs_in, mp_obj_t path_in, mp_obj_t path_out)
 {
     littlefs_user_mount_t *self = MP_OBJ_TO_PTR(vfs_in);
+    char lnew_path[LITTLEFS_CFG_MAX_NAME_LEN] = {'\0'};
+    char lold_path[LITTLEFS_CFG_MAX_NAME_LEN] = {'\0'};
     const char *old_path = mp_obj_str_get_str(path_in);
     const char *new_path = mp_obj_str_get_str(path_out);
-    const char *lold_path = littlefs_local_path(old_path);
-    const char *lnew_path = littlefs_local_path(new_path);
+    strcpy(lold_path, littlefs_local_path(old_path));
+    strcpy(lnew_path, littlefs_local_path(new_path));
     int res;
 
     res = lfs_rename(&self->fs->lfs, lold_path, lnew_path);

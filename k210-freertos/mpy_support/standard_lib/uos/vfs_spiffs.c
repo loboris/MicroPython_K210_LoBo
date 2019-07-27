@@ -490,10 +490,12 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_2(spiffs_vfs_remove_obj, spiffs_vfs_remove);
 STATIC mp_obj_t spiffs_vfs_rename(mp_obj_t vfs_in, mp_obj_t path_in, mp_obj_t path_out)
 {
     spiffs_user_mount_t *self = MP_OBJ_TO_PTR(vfs_in);
+    char lnew_path[SPIFFS_OBJ_NAME_LEN] = {'\0'};
+    char lold_path[SPIFFS_OBJ_NAME_LEN] = {'\0'};
     const char *old_path = mp_obj_str_get_str(path_in);
     const char *new_path = mp_obj_str_get_str(path_out);
-    const char *lold_path = spiffs_local_path(old_path);
-    const char *lnew_path = spiffs_local_path(new_path);
+    strcpy(lold_path, spiffs_local_path(old_path));
+    strcpy(lnew_path, spiffs_local_path(new_path));
     int res;
 
     res = SPIFFS_rename(&(self->fs), lold_path, lnew_path);
