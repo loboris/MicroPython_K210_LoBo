@@ -16,7 +16,7 @@
 
 ***
 
-_**If you find this project useful, you can contribute by making a donation**_[![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.me/BLovosevic)
+_**If you find this project useful, you can contribute by making a donation**_.&nbsp;&nbsp;[![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.me/BLovosevic)
 
 ***
 
