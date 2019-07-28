@@ -16,6 +16,10 @@
 
 ***
 
+_**If you find this project useful, you can contribute by making a donation**_[![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.me/BLovosevic)
+
+***
+
 This implementation was based on Sipeed [**MaixPy**](https://github.com/sipeed/MaixPy), but it deverged from it and is now a completely independent project.<br>
 
 ### Main features:

@@ -1,11 +1,11 @@
 /*
  * Image creator for the littlefs
  *
- * This file is part of the MicroPython ESP32 project, https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo
- * 
- * Copyright (c) 2018 LoBo (https://github.com/loboris)
- * 
+ * This file is part of the MicroPython K210 project, https://github.com/loboris/MicroPython_K210_LoBo
+ *
  * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal

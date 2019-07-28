@@ -618,7 +618,7 @@ static void _init_i2c_object(mp_machine_i2c_obj_t *self)
 
         if ((self->slave_busy) && (self->slave_rolen == 0)) self->slave_rolen = 1;
 
-        // Setup I2C master
+        // Setup I2C slave
         memset(&slave_state, 0, sizeof(i2c_slave_state_t));
         memset(&task_state, 0, sizeof(i2c_slave_state_t));
 

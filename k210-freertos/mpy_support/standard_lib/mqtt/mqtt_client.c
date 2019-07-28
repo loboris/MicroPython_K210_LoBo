@@ -8,7 +8,7 @@
  * Slightly modified mqtt library from https://github.com/espressif/esp-mqtt
  *
  * Copyright (c) 2018 tuanpm (https://github.com/tuanpmt/espmqtt)
- * Copyright (c) 2018 LoBo (https://github.com/loboris)
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
 */
 
 #include "platform_k210.h"
