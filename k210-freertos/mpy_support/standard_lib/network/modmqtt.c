@@ -117,7 +117,7 @@ STATIC void subscribed_cb(mqtt_obj_t *self, const char *topic)
         tuple[0] = MP_OBJ_FROM_PTR(self);
         tuple[1] = mp_obj_new_str(self->name, strlen(self->name));
         if (topic) tuple[2] = mp_obj_new_str(topic, strlen(topic));
-        else tuple[2] = mp_obj_new_str("?", 2);
+        else tuple[2] = mp_obj_new_str("??", 2);
 
         mp_sched_schedule((mp_obj_t)self->mpy_subscribed_cb, mp_obj_new_tuple(3, tuple));
     }
@@ -131,7 +131,7 @@ STATIC void unsubscribed_cb(mqtt_obj_t *self, const char *topic)
         tuple[0] = MP_OBJ_FROM_PTR(self);
         tuple[1] = mp_obj_new_str(self->name, strlen(self->name));
         if (topic) tuple[2] = mp_obj_new_str(topic, strlen(topic));
-        else tuple[2] = mp_obj_new_str("?", 2);
+        else tuple[2] = mp_obj_new_str("??", 2);
 
         mp_sched_schedule((mp_obj_t)self->mpy_unsubscribed_cb, mp_obj_new_tuple(3, tuple));
     }
@@ -141,13 +141,14 @@ STATIC void unsubscribed_cb(mqtt_obj_t *self, const char *topic)
 STATIC void published_cb(mqtt_obj_t *self, const char *topic, int type)
 {
     if (self->mpy_published_cb) {
-        mp_obj_t tuple[3];
+        mp_obj_t tuple[4];
         tuple[0] = MP_OBJ_FROM_PTR(self);
         tuple[1] = mp_obj_new_str(self->name, strlen(self->name));
         if (topic) tuple[2] = mp_obj_new_str(topic, strlen(topic));
-        else tuple[2] = mp_obj_new_str("?", 2);
+        else tuple[2] = mp_obj_new_str("??", 2);
+        tuple[3] = mp_obj_new_int(type);
 
-        mp_sched_schedule((mp_obj_t)self->mpy_published_cb, mp_obj_new_tuple(3, tuple));
+        mp_sched_schedule((mp_obj_t)self->mpy_published_cb, mp_obj_new_tuple(4, tuple));
     }
 }
 
@@ -317,7 +318,7 @@ STATIC void mqtt_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_
     else if (self->client->config->host) server_uri = self->client->config->host;
 
     mp_printf(print, "Mqtt[%s]\n    (Server: %s:%u, Status: %s\n", self->name, server_uri, self->client->config->port, sstat);
-    if ((self->client->state == MQTT_STATE_CONNECTED) || (self->client->state == MQTT_STATE_INIT)) {
+    //if ((self->client->state == MQTT_STATE_CONNECTED) || (self->client->state == MQTT_STATE_INIT)) {
 		mp_printf(print, "     Client ID: %s, Clean session=%s, Keepalive=%ds\n     LWT(",
 				self->client->connect_info.client_id, (self->client->connect_info.clean_session ? "True" : "False"), self->client->connect_info.keepalive);
 		if (self->client->connect_info.will_topic) {
@@ -325,7 +326,7 @@ STATIC void mqtt_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_
 					self->client->connect_info.will_qos, (self->client->connect_info.will_retain ? "True" : "False"), self->client->connect_info.will_topic, self->client->connect_info.will_message);
 		}
 		else mp_printf(print, "not set)\n");
-    }
+    //}
     /*
 	if ((self->client->settings->xMqttTask) && (self->client->settings->xMqttSendingTask)) {
 		mp_printf(print, "     Used stack: %u/%u + %u/%u\n",
@@ -417,6 +418,9 @@ STATIC mp_obj_t mqtt_make_new(const mp_obj_type_t *type, size_t n_args, size_t n
 
     // Populate settings
     esp_mqtt_client_config_t mqtt_cfg = {0};
+
+    // Set mqtt task priority
+    mqtt_cfg.task_prio = MICROPY_TASK_PRIORITY+1;
 
     // Event handle
     mqtt_cfg.event_handle = mqtt_event_handler;
@@ -584,9 +588,6 @@ STATIC mp_obj_t mqtt_op_config(mp_uint_t n_args, const mp_obj_t *pos_args, mp_ma
 	if (!self->client) {
 		mp_raise_ValueError("Destroyed");
 	}
-    if (self->client->state < MQTT_STATE_INIT) {
-		mp_raise_ValueError("Not initialized");
-    }
 
     mp_arg_val_t args[MP_ARRAY_SIZE(mqtt_config_allowed_args)];
     mp_arg_parse_all(n_args-1, pos_args+1, kw_args, MP_ARRAY_SIZE(mqtt_config_allowed_args), mqtt_config_allowed_args, args);
@@ -709,7 +710,6 @@ STATIC mp_obj_t mqtt_op_subscribe(mp_uint_t n_args, const mp_obj_t *args)
     if (checkClient(self) != MQTT_STATE_CONNECTED) return mp_const_false;
 
     const char *topic = mp_obj_str_get_str(args[1]);
-    int wait = 2000;
     int qos = 0;
     if (n_args == 3) {
     	qos = mp_obj_get_int(args[2]);
@@ -726,15 +726,9 @@ STATIC mp_obj_t mqtt_op_subscribe(mp_uint_t n_args, const mp_obj_t *args)
     	self->client->config->user_context = NULL;
     	return mp_const_false;
     }
-	while ((wait > 0) && (self->subs_flag == 0)) {
-		vTaskDelay(10 / portTICK_PERIOD_MS);
-		wait -= 10;
-	}
-	self->client->config->user_context = NULL;
-	if (wait) return mp_const_true;
-	else return mp_const_false;
+	return mp_const_true;
 }
-MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mqtt_subscribe_obj, 2, 3, mqtt_op_subscribe);
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mqtt_subscribe_obj, 2, 4, mqtt_op_subscribe);
 
 //----------------------------------------------------------------------
 STATIC mp_obj_t mqtt_op_unsubscribe(mp_obj_t self_in, mp_obj_t topic_in)
@@ -743,7 +737,6 @@ STATIC mp_obj_t mqtt_op_unsubscribe(mp_obj_t self_in, mp_obj_t topic_in)
     if (checkClient(self) != MQTT_STATE_CONNECTED) return mp_const_false;
 
     const char *topic = mp_obj_str_get_str(topic_in);
-    int wait = 2000;
     self->unsubs_flag = 0;
     self->client->config->user_context = (void *)topic;
 
@@ -752,13 +745,7 @@ STATIC mp_obj_t mqtt_op_unsubscribe(mp_obj_t self_in, mp_obj_t topic_in)
     	self->client->config->user_context = NULL;
     	return mp_const_false;
     }
-	while ((wait > 0) && (self->unsubs_flag == 0)) {
-		vTaskDelay(10 / portTICK_PERIOD_MS);
-		wait -= 10;
-	}
-	self->client->config->user_context = NULL;
-	if (wait) return mp_const_true;
-	else return mp_const_false;
+	return mp_const_true;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(mqtt_unsubscribe_obj, mqtt_op_unsubscribe);
 
@@ -772,7 +759,6 @@ STATIC mp_obj_t mqtt_op_publish(mp_uint_t n_args, const mp_obj_t *args)
     const char *topic = mp_obj_str_get_str(args[1]);
     const char *msg = mp_obj_str_get_data(args[2], &len);
 
-    int wait = 2000;
     int qos = 0;
     if (n_args == 4) {
     	qos = mp_obj_get_int(args[3]);
@@ -780,7 +766,6 @@ STATIC mp_obj_t mqtt_op_publish(mp_uint_t n_args, const mp_obj_t *args)
     		mp_raise_ValueError("Wrong QoS value");
     	}
     }
-    if (qos == 0) wait = 0;
 
     int retain = 0;
     if (n_args == 5) retain = mp_obj_is_true(args[4]);
@@ -793,12 +778,6 @@ STATIC mp_obj_t mqtt_op_publish(mp_uint_t n_args, const mp_obj_t *args)
     	self->client->config->user_context = NULL;
     	return mp_const_false;
     }
-	while ((wait > 0) && (self->publish_flag == 0)) {
-		vTaskDelay(10 / portTICK_PERIOD_MS);
-		wait -= 10;
-	}
-	self->client->config->user_context = NULL;
-
     return mp_const_true;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mqtt_publish_obj, 3, 5, mqtt_op_publish);
@@ -845,12 +824,15 @@ STATIC mp_obj_t mqtt_op_stop(mp_obj_t self_in)
 }
 MP_DEFINE_CONST_FUN_OBJ_1(mqtt_stop_obj, mqtt_op_stop);
 
-//--------------------------------------------
+//---------------------------------------------
 STATIC mp_obj_t mqtt_op_start(mp_obj_t self_in)
 {
     mqtt_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
 	if ((self->client) && (self->client->state < MQTT_STATE_INIT)) {
+	    if (self->client->connect_info.clean_session) {
+            nlr_raise(mp_obj_new_exception_msg(&mp_type_TypeError, "Client not in persistent session, free and create again"));
+	    }
 	    int res = esp_mqtt_client_start(self->client);
 	    if (res != 0) {
 	        nlr_raise(mp_obj_new_exception_msg(&mp_type_TypeError, "Error starting client"));
@@ -899,6 +881,15 @@ STATIC mp_obj_t mqtt_op_free(mp_obj_t self_in)
 }
 MP_DEFINE_CONST_FUN_OBJ_1(mqtt_free_obj, mqtt_op_free);
 
+//-----------------------------------------------------------
+STATIC mp_obj_t mqtt_debug(mp_obj_t self_in, mp_obj_t enable)
+{
+    //mqtt_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    transport_debug = mp_obj_is_true(enable);
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(mqtt_debug_obj, mqtt_debug);
+
 
 //=========================================================
 STATIC const mp_rom_map_elem_t mqtt_locals_dict_table[] = {
@@ -910,6 +901,7 @@ STATIC const mp_rom_map_elem_t mqtt_locals_dict_table[] = {
 	    { MP_ROM_QSTR(MP_QSTR_stop),		(mp_obj_t)&mqtt_stop_obj },
 	    { MP_ROM_QSTR(MP_QSTR_start),		(mp_obj_t)&mqtt_start_obj },
 	    { MP_ROM_QSTR(MP_QSTR_free),		(mp_obj_t)&mqtt_free_obj },
+        { MP_ROM_QSTR(MP_QSTR_debug),       (mp_obj_t)&mqtt_debug_obj },
 };
 STATIC MP_DEFINE_CONST_DICT(mqtt_locals_dict, mqtt_locals_dict_table);
 

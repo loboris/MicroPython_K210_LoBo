@@ -88,6 +88,7 @@ static int ssl_connect(transport_handle_t t, const char *host, int port, int tim
         goto exit;
     }
     if (transport_debug) LOGD(TAG, "Connected to %s:%d", host, port);
+    ssl->sock->peer_closed = false;
     return ssl->sock->fd;
 exit:
     ssl_close(t);
@@ -155,6 +156,7 @@ static int ssl_close(transport_handle_t t)
     int ret = -1;
     transport_ssl_t *ssl = transport_get_context_data(t);
     ret = wifi_close(ssl->sock);
+    ssl->sock->fd = -1;
     return ret;
 }
 

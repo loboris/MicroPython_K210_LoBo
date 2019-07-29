@@ -410,9 +410,10 @@ static void _checkAddr(uint16_t addr)
     }
 }
 
-//----------------------------------------------------
-static uint8_t getMemAdrLen(int memlen, uint32_t addr)
+//-----------------------------------------------------------------
+static uint8_t getMemAdrLen(int memlen, int membits, uint32_t addr)
 {
+    if (membits > 0) memlen = membits / 8;
     if ((memlen < 1) || (memlen > 4)) {
         mp_raise_ValueError("Memory address length error, 1 - 4 allowed");
     }
@@ -1119,12 +1120,13 @@ STATIC const mp_arg_t mp_machine_i2c_mem_allowed_args[] = {
     { MP_QSTR_memaddr,      MP_ARG_REQUIRED | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
     { MP_QSTR_arg,                            MP_ARG_OBJ,  {.u_obj = MP_OBJ_NULL} },
     { MP_QSTR_adrlen,       MP_ARG_KW_ONLY  | MP_ARG_INT,  {.u_int = 1} },
+    { MP_QSTR_addr_size,    MP_ARG_KW_ONLY  | MP_ARG_INT,  {.u_int = 0} },
 };
 
 //-----------------------------------------------------------------------------------------------------
 STATIC mp_obj_t mp_machine_i2c_readfrom_mem(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
-    enum { ARG_addr, ARG_memaddr, ARG_n, ARG_memlen };
+    enum { ARG_addr, ARG_memaddr, ARG_n, ARG_memlen, ARG_membits };
     mp_machine_i2c_obj_t *self = pos_args[0];
     _checkMaster(self);
 
@@ -1138,7 +1140,7 @@ STATIC mp_obj_t mp_machine_i2c_readfrom_mem(size_t n_args, const mp_obj_t *pos_a
     int n = mp_obj_get_int(args[ARG_n].u_obj);
     if (n > 0) {
         uint32_t addr = (uint32_t)mp_obj_get_int(args[ARG_memaddr].u_obj);
-        uint8_t memlen = getMemAdrLen(args[ARG_memlen].u_int, addr);
+        uint8_t memlen = getMemAdrLen(args[ARG_memlen].u_int, args[ARG_membits].u_int, addr);
 
         uint8_t *buf = pvPortMalloc(n);
         if (buf == NULL) {
@@ -1164,7 +1166,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_KW(mp_machine_i2c_readfrom_mem_obj, 1, mp_machine
 //----------------------------------------------------------------------------------------------------------
 STATIC mp_obj_t mp_machine_i2c_readfrom_mem_into(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
-    enum { ARG_addr, ARG_memaddr, ARG_buf, ARG_memlen };
+    enum { ARG_addr, ARG_memaddr, ARG_buf, ARG_memlen, ARG_membits };
     mp_machine_i2c_obj_t *self = pos_args[0];
     _checkMaster(self);
 
@@ -1175,7 +1177,7 @@ STATIC mp_obj_t mp_machine_i2c_readfrom_mem_into(size_t n_args, const mp_obj_t *
     _checkAddr(args[ARG_addr].u_int);
 
     uint32_t addr = (uint32_t)mp_obj_get_int(args[ARG_memaddr].u_obj);
-    uint8_t memlen = getMemAdrLen(args[ARG_memlen].u_int, addr);
+    uint8_t memlen = getMemAdrLen(args[ARG_memlen].u_int, args[ARG_membits].u_int, addr);
 
     // Get the output data buffer
     mp_buffer_info_t bufinfo;
@@ -1196,7 +1198,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_KW(mp_machine_i2c_readfrom_mem_into_obj, 1, mp_ma
 //----------------------------------------------------------------------------------------------------
 STATIC mp_obj_t mp_machine_i2c_writeto_mem(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
-    enum { ARG_addr, ARG_memaddr, ARG_buf, ARG_memlen };
+    enum { ARG_addr, ARG_memaddr, ARG_buf, ARG_memlen, ARG_membits };
     mp_machine_i2c_obj_t *self = pos_args[0];
     _checkMaster(self);
 
@@ -1207,7 +1209,7 @@ STATIC mp_obj_t mp_machine_i2c_writeto_mem(size_t n_args, const mp_obj_t *pos_ar
     _checkAddr(args[ARG_addr].u_int);
 
     uint32_t addr = (uint32_t)mp_obj_get_int(args[ARG_memaddr].u_obj);
-    uint8_t memlen = getMemAdrLen(args[ARG_memlen].u_int, addr);
+    uint8_t memlen = getMemAdrLen(args[ARG_memlen].u_int, args[ARG_membits].u_int, addr);
     uint16_t len = 0;
     uint8_t *data = NULL;
 

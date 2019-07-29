@@ -637,7 +637,7 @@ check_again:
     if (position < 2) {
         position = uart_buf_find(mpy_uarts[wifi_uart_num].uart_buf, buflen, ",TCPconnect:", 12, NULL);
         if (position >= 3) {
-            // detected, get the full command
+            // TCP Server connection detected, get the full command
             type = 1;
             int cmd_end = -1;
             while (cmd_end < 0) {
@@ -681,7 +681,8 @@ check_again:
 
         if (type == 0) {
             // CIP Connect is not supported
-            _close_socket(link_id, true);
+            if (wifi_debug) LOGY(WIFI_TASK_TAG, "Unsupported connection type! (%s)", data);
+            _close_socket(link_id, false);
             goto check_again;
         }
 
@@ -1325,9 +1326,19 @@ int wifi_connect(socket_obj_t *sock, const char *host, int port, int localport)
     int keep_alive = 0;
     char cmd[256];
     char type[8];
-    if (sock->proto == IPPROTO_UDP) sprintf(type, "UDP");
-    else if (sock->proto == WIFI_IPPROTO_SSL) sprintf(type, "SSL");
-    else sprintf(type, "TCP");
+    char response[16] = {'\0'};
+    if (sock->proto == IPPROTO_UDP) {
+        sprintf(type, "UDP");
+        sprintf(response, "\r\nOK\r\n");
+    }
+    else if (sock->proto == WIFI_IPPROTO_SSL) {
+        sprintf(type, "SSL");
+        sprintf(response, "%d,CONNECT\r\n", sock->link_id);
+    }
+    else {
+        sprintf(type, "TCP");
+        sprintf(response, "%d,CONNECT\r\n", sock->link_id);
+    }
     if (sock->proto != IPPROTO_UDP) keep_alive = 3;
 
     if (sock->proto != IPPROTO_UDP)
@@ -1338,10 +1349,10 @@ int wifi_connect(socket_obj_t *sock, const char *host, int port, int localport)
     }
     memset(&at_responses, 0, sizeof(at_responses_t));
     memset(&at_command, 0, sizeof(at_command_t));
-    at_responses.nresp = 2;
-    at_responses.resp[0] = AT_OK_Str;
+    at_responses.nresp = 3;
+    at_responses.resp[0] = response;
     at_responses.resp[1] = AT_Error_Str;
-    //at_responses.resp[2] = "CONNECTED";
+    at_responses.resp[2] = "\r\n+TCPSTART";
     at_command.cmd = cmd;
     at_command.cmdSize = -1;
     at_command.responses = &at_responses;
@@ -1505,7 +1516,7 @@ int wifi_close(socket_obj_t *sock)
 static int _wifi_send(socket_obj_t *sock, const char *data, size_t data_len, const char *host, int port)
 {
     if ((at_sockets[sock->fd] != sock) || (at_sockets[sock->fd]->peer_closed)) {
-        if (wifi_debug) LOGE(WIFI_TAG, "Send: Not a socket");
+        if (wifi_debug) LOGE(WIFI_TAG, "Send: Not a socket %d (%d, %d)", sock->fd, (at_sockets[sock->fd] != sock), (at_sockets[sock->fd]->peer_closed));
         errno = ENOTSOCK;
         return -1;
     }

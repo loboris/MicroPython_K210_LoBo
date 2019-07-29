@@ -70,6 +70,7 @@ static int mqtcp_connect(transport_handle_t t, const char *host, int port, int t
             return -1;
         }
         if (transport_debug) LOGD(TAG, "Connected to %s:%d", host, port);
+        tcp->sock->peer_closed = false;
         return tcp->sock->fd;
     }
 
@@ -215,8 +216,8 @@ static int mqtcp_close(transport_handle_t t)
     }
     else if (tcp->sock->fd >= 0) {
         ret = lwip_close(tcp->sock->fd);
-        tcp->sock->fd = -1;
     }
+    tcp->sock->fd = -1;
     return ret;
 }
 

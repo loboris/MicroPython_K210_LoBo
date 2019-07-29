@@ -687,7 +687,7 @@ static void esp_mqtt_task(void *pvParameters)
         switch ((int)client->state) {
             case MQTT_STATE_INIT:
                 if (client->transport == NULL) {
-                    if (transport_debug) LOGE(MQTT_TAG, "There are no transport");
+                    if (transport_debug) LOGE(MQTT_TAG, "There is no transport");
                     client->run = false;
                 }
 
@@ -700,6 +700,7 @@ static void esp_mqtt_task(void *pvParameters)
                     esp_mqtt_abort_connection(client);
                     break;
                 }
+                vTaskDelay(50);
                 if (transport_debug) LOGD(MQTT_TAG, "Transport connected to %s://%s:%d", client->config->scheme, client->config->host, client->config->port);
                 if (esp_mqtt_connect(client, client->config->network_timeout_ms) != 0) {
                     if (transport_debug) LOGI(MQTT_TAG, "MQTT Connect error");
