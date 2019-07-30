@@ -73,7 +73,7 @@ static uint32_t pppos_rx_count = 0;
 static uint32_t pppos_tx_count = 0;
 
 int gsm_uart_baudrate = 115200;
-bool gsm_debug = true;
+bool gsm_debug = false;
 int gsm_uart_num = -1;
 at_responses_t gsm_at_responses = { 0 };
 at_command_t gsm_at_command = { 0 };
@@ -89,6 +89,7 @@ static uint8_t ppp_status = ATDEV_STATEFIRSTINIT;
 static uint32_t gsm_ppp_ip = 0;
 static uint32_t gsm_ppp_netmask = 0;
 static uint32_t gsm_ppp_gw = 0;
+static time_t ntp_got_time = 0;
 
 static char gsm_connect_string[32] = "ATDT*99***1#\r\n";  // "AT+CGDATA=\"PPP\",1\r\n"
 const char *GSM_PPP_TAG = "[GSM_PPPOS]";
@@ -225,18 +226,6 @@ extern handle_t mp_rtc_rtc0;
 
 static void *ntp_time_cb = NULL;
 
-//==========================
-int setNTP_cb(void *cb_func)
-{
-    if (mpy_uarts[gsm_uart_num].uart_mutex == NULL) return 0;
-    if (xSemaphoreTake(mpy_uarts[gsm_uart_num].uart_mutex, PPPOSMUTEX_TIMEOUT) == pdTRUE) {
-        ntp_time_cb = cb_func;
-        xSemaphoreGive(mpy_uarts[gsm_uart_num].uart_mutex);
-    }
-    return 1;
-}
-
-
 //==============================================
 // Function used by SNTP to synchronize the time
 //==============================================
@@ -246,15 +235,7 @@ void set_rtc_time_from_seconds(time_t seconds)
     tm_info = gmtime(&seconds);
     //rtc_set_datetime(mp_rtc_rtc0, tm_info); // set RTC time
     _set_sys_time(tm_info, 0);
-    if (gsm_debug) {
-        LOGM("[NTP]", "Time synchronized from NTP (%ld)", seconds);
-    }
-    int taken = pdFALSE;
-    if (mpy_uarts[gsm_uart_num].uart_mutex) taken = xSemaphoreTake(mpy_uarts[gsm_uart_num].uart_mutex, PPPOSMUTEX_TIMEOUT);
-    if ((taken) && (ntp_time_cb)) {
-        mp_sched_schedule((mp_obj_t)ntp_time_cb, mp_obj_new_int(seconds));
-    }
-    if (taken) xSemaphoreGive(mpy_uarts[gsm_uart_num].uart_mutex);
+    ntp_got_time = seconds;
     if (sntp_enabled()) {
         sntp_stop();
     }
@@ -515,7 +496,7 @@ static void checkSMS()
 	        gsm_debug = false;
 			sms_timer = mp_hal_ticks_ms() + SMS_check_interval;
 			SMS_indexes indexes;
-			int nmsg = checkMessages(SMS_LIST_NEW, 0, NULL, &indexes, SMS_SORT_NONE);
+			int nmsg = checkMessages(SMS_LIST_NEW, 0, NULL, &indexes, SMS_SORT_ASC);
 			if (nmsg > 0) {
 				if (nmsg > 100) nmsg = 100;
 				// Create a tuple containing SMS indexes
@@ -548,8 +529,8 @@ static int _task_idle()
         }
 
         gstat = do_pppos_connect;
-        checkSMS();
         xSemaphoreGive(mpy_uarts[gsm_uart_num].uart_mutex);
+        checkSMS();
     }
     net_active_interfaces &= ~ACTIVE_INTERFACE_GSM;
     return gstat;
@@ -566,6 +547,11 @@ static void _handle_pppos_data(char *data)
     else {
         vTaskDelay(5 / portTICK_PERIOD_MS);
         do_check = true;
+    }
+    if (ntp_got_time > 0) {
+        if (gsm_debug) LOGM(GSM_PPP_TAG, "NTP time synchronized (%lu)", ntp_got_time);
+        if (ntp_time_cb) mp_sched_schedule((mp_obj_t)ntp_time_cb, mp_obj_new_int(ntp_got_time));
+        ntp_got_time = 0;
     }
 
     if (do_check) {
@@ -1065,7 +1051,7 @@ int gsm_ppposInit(int tx, int rx, int rts, int cts, int bdr, char *user, char *p
         strncpy(GSM_APN, apn, PPP_MAX_NAME_LEN);
 
         if (!tcpip_adapter_initialized) {
-            LOGM(GSM_PPP_TAG,"Network init (from GSM module)");
+            if (gsm_debug) LOGM(GSM_PPP_TAG,"Network init (from GSM module)");
             network_init();
             tcpip_adapter_initialized = true;
         }
@@ -1305,8 +1291,8 @@ static bool is_OnLine()
 	return ret;
 }
 
-//---------------------------------------
-time_t sms_time(char * msg_time, int *tz)
+//-------------------------------------------------
+static time_t sms_time(char * msg_time, int *tzone)
 {
 	if (strlen(msg_time) >= 20) {
 		// Convert message time to time structure
@@ -1319,7 +1305,7 @@ time_t sms_time(char * msg_time, int *tz)
 		tm.tm_year = yy+100;
 		tm.tm_mon = mn-1;
 		tm.tm_mday = dd;
-		if (tz) tz = tz/4;	// time zone info
+		if (tzone) *tzone = tz/4;	// time zone info
 		return mktime(&tm);	// Linux time
 	}
 	return 0;
@@ -1439,6 +1425,9 @@ static int getSMSindex(char *msgstart, time_t *msgtime)
 //-------------------------------------------------------------------------------------------------
 int checkMessages(uint8_t rd_status, int sms_idx, SMS_Msg *msg, SMS_indexes *indexes, uint8_t sort)
 {
+    char cmd[32] = {0};
+    char *list_change = "";
+    if (msg == NULL) list_change = ",1";
     char *rbuffer = pvPortMalloc(1024);
     if (rbuffer == NULL) {
         if (gsm_debug) {
@@ -1449,36 +1438,61 @@ int checkMessages(uint8_t rd_status, int sms_idx, SMS_Msg *msg, SMS_indexes *ind
     memset(rbuffer, 0, 1024);
 
     // ** Send command to GSM and get the response
-    char *cmd = SMS_LIST_ALL_STR;
-    if (rd_status == SMS_LIST_NEW) cmd = SMS_LIST_NEW_STR;
-    else if (rd_status == SMS_LIST_OLD) cmd = SMS_LIST_OLD_STR;
+    if (rd_status == SMS_LIST_NEW) sprintf(cmd, "%s%s\r\n", SMS_LIST_NEW_STR, list_change);
+    else if (rd_status == SMS_LIST_OLD) sprintf(cmd, "%s%s\r\n", SMS_LIST_OLD_STR, list_change);
+    else sprintf(cmd, "%s%s\r\n", SMS_LIST_ALL_STR, list_change);
 
     // Read all messages to buffer
+    at_responses_t at_responses1;
+    memset(&at_responses1, 0, sizeof(at_responses_t));
+    at_responses1.nresp = 2;
+    at_responses1.resp[0] = AT_OK_Str;
+    at_responses1.resp[1] = AT_Error_Str;
+
     memset(&gsm_at_responses, 0, sizeof(at_responses_t));
-    memset(&gsm_at_command, 0, sizeof(at_command_t));
     gsm_at_responses.nresp = 2;
-    gsm_at_responses.resp[0] = "\r\n\r\nOK";
+    gsm_at_responses.resp[0] = "\r\n\r\nOK\r\n"; // wait for end of messages list
     gsm_at_responses.resp[1] = AT_Error_Str;
-    gsm_at_command.cmd = cmd;
-    gsm_at_command.cmdSize = strlen(cmd);
-    gsm_at_command.responses = &gsm_at_responses;
-    gsm_at_command.timeout = 4000;
-    gsm_at_command.at_uart_num = gsm_uart_num;
-    gsm_at_command.dbg = gsm_debug;
-    gsm_at_command.respbSize = 1024;
-    gsm_at_command.respbuff = rbuffer;
-    gsm_at_command.flush = true;
+
+    at_commands_t at_commands;
+    memset(&at_commands, 0, sizeof(at_commands_t));
+    at_commands.ncmd = 2;
+    at_commands.at_uart_num = gsm_uart_num;
+    at_commands.dbg = gsm_debug;
+    at_commands.expect_resp[0] = 1;
+    at_commands.expect_resp[1] = 1;
+
+    at_commands.commands[0].cmd = "AT+CMGF=1\r\n";
+    at_commands.commands[0].cmdSize = -1;
+    at_commands.commands[0].responses = &at_responses1;
+    at_commands.commands[0].timeout = 100;
+    at_commands.commands[0].at_uart_num = gsm_uart_num;
+    at_commands.commands[0].dbg = gsm_debug;
+    at_commands.commands[0].flush = true;
+
+    at_commands.commands[1].cmd = cmd;
+    at_commands.commands[1].cmdSize = strlen(cmd);
+    at_commands.commands[1].responses = &gsm_at_responses;
+    at_commands.commands[1].timeout = 2000;
+    at_commands.commands[1].at_uart_num = gsm_uart_num;
+    at_commands.commands[1].dbg = gsm_debug;
+    at_commands.commands[1].respbSize = 1024;
+    at_commands.commands[1].respbuff = rbuffer;
+    at_commands.commands[1].flush = true;
 
     int buflen = 0;
+    int res, n_proc = 0;
+    int msgidx = 0;
+    time_t msgtime = 0;
 
     // Execute command
-    int res = gsm_at_Cmd(&gsm_at_command);
+    res = gsm_at_Commands(&at_commands, &n_proc);
 
-    if (res == 1) buflen = strlen(gsm_at_command.respbuff);
+    if ((n_proc == 2) && (res == 1)) buflen = strlen(at_commands.commands[1].respbuff);
 
 	if (indexes !=NULL) memset(indexes, 0, sizeof(SMS_indexes));
 	// The buffer may have been expanded
-	rbuffer = gsm_at_command.respbuff;
+	rbuffer = at_commands.commands[1].respbuff;
 
 	// Parse the response
 	int nmsg = 0;
@@ -1498,13 +1512,15 @@ int checkMessages(uint8_t rd_status, int sms_idx, SMS_Msg *msg, SMS_indexes *ind
             }
         }
         if ((msgstart) && (msgend_h) && (msgend_t)) {
-            // We have at least one the whole message in the buffer
+            // We have at least one whole message in the buffer
             nmsg++;
+            msgidx = getSMSindex(msgstart+7, &msgtime);
             if ((indexes !=NULL) && (nmsg < SMS_MAX_MESSAGES)) {
                 // Only save message index and time
-                indexes->idx[nmsg-1] = getSMSindex(msgstart+7, &indexes->time[nmsg-1]);
+                indexes->idx[nmsg-1] = msgidx;
+                indexes->time[nmsg-1] = msgtime;
             }
-            if ((sms_idx == (nmsg-1)) && (msg != NULL)) {
+            if ((sms_idx == msgidx) && (msg != NULL)) {
                 // Get the message text if requested, save message info and text
                 getSMS(msgstart+7, msg, 1);
                 idx_found = 1;
@@ -1608,7 +1624,7 @@ int smsSend(char *smsnum, char *msg)
     at_commands.commands[1].dbg = gsm_debug;
     at_commands.commands[1].flush = true;
 
-    res = gsm_at_Commands(&at_commands);
+    res = gsm_at_Commands(&at_commands, NULL);
     if (res != 1) {
         // Try to recover
         at_uart_write(gsm_uart_num, (uint8_t *)"\x1B", 1);
@@ -1715,25 +1731,43 @@ bool gsm_set_baudrate(int bdr, bool perm)
 }
 
 
+//==========================
+int setNTP_cb(void *cb_func)
+{
+    int stat = ppposStatus(NULL, NULL, NULL);
+    int taken = pdFALSE;
+    if ((stat != ATDEV_STATEFIRSTINIT) && (mpy_uarts[gsm_uart_num].uart_mutex != NULL))
+        taken = xSemaphoreTake(mpy_uarts[gsm_uart_num].uart_mutex, PPPOSMUTEX_TIMEOUT*5);
+
+    ntp_time_cb = cb_func;
+
+    if (taken) xSemaphoreGive(mpy_uarts[gsm_uart_num].uart_mutex);
+    return 1;
+}
+
 //=============================================
 int setSMS_cb(void *cb_func, uint32_t interval)
 {
-	if (mpy_uarts[gsm_uart_num].uart_mutex == NULL) return 0;
-    if (xSemaphoreTake(mpy_uarts[gsm_uart_num].uart_mutex, PPPOSMUTEX_TIMEOUT*5) != pdTRUE) return 0;
+    int stat = ppposStatus(NULL, NULL, NULL);
+    int taken = pdFALSE;
+    if ((stat != ATDEV_STATEFIRSTINIT) && (mpy_uarts[gsm_uart_num].uart_mutex != NULL))
+        taken = xSemaphoreTake(mpy_uarts[gsm_uart_num].uart_mutex, PPPOSMUTEX_TIMEOUT*5);
 
     new_SMS_cb = cb_func;
 	SMS_check_interval = interval;
     sms_timer = mp_hal_ticks_ms() + SMS_check_interval;
+    doCheckSMS = 1;
 
-	xSemaphoreGive(mpy_uarts[gsm_uart_num].uart_mutex);
+    if (taken) xSemaphoreGive(mpy_uarts[gsm_uart_num].uart_mutex);
 	return 1;
 }
 
 //=========================
 void gsm_setDebug(bool dbg)
 {
+    int stat = ppposStatus(NULL, NULL, NULL);
     int taken = pdFALSE;
-	if (mpy_uarts[gsm_uart_num].uart_mutex != NULL) taken = xSemaphoreTake(mpy_uarts[gsm_uart_num].uart_mutex, PPPOSMUTEX_TIMEOUT);
+	if ((stat != ATDEV_STATEFIRSTINIT) && (mpy_uarts[gsm_uart_num].uart_mutex != NULL)) taken = xSemaphoreTake(mpy_uarts[gsm_uart_num].uart_mutex, PPPOSMUTEX_TIMEOUT);
 	gsm_debug = dbg;
 	if (taken) xSemaphoreGive(mpy_uarts[gsm_uart_num].uart_mutex);
 }
@@ -1755,8 +1789,8 @@ int gsm_at_Cmd(at_command_t *command)
     return res;
 }
 
-//==========================================
-int gsm_at_Commands(at_commands_t *commands)
+//==========================================================
+int gsm_at_Commands(at_commands_t *commands, int *processed)
 {
     if (ppposStatus(NULL, NULL, NULL) != ATDEV_STATEIDLE) return 0;
 
@@ -1766,8 +1800,7 @@ int gsm_at_Commands(at_commands_t *commands)
         }
         return 0;
     }
-    int n_proc = 0;
-    int res = at_Commands(commands, &n_proc);
+    int res = at_Commands(commands, processed);
     xSemaphoreGive(mpy_uarts[gsm_uart_num].uart_mutex);
 
     return res;

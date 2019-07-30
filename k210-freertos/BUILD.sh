@@ -5,6 +5,7 @@ TOOLCHAIN_ARCHIVE_NAME="kendryte-toolchain_v2a.tar.xz"
 
 VERBOSE=""
 J_OPTION=""
+CREATE_DUMP=""
 
 # Get arguments
 POSITIONAL_ARGS=()
@@ -20,6 +21,10 @@ do
 	    ;;
 		-V|--VERBOSE)
 	    VERBOSE="yesyes"
+	    shift # past argument
+	    ;;
+		-d|--dump)
+		CREATE_DUMP="yes"
 	    shift # past argument
 	    ;;
 	    *)    # unknown option
@@ -178,7 +183,10 @@ END_ADDRESS=$(( ${ALLIGNED_SIZE} + 2147483648 ))
 mv MaixPy.bin MaixPy.bin.bkp
 ../kendryte-toolchain/bin/riscv64-unknown-elf-objcopy --output-format=binary --file-alignment 4096 --gap-fill 0xFF --pad-to ${END_ADDRESS} MaixPy MaixPy.bin
 
-#../kendryte-toolchain/bin/riscv64-unknown-elf-objdump -S  --disassemble MaixPy > MaixPy.dump
+if [ "${CREATE_DUMP}" == "yes" ]; then
+echo "===[ Exporting objdump ]==="
+../kendryte-toolchain/bin/riscv64-unknown-elf-objdump -S  --disassemble MaixPy > MaixPy.dump
+fi
 
 # =========================================
 # === Create kfpkg package ================

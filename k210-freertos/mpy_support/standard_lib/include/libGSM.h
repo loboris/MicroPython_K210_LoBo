@@ -42,9 +42,9 @@
 #define SMS_LIST_ALL	0
 #define SMS_LIST_NEW	1
 #define SMS_LIST_OLD	2
-#define SMS_LIST_ALL_STR	"AT+CMGL=\"ALL\"\r\n"
-#define SMS_LIST_NEW_STR	"AT+CMGL=\"REC UNREAD\"\r\n"
-#define SMS_LIST_OLD_STR	"AT+CMGL=\"REC READ\"\r\n"
+#define SMS_LIST_ALL_STR	"AT+CMGL=\"ALL\""
+#define SMS_LIST_NEW_STR	"AT+CMGL=\"REC UNREAD\""
+#define SMS_LIST_OLD_STR	"AT+CMGL=\"REC READ\""
 
 #define SMS_MAX_MESSAGES    64
 
@@ -157,8 +157,8 @@ void gsm_setDebug(bool dbg);
 //====================================
 int gsm_at_Cmd(at_command_t *command);
 
-//===========================================
-int gsm_at_Commands(at_commands_t *commands);
+//===========================================================
+int gsm_at_Commands(at_commands_t *commands, int *processed);
 
 //========================================
 bool gsm_set_baudrate(int bdr, bool perm);

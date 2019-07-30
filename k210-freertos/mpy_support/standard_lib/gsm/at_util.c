@@ -730,7 +730,7 @@ mp_obj_t mpy_atCmd(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args
                 // Execute multiple at commands
                 //------------------------------------------------------------------
                 if (strstr(tag, "WIFI")) res = wifi_at_Commands(&at_commands, NULL);
-                else res = gsm_at_Commands(&at_commands);
+                else res = gsm_at_Commands(&at_commands, NULL);
                 //------------------------------------------------------------------
 
                 if (res > 0) {
