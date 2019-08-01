@@ -329,6 +329,47 @@ STATIC mp_obj_t test (mp_obj_t obj_in)
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(test_obj, test);
 
 
+static handle_t timer_dev = 0;
+static size_t timer_counter = 0;
+
+//----------------------------------------
+STATIC void test_timer_isr(void *userdata)
+{
+    timer_counter++;
+    //timer_set_enable(timer_dev, false);
+}
+
+//-----------------------------------------
+STATIC mp_obj_t test_timer(mp_obj_t obj_in)
+{
+    // max interval = 8694265779 ns @ 494 MHz clock
+    size_t res = 0;
+    if (mp_obj_is_true(obj_in)) {
+        timer_dev = io_open("/dev/timer0");
+        timer_set_on_tick(timer_dev, test_timer_isr, NULL);
+        res = timer_set_interval(timer_dev, 1000000);
+
+        timer_set_enable(timer_dev, true);
+        vTaskDelay(20);
+    }
+    else {
+        double resolution = 0;
+        uint32_t load = 0;
+        uint32_t val = timer_get_value(timer_dev, &resolution, &load);
+        res = timer_counter;
+        mp_obj_t tuple[4];
+        tuple[0] = mp_obj_new_int(res);
+        tuple[1] = mp_obj_new_float(resolution);
+        tuple[2] = mp_obj_new_int(load);
+        tuple[3] = mp_obj_new_int(val);
+        return mp_obj_new_tuple(4, tuple);
+    }
+
+    return mp_obj_new_int(res);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(test_timer_obj, test_timer);
+
+
 //===========================================================
 STATIC const mp_map_elem_t test_module_globals_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR___name__),    MP_OBJ_NEW_QSTR(MP_QSTR_test) },
@@ -336,6 +377,7 @@ STATIC const mp_map_elem_t test_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_test_flash),      MP_ROM_PTR(&test_flash_obj) },
     { MP_ROM_QSTR(MP_QSTR_ftest),           MP_ROM_PTR(&ftest_obj) },
     { MP_ROM_QSTR(MP_QSTR_test),            MP_ROM_PTR(&test_obj) },
+    { MP_ROM_QSTR(MP_QSTR_timer),           MP_ROM_PTR(&test_timer_obj) },
 };
 
 //===========================

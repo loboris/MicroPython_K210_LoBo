@@ -59,7 +59,7 @@ handle_t flash_spi = 0;
 
 uintptr_t sys_rambuf_ptr = 0;
 
-const char *gpiohs_funcs[14] = {
+const char *gpiohs_funcs[15] = {
         "Not used",
         "Flash",
         "SD Card",
@@ -74,14 +74,15 @@ const char *gpiohs_funcs[14] = {
         "ISP_UART",
         "GSM_UART",
         "WiFi_UART",
+        "TIMER",
 };
 
-const char *gpiohs_funcs_in_use[14] = {
+const char *gpiohs_funcs_in_use[15] = {
         "pin not used",
         "pin used by Flash",
         "pin used by SD Card",
         "pin used by Display",
-        "pin used by pin",
+        "pin used by Pin",
         "pin used by UART",
         "pin used by I2C",
         "pin used by SPI0",
@@ -91,6 +92,7 @@ const char *gpiohs_funcs_in_use[14] = {
         "pin used by ISP_UART",
         "pin used by GSM_UART",
         "pin used by WiFi_UART",
+        "pin used by Timer",
 };
 
 const char *gpiohs_usedas[20] = {
@@ -831,6 +833,7 @@ STATIC const mp_map_elem_t machine_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_UART),            MP_ROM_PTR(&machine_uart_type) },
     { MP_ROM_QSTR(MP_QSTR_I2C),             MP_ROM_PTR(&machine_hw_i2c_type) },
     { MP_ROM_QSTR(MP_QSTR_SPI),             MP_ROM_PTR(&machine_hw_spi_type) },
+    { MP_ROM_QSTR(MP_QSTR_Timer),           MP_ROM_PTR(&machine_timer_type) },
 
     { MP_ROM_QSTR(MP_QSTR_RAM_START),       MP_ROM_INT(K210_SRAM_START_ADDRESS) },
     { MP_ROM_QSTR(MP_QSTR_LOG_NONE),        MP_ROM_INT(LOG_NONE) },

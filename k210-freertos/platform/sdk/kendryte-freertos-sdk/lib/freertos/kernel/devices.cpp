@@ -776,6 +776,13 @@ void timer_set_enable(handle_t file, bool enable)
     timer->set_enable(enable);
 }
 
+// LoBo
+size_t timer_get_value(handle_t file, double *res, uint32_t *loadcnt)
+{
+    COMMON_ENTRY(timer);
+    return timer->get_value(res, loadcnt);
+}
+
 /* PWM */
 
 uint32_t pwm_get_pin_count(handle_t file)

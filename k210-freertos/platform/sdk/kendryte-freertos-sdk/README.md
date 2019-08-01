@@ -17,6 +17,7 @@ Ported from [Kendryte `kendryte-freertos-sdk`](https://github.com/kendryte/kendr
   * **spi**: many changes, some new functions, much _improved_ **slave** support
   * **gpiohs**: some changes for better interrupt handling
   * **gpio**: added some missing functions
+  * **timer**: added some functions
   * **dmac**: `dma_completion_isr`, do not assert on wrong int status, but provide the interrupt status in global variable to be used by caller function 
 * **syslog**: various changes
   * print log time in micro seconds
@@ -51,6 +52,7 @@ _**Full list of modified files:**_
     * `i2c.cpp`
     * `rtc.cpp`
     * `spi.cpp`
+    * `timer.cpp`
     * `uart.cpp`
 * lib/drivers/src/storage/
   * `sdcard.cpp`

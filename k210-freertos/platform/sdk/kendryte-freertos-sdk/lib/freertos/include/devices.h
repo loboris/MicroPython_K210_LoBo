@@ -813,12 +813,24 @@ void timer_set_on_tick(handle_t file, timer_on_tick_t on_tick, void *userdata);
 void timer_set_enable(handle_t file, bool enable);
 
 /**
+ * @brief       Set the interval of a TIMER device
+ *
+ * @param[in]   file            The TIMER controller handle
+ * @param[out]  res             Pointer to the TIMER resolution in nanoseconds if not NULL
+ * @param[out]  loadcnt         Pointer to the TIMER load count if not NULL
+ *
+ * @return      Timer's current value
+ */
+size_t timer_get_value(handle_t file, double *res, uint32_t *loadcnt);
+
+/**
  * @brief       Get the pin count of a PWM controller
  *
  * @param[in]   file        The PWM controller handle
  *
  * @return      The pin count
  */
+
 uint32_t pwm_get_pin_count(handle_t file);
 
 /**

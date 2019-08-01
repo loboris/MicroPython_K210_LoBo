@@ -183,13 +183,15 @@ static void machine_pin_isr_handler(uint32_t pin, void *arg)
 //----------------------------------------------
 static void _pin_deinit(machine_pin_obj_t *self)
 {
-    if ((self->pin >= 0) && (self->pin >= 0)) {
-        // Terminate debounce task
-        while (self->debounce_task) {
-            // Terminate the debounce task
-            BaseType_t res = xTaskNotify(self->debounce_task, 0xA500, eSetValueWithoutOverwrite);
-            vTaskDelay(10);
-            if (res == pdPASS) break;
+    if (self->pin >= 0) {
+        if (self->debounce_task) {
+            // Terminate debounce task
+            while (self->debounce_task) {
+                // Terminate the debounce task
+                BaseType_t res = xTaskNotify(self->debounce_task, 0xA500, eSetValueWithoutOverwrite);
+                vTaskDelay(10);
+                if (res == pdPASS) break;
+            }
         }
         if (self->irq_type != GPIO_PE_NONE) {
             // Disable pin interrupt while configuring

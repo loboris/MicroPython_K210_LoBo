@@ -72,10 +72,12 @@ public:
     {
         uint32_t clk_freq = sysctl_clock_get_freq(clock_);
         double min_step = 1e9 / clk_freq;
-        size_t value = (size_t)(nanoseconds / min_step);
-        configASSERT(value > 0 && value < UINT32_MAX);
+        uint64_t value = (uint64_t)((double)nanoseconds / min_step);
+        if ((value <= 0) || (value >= UINT32_MAX)) return 0;
+
         timer_.channel[channel_].load_count = (uint32_t)value;
-        return (size_t)(min_step * value);
+        double interval = min_step * (double)value;
+        return (size_t)interval;
     }
 
     virtual void set_on_tick(timer_on_tick_t on_tick, void *userdata) override
@@ -90,6 +92,17 @@ public:
             timer_.channel[channel_].control = TIMER_CR_USER_MODE | TIMER_CR_ENABLE;
         else
             timer_.channel[channel_].control = TIMER_CR_INTERRUPT_MASK;
+    }
+
+    virtual uint32_t get_value(double *res, uint32_t *loadcnt) override
+    {
+        if (res) {
+            uint32_t clk_freq = sysctl_clock_get_freq(clock_);
+            double min_step = 1e9 / clk_freq;
+            *res = min_step;
+        }
+        if (loadcnt) *loadcnt = timer_.channel[channel_].load_count;
+        return timer_.channel[channel_].current_value;
     }
 
 private:
@@ -137,7 +150,7 @@ private:
 { TIMER##i##_BASE_ADDR, SYSCTL_CLOCK_TIMER##i, IRQN_TIMER##i##A_INTERRUPT, i, 3 }
 /* clang format on */
 
-#define INIT_TIMER_DRIVER(i) { { &dev_driver[i], timer_install, timer_open, timer_close }, timer_set_interval, timer_set_on_tick, timer_set_enable }
+#define INIT_TIMER_DRIVER(i) { { &dev_driver[i], timer_install, timer_open, timer_close }, timer_set_interval, timer_set_on_tick, timer_set_enable, timer_get_value }
 
 static k_timer_driver dev_driver[12] =
 {

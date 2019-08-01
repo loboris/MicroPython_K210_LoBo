@@ -331,6 +331,8 @@ public:
     virtual size_t set_interval(size_t nanoseconds) = 0;
     virtual void set_on_tick(timer_on_tick_t on_tick, void *userdata) = 0;
     virtual void set_enable(bool enable) = 0;
+    // LoBo
+    virtual uint32_t get_value(double *res, uint32_t *loadcnt) = 0;
 };
 
 class pwm_driver : public driver
