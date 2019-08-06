@@ -52,6 +52,8 @@
 #define SYS_RESET_REASON_SOFT   3
 #define SYS_RESET_REASON_PWRON  4
 
+#define TIMER_MAX_TIMERS    12
+
 typedef enum _gpio_func_t
 {
     GPIO_FUNC_NONE,
@@ -95,6 +97,7 @@ typedef enum _gpio_func_as_t
     GPIO_USEDAS_DATA3,
 } gpio_pin_func_as_t;
 
+
 typedef struct _mp_fpioa_cfg_item
 {
     int8_t gpio;
@@ -103,12 +106,14 @@ typedef struct _mp_fpioa_cfg_item
     fpioa_function_t function;
 } __attribute__((aligned(8))) mp_fpioa_cfg_item_t;
 
+
 typedef struct _machine_pin_def_t {
     int8_t gpio;
     gpio_pin_func_t func;
     gpio_pin_func_as_t usedas;
     fpioa_function_t fpioa_func;
 } __attribute__((aligned(8))) machine_pin_def_t;
+
 
 typedef struct _machine_pin_obj_t {
     mp_obj_base_t base;
@@ -131,6 +136,43 @@ typedef struct _machine_pin_obj_t {
     TaskHandle_t debounce_task;
 } __attribute__((aligned(8))) machine_pin_obj_t;
 
+
+typedef struct _machine_timer_obj_t {
+    mp_obj_base_t   base;
+    uint8_t         id;         // timer number (0~11)
+    uint8_t         state;      // current timer state
+    uint8_t         type;       // timer type
+    int8_t          pin;        // timer pin, if not used: -1
+    int8_t          pin_gpio;
+    int8_t          pin_mode;
+    int8_t          pin_pull;
+    uint8_t         reserved;
+    handle_t        handle;     // hw timer handle
+    bool            repeat;     // true for periodic type
+    uint64_t        period;     // timer period in us
+    int64_t         remain;     // remaining us until timer event
+    uint32_t        interval;   // hw timer interval in nanoseconds
+    double          resolution; // hw timer resolution in nanoseconds
+    uint64_t        event_num;  // number of timer events
+    uint64_t        cb_num;     // number of scheduled timer callbacks
+    mp_obj_t        callback;   // timer callback function
+} __attribute__((aligned(8))) machine_timer_obj_t;
+
+
+typedef struct _machine_pwm_obj_t {
+    mp_obj_base_t   base;
+    handle_t        handle;     // hw pwm handle
+    uint8_t         channel;
+    int8_t          pin;
+    bool            active;
+    bool            invert;
+    uint32_t        perc;
+    uint32_t        periods;
+    double          freq;
+    double          dperc;
+} __attribute__((aligned(8))) machine_pwm_obj_t;
+
+
 typedef struct _mpy_flash_config_t {
     uint32_t    ver;
     bool        use_two_main_tasks;
@@ -152,6 +194,7 @@ typedef struct _mpy_config_t {
     uint32_t           crc;
 } __attribute__((aligned(8))) mpy_config_t;
 
+
 enum term_colors_t {
     BLACK = 0,
     RED,
@@ -172,6 +215,7 @@ extern const char *gpiohs_funcs_in_use[15];
 extern const char *reset_reason[8];
 extern const char *term_colors[8];
 extern mpy_config_t mpy_config;
+extern void *mpy_timers_used[TIMER_MAX_TIMERS];
 
 const char *term_color(enum term_colors_t color);
 bool mpy_config_crc(bool set);
@@ -197,5 +241,6 @@ extern const mp_obj_type_t machine_uart_type;
 extern const mp_obj_type_t machine_hw_i2c_type;
 extern const mp_obj_type_t machine_hw_spi_type;
 extern const mp_obj_type_t machine_timer_type;
+extern const mp_obj_type_t machine_pwm_type;
 
 #endif // MICROPY_MODMACHINE_H

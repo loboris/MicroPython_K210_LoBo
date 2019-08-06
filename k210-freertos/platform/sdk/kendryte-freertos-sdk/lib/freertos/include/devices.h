@@ -817,11 +817,12 @@ void timer_set_enable(handle_t file, bool enable);
  *
  * @param[in]   file            The TIMER controller handle
  * @param[out]  res             Pointer to the TIMER resolution in nanoseconds if not NULL
- * @param[out]  loadcnt         Pointer to the TIMER load count if not NULL
+ * @param[out]  runtime         Pointer to the TIMER total run time if not NULL
+ *                              If not NULL and value is 0 on entry, resets running time counter
  *
- * @return      Timer's current value
+ * @return      Timer's current value in timer increments
  */
-size_t timer_get_value(handle_t file, double *res, uint32_t *loadcnt);
+size_t timer_get_value(handle_t file, double *res, size_t *runtime);
 
 /**
  * @brief       Get the pin count of a PWM controller
@@ -852,7 +853,7 @@ double pwm_set_frequency(handle_t file, double frequency);
  *
  * @return      The actual active duty cycle percentage after set
  */
-double pwm_set_active_duty_cycle_percentage(handle_t file, uint32_t pin, double duty_cycle_percentage);
+double pwm_set_active_duty_cycle_percentage(handle_t file, uint32_t pin, double duty_cycle_percentage, uint32_t *perc, uint32_t *periods);
 
 /**
  * @brief       Enable or disable a PWM pin
@@ -862,6 +863,17 @@ double pwm_set_active_duty_cycle_percentage(handle_t file, uint32_t pin, double 
  * @param[in]   enable      1 is enable, 0 is disable
  */
 void pwm_set_enable(handle_t file, uint32_t pin, bool enable);
+
+/**
+ * @brief       Enable or disable multiple PWM pins
+ *
+ * @param[in]   file        The PWM controller handle
+ * @param[in]   mask        The pin mask
+ * @param[in]   enable      1 is enable, 0 is disable
+ *
+ * @return      'mask' on success, 0 on fail
+ */
+uint32_t pwm_set_enable_multi(handle_t file, uint32_t mask, bool enable, double delay_perc);
 
 /**
  * @brief       Set the response mode of a WDT device

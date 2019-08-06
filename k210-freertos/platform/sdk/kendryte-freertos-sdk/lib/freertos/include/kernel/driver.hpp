@@ -332,7 +332,7 @@ public:
     virtual void set_on_tick(timer_on_tick_t on_tick, void *userdata) = 0;
     virtual void set_enable(bool enable) = 0;
     // LoBo
-    virtual uint32_t get_value(double *res, uint32_t *loadcnt) = 0;
+    virtual size_t get_value(double *res, size_t *runtime) = 0;
 };
 
 class pwm_driver : public driver
@@ -340,8 +340,10 @@ class pwm_driver : public driver
 public:
     virtual uint32_t get_pin_count() = 0;
     virtual double set_frequency(double frequency) = 0;
-    virtual double set_active_duty_cycle_percentage(uint32_t pin, double duty_cycle_percentage) = 0;
+    virtual double set_active_duty_cycle_percentage(uint32_t pin, double duty_cycle_percentage, uint32_t *perc, uint32_t *periods) = 0;
     virtual void set_enable(uint32_t pin, bool enable) = 0;
+    // LoBo
+    virtual uint32_t set_enable_multi(uint32_t mask, bool enable, double delay_perc) = 0;
 };
 
 class wdt_driver : public driver

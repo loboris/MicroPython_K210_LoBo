@@ -1,12 +1,9 @@
 /*
- * This file is part of the MicroPython ESP32 project, https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo
+ * This file is part of the MicroPython K210 project, https://github.com/loboris/MicroPython_K210_LoBo
  *
  * The MIT License (MIT)
  *
- * Based on original 'machine-timer.c' from https://github.com/micropython/micropython-esp32
- *   completely rewritten and many new functions and features added
- *
- * Copyright (c) 2017 Boris Lovosevic (https://github.com/loboris)
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -41,34 +38,11 @@
 #define TIMER_TYPE_CHRONO	2
 #define TIMER_TYPE_MAX		3
 
-#define TIMER_MAX_TIMERS    12
 #define TIMER_TASK_EXIT     0xA5
-
-typedef struct _machine_timer_obj_t {
-    mp_obj_base_t   base;
-    uint8_t         id;         // timer number (0~11)
-    uint8_t         state;      // current timer state
-    uint8_t         type;       // timer type
-    int8_t          pin;        // timer pin, if not used: -1
-    int8_t          pin_gpio;
-    int8_t          pin_mode;
-    int8_t          pin_pull;
-    uint8_t         reserved;
-    handle_t        handle;     // hw timer handle
-    bool            repeat;     // true for periodic type
-    uint64_t        period;     // timer period in us
-    int64_t         remain;     // remaining us until timer event
-    uint32_t        interval;   // hw timer interval in nanoseconds
-    uint32_t        loadval;    // hw timer load register value
-    double          resolution; // hw timer resolution in nanoseconds
-    uint64_t        event_num;  // number of timer events
-    uint64_t        cb_num;     // number of scheduled timer callbacks
-    mp_obj_t        callback;   // timer callback function
-} machine_timer_obj_t;
 
 const mp_obj_type_t machine_timer_type;
 
-machine_timer_obj_t *mpy_timers_used[TIMER_MAX_TIMERS] = {NULL};
+void *mpy_timers_used[TIMER_MAX_TIMERS] = {NULL};
 
 TaskHandle_t timer_task_handle = NULL;
 
@@ -107,6 +81,13 @@ static void timer_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
+//------------------------------------------------
+static void check_timer(machine_timer_obj_t *self)
+{
+    if (!self->handle) {
+        mp_raise_ValueError("Timer not initialized.");
+    }
+}
 
 //----------------------------------------------------------------------------------------------
 STATIC void machine_timer_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind)
@@ -197,14 +178,23 @@ STATIC mp_obj_t machine_timer_make_new(const mp_obj_type_t *type, size_t n_args,
 	self->type = TIMER_TYPE_MAX;
 
     int tmr = mp_obj_get_int(args[0]);
-    if ((tmr < 0) || (tmr > 11)) {
+    if ((tmr < 0) || (tmr >= TIMER_MAX_TIMERS)) {
     	mp_raise_ValueError("Only timers 0~11 can be used.");
     }
     if (mpy_timers_used[tmr] != NULL) {
-        mp_raise_ValueError("Timer already used used.");
+        // check if the timer group is used by PWM
+        uint8_t tg = tmr / 4;
+        mp_obj_type_t *obj;
+        for (int i=tg; i<(tg+4); i++) {
+            obj = (mp_obj_type_t *)mpy_timers_used[i];
+            if (mp_obj_is_type(obj, &machine_pwm_type)) {
+                mp_raise_ValueError("Timer group used used by PWM.");
+            }
+        }
+        mp_raise_ValueError("Already used used by another Timer.");
     }
     self->id = tmr;
-    mpy_timers_used[tmr] = self;
+    mpy_timers_used[tmr] = (void *)self;
 
     if (timer_task_handle == NULL) {
         BaseType_t res = xTaskCreate(
@@ -237,7 +227,7 @@ static void timer_set_period(machine_timer_obj_t *self, bool start)
         self->remain = self->period;
         timer_set_interval(self->handle, self->interval);
     }
-    timer_get_value(self->handle, &self->resolution, &self->loadval);
+    timer_get_value(self->handle, &self->resolution, NULL);
 
     if ((start) || (old_state == TIMER_RUNNING)) {
         timer_set_enable(self->handle, true);
@@ -253,10 +243,12 @@ static void machine_timer_enable(machine_timer_obj_t *self)
     sprintf(timer_dev, "/dev/timer%d", self->id);
     self->handle = io_open(timer_dev);
     if (self->handle == 0) {
-        mp_raise_ValueError("Error opening timed device");
+        mp_raise_ValueError("Error opening timer device");
     }
+    mpy_timers_used[self->id] = (void *)self;
 
-    timer_set_on_tick(self->handle, machine_timer_isr, (void *)self);
+    if (self->type != TIMER_TYPE_CHRONO) timer_set_on_tick(self->handle, machine_timer_isr, (void *)self);
+    else timer_set_on_tick(self->handle, NULL, NULL);
 
     timer_set_period(self, true);
 }
@@ -265,12 +257,14 @@ static void machine_timer_enable(machine_timer_obj_t *self)
 static void machine_timer_disable(machine_timer_obj_t *self)
 {
     if (self->handle) {
+        timer_set_on_tick(self->handle, NULL, NULL);
         timer_set_enable(self->handle, false);
         io_close(self->handle);
     }
     if (self->pin >= 0) {
         gpiohs_set_free(self->pin_gpio);
         mp_used_pins[self->pin].func = GPIO_FUNC_NONE;
+        mp_used_pins[self->pin].usedas = GPIO_USEDAS_NONE;
         mp_used_pins[self->pin].gpio = 0;
         mp_used_pins[self->pin].fpioa_func = FUNC_DEBUG31;
         self->pin_gpio = -1;
@@ -334,8 +328,8 @@ static void set_timer_pin(machine_timer_obj_t *self, int8_t wanted_pin)
     gpio_set_pin_edge(gpiohs_handle, self->pin_gpio, GPIO_PE_NONE);
 }
 
-//---------------------------------------------------------------------------------------------------------------------------------
-STATIC mp_obj_t machine_timer_init_helper(machine_timer_obj_t *self, mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
+//------------------------------------------------------------------------------------------------
+STATIC mp_obj_t  machine_timer_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_period,       MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 1000000} },
@@ -344,10 +338,11 @@ STATIC mp_obj_t machine_timer_init_helper(machine_timer_obj_t *self, mp_uint_t n
         { MP_QSTR_pin,          MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
     };
 
+    machine_timer_obj_t *self = pos_args[0];
     machine_timer_disable(self);
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
-    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+    mp_arg_parse_all(n_args-1, pos_args+1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
     if ((args[1].u_int < 0) || (args[1].u_int > TIMER_TYPE_MAX)) {
         mp_raise_ValueError("Wrong timer type");
@@ -395,13 +390,7 @@ STATIC mp_obj_t machine_timer_init_helper(machine_timer_obj_t *self, mp_uint_t n
 
     return mp_const_none;
 }
-
-//-------------------------------------------------------------------------------------------
-STATIC mp_obj_t machine_timer_init(mp_uint_t n_args, const mp_obj_t *args, mp_map_t *kw_args)
-{
-    return machine_timer_init_helper(args[0], n_args - 1, args + 1, kw_args);
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_KW(machine_timer_init_obj, 1, machine_timer_init);
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(machine_timer_init_obj, 0, machine_timer_init);
 
 //----------------------------------------------------
 STATIC mp_obj_t machine_timer_deinit(mp_obj_t self_in)
@@ -417,12 +406,13 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_timer_deinit_obj, machine_timer_deinit)
 STATIC mp_obj_t machine_timer_value(mp_obj_t self_in)
 {
     machine_timer_obj_t *self = self_in;
+    check_timer(self);
     uint64_t result;
 
     if (self->type == TIMER_TYPE_CHRONO) result = self->event_num;
     else {
-        uint32_t val = timer_get_value(self->handle, NULL, NULL);
-        double tmns = (double)(self->loadval - val) * self->resolution;
+        size_t val = timer_get_value(self->handle, NULL, NULL);
+        double tmns = (double)val * self->resolution;
         result = (uint64_t)tmns / 1000;
         if (self->period > 1000000) {
             result += self->remain;
@@ -436,6 +426,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_timer_value_obj, machine_timer_value);
 STATIC mp_obj_t machine_timer_pause(mp_obj_t self_in)
 {
     machine_timer_obj_t *self = self_in;
+    check_timer(self);
 
     timer_set_enable(self->handle, false);
     self->state = TIMER_PAUSED;
@@ -447,6 +438,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_timer_pause_obj, machine_timer_pause);
 STATIC mp_obj_t machine_timer_resume(mp_obj_t self_in)
 {
     machine_timer_obj_t *self = self_in;
+    check_timer(self);
 
     timer_set_enable(self->handle, true);
     self->state = TIMER_RUNNING;
@@ -458,6 +450,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_timer_resume_obj, machine_timer_resume)
 STATIC mp_obj_t machine_timer_start(mp_obj_t self_in)
 {
     machine_timer_obj_t *self = self_in;
+    check_timer(self);
 
     timer_set_enable(self->handle, false);
     self->event_num = 0;
@@ -472,6 +465,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_timer_start_obj, machine_timer_start);
 STATIC mp_obj_t machine_timer_shot(size_t n_args, const mp_obj_t *args)
 {
     machine_timer_obj_t *self = args[0];
+    check_timer(self);
 
     if (self->type != TIMER_TYPE_ONESHOT) {
     	mp_raise_ValueError("Timer is not one_shot timer.");
@@ -499,6 +493,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_timer_shot_obj, 1, 2, machine
 STATIC mp_obj_t machine_timer_id(mp_obj_t self_in)
 {
     machine_timer_obj_t *self = self_in;
+    check_timer(self);
 
     return MP_OBJ_NEW_SMALL_INT(self->id);
 }
@@ -508,6 +503,8 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_timer_id_obj, machine_timer_id);
 STATIC mp_obj_t machine_timer_events(mp_obj_t self_in)
 {
     machine_timer_obj_t *self = self_in;
+    check_timer(self);
+
     mp_obj_t tuple[2];
     tuple[0] = mp_obj_new_int_from_ull(self->event_num);
     tuple[1] = mp_obj_new_int_from_ull(self->cb_num);
@@ -530,6 +527,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_timer_isrunning_obj, machine_timer_isru
 STATIC mp_obj_t machine_timer_period(size_t n_args, const mp_obj_t *args)
 {
     machine_timer_obj_t *self = args[0];
+    check_timer(self);
 
     if ((n_args > 1) && (self->type != TIMER_TYPE_CHRONO)) {
         int64_t period;

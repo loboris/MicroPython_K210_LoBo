@@ -13,6 +13,7 @@
  * limitations under the License.
  */
 #include <FreeRTOS.h>
+#include "task.h"
 #include <fpioa.h>
 #include <hal.h>
 #include <kernel/driver_impl.hpp>
@@ -23,6 +24,9 @@
 #include <sysctl.h>
 #include <timer.h>
 #include <utility.h>
+
+#define LOAD_COUNT_VALUE        1000000000UL
+#define MAX_LOAD_COUNT_VALUE    (LOAD_COUNT_VALUE*5)
 
 using namespace sys;
 
@@ -61,6 +65,7 @@ public:
     virtual void on_first_open() override
     {
         sysctl_clock_enable(clock_);
+        running_time_ = 0;
     }
 
     virtual void on_last_close() override
@@ -70,14 +75,39 @@ public:
 
     virtual size_t set_interval(size_t nanoseconds) override
     {
+        remain_ = 0;
         uint32_t clk_freq = sysctl_clock_get_freq(clock_);
-        double min_step = 1e9 / clk_freq;
-        uint64_t value = (uint64_t)((double)nanoseconds / min_step);
-        if ((value <= 0) || (value >= UINT32_MAX)) return 0;
+        resolution_ = 1e9 / clk_freq;
+        load_count_1sec_ = (uint32_t)((double)LOAD_COUNT_VALUE / resolution_);
 
-        timer_.channel[channel_].load_count = (uint32_t)value;
-        double interval = min_step * (double)value;
-        return (size_t)interval;
+        // interval in timer increments
+        uint64_t value = (uint64_t)((double)nanoseconds / resolution_);
+        if (value < 1) return 0; // interval to small
+
+        // LoBo: enable 64-bit intervals
+        // actual interval in nanoseconds
+        interval_ = (size_t)(resolution_ * (double)value);
+
+        remain_ = 0;
+        load_remain_ = 0;
+        current_value_ = 0;
+        if (interval_ > MAX_LOAD_COUNT_VALUE) {
+            load_count_ = value % load_count_1sec_;
+            remain_ = value / load_count_1sec_;
+            if (load_count_ < (load_count_1sec_/2)) {
+                load_count_ += load_count_1sec_;
+                if (load_count_ == load_count_1sec_) load_count_++;
+                remain_--;
+            }
+            load_remain_ = remain_;
+            // interval = (remain_ * load_count_1sec_) + load_count_
+        }
+        else load_count_ = (uint32_t)value;
+
+        timer_.channel[channel_].load_count = load_count_;
+        //timer_.channel[channel_].current_value = load_count_;
+
+        return interval_;
     }
 
     virtual void set_on_tick(timer_on_tick_t on_tick, void *userdata) override
@@ -94,15 +124,29 @@ public:
             timer_.channel[channel_].control = TIMER_CR_INTERRUPT_MASK;
     }
 
-    virtual uint32_t get_value(double *res, uint32_t *loadcnt) override
+    virtual size_t get_value(double *res, size_t *runtime) override
     {
-        if (res) {
-            uint32_t clk_freq = sysctl_clock_get_freq(clock_);
-            double min_step = 1e9 / clk_freq;
-            *res = min_step;
+        if (res) *res = resolution_;
+
+        uint32_t current_value = 0;
+        size_t val = 0;
+
+        taskENTER_CRITICAL();
+        if (interval_ > MAX_LOAD_COUNT_VALUE) {
+            current_value = timer_.channel[channel_].load_count - timer_.channel[channel_].current_value;
+            val = current_value_;
         }
-        if (loadcnt) *loadcnt = timer_.channel[channel_].load_count;
-        return timer_.channel[channel_].current_value;
+        else {
+            current_value = timer_.channel[channel_].load_count - timer_.channel[channel_].current_value;
+        }
+        taskEXIT_CRITICAL();
+
+        if (runtime) {
+            if (*runtime == 0) running_time_ = 0;
+            *runtime = running_time_+current_value;
+        }
+        // returns current timer value in timer increments units
+        return (val + current_value);
     }
 
 private:
@@ -119,9 +163,53 @@ private:
             if (channel & 1)
             {
                 auto &driver_ch = *context[i];
-                if (driver_ch.on_tick_)
-                {
-                    driver_ch.on_tick_(driver_ch.ontick_data_);
+                if (driver_ch.interval_ > MAX_LOAD_COUNT_VALUE) {
+                    // == long interval handling ==
+                    if (driver_ch.remain_ == 0) {
+                        // last 1-second interval ended
+                        // start with 1st (partial second) interval
+                        timer.channel[driver_ch.channel_].load_count = driver_ch.load_count_;
+                        //timer.channel[driver_ch.channel_].current_value = driver_ch.load_count_;
+                        // reload remaining full second intervals
+                        driver_ch.remain_ = driver_ch.load_remain_;
+                        // reset current value
+                        driver_ch.current_value_ = 0;
+                        driver_ch.running_time_ += driver_ch.load_count_1sec_;
+                        if (driver_ch.on_tick_) {
+                            // execute user 'on_tick' callback
+                            driver_ch.on_tick_(driver_ch.ontick_data_);
+                        }
+                    }
+                    else {
+                        if (timer.channel[driver_ch.channel_].load_count != driver_ch.load_count_1sec_) {
+                            // 1st (partial 1-second) interval ended
+                            // next count for 1 second
+                            timer.channel[driver_ch.channel_].load_count = driver_ch.load_count_1sec_;
+                            driver_ch.current_value_ = driver_ch.load_count_;
+                            driver_ch.running_time_ += driver_ch.load_count_;
+                        }
+                        else {
+                            // 1-second interval ended
+                            driver_ch.remain_--;
+                            if (driver_ch.remain_) {
+                                driver_ch.current_value_ += driver_ch.load_count_1sec_;
+                                driver_ch.running_time_ += driver_ch.load_count_1sec_;
+                            }
+                            else {
+                                // last 1-second interval begins
+                                driver_ch.current_value_ += driver_ch.load_count_1sec_;
+                                driver_ch.running_time_ += driver_ch.load_count_1sec_;
+                            }
+                        }
+                    }
+                }
+                else {
+                    // === normal interval handling ===
+                    driver_ch.running_time_ += driver_ch.load_count_;
+                    if (driver_ch.on_tick_) {
+                        // execute user 'on_tick' callback
+                        driver_ch.on_tick_(driver_ch.ontick_data_);
+                    }
                 }
             }
 
@@ -137,6 +225,15 @@ private:
     plic_irq_t irq_;
     size_t num_;
     size_t channel_;
+    size_t interval_;
+
+    size_t remain_;
+    size_t load_remain_;
+    size_t current_value_;
+    size_t running_time_;
+    uint32_t load_count_;
+    uint32_t load_count_1sec_;
+    double resolution_;
 
     timer_on_tick_t on_tick_;
     void *ontick_data_;

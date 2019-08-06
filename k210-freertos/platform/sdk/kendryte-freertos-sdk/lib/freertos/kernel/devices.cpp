@@ -777,10 +777,10 @@ void timer_set_enable(handle_t file, bool enable)
 }
 
 // LoBo
-size_t timer_get_value(handle_t file, double *res, uint32_t *loadcnt)
+size_t timer_get_value(handle_t file, double *res, size_t *runtime)
 {
     COMMON_ENTRY(timer);
-    return timer->get_value(res, loadcnt);
+    return timer->get_value(res, runtime);
 }
 
 /* PWM */
@@ -797,16 +797,23 @@ double pwm_set_frequency(handle_t file, double frequency)
     return pwm->set_frequency(frequency);
 }
 
-double pwm_set_active_duty_cycle_percentage(handle_t file, uint32_t pin, double duty_cycle_percentage)
+double pwm_set_active_duty_cycle_percentage(handle_t file, uint32_t pin, double duty_cycle_percentage, uint32_t *perc, uint32_t *periods)
 {
     COMMON_ENTRY(pwm);
-    return pwm->set_active_duty_cycle_percentage(pin, duty_cycle_percentage);
+    return pwm->set_active_duty_cycle_percentage(pin, duty_cycle_percentage, perc, periods);
 }
 
 void pwm_set_enable(handle_t file, uint32_t pin, bool enable)
 {
     COMMON_ENTRY(pwm);
     pwm->set_enable(pin, enable);
+}
+
+// LoBo
+uint32_t pwm_set_enable_multi(handle_t file, uint32_t mask, bool enable, double delay_perc)
+{
+    COMMON_ENTRY(pwm);
+    return pwm->set_enable_multi(mask, enable, delay_perc);
 }
 
 /* WDT */

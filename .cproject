@@ -231,6 +231,8 @@
                 				
                 <buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
                 				
+                <buildArguments/>
+                				
                 <stopOnError>true</stopOnError>
                 				
                 <useDefaultCommand>false</useDefaultCommand>
@@ -242,8 +244,6 @@
             <target name="CLEAN" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
                 				
                 <buildCommand>${PWD}/k210-freertos/CLEAN.sh</buildCommand>
-                				
-                <buildArguments/>
                 				
                 <stopOnError>true</stopOnError>
                 				
@@ -259,8 +259,6 @@
                 				
                 <buildArguments>-v</buildArguments>
                 				
-                <buildTarget/>
-                				
                 <stopOnError>true</stopOnError>
                 				
                 <useDefaultCommand>false</useDefaultCommand>
@@ -275,8 +273,6 @@
                 				
                 <buildArguments>-j8</buildArguments>
                 				
-                <buildTarget/>
-                				
                 <stopOnError>true</stopOnError>
                 				
                 <useDefaultCommand>false</useDefaultCommand>
@@ -290,6 +286,20 @@
                 <buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
                 				
                 <buildArguments>-v -j8</buildArguments>
+                				
+                <stopOnError>true</stopOnError>
+                				
+                <useDefaultCommand>false</useDefaultCommand>
+                				
+                <runAllBuilders>true</runAllBuilders>
+                			
+            </target>
+            			
+            <target name="BUILD_Fast &amp; Dump" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
+                				
+                <buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
+                				
+                <buildArguments>-d -j8</buildArguments>
                 				
                 <buildTarget/>
                 				

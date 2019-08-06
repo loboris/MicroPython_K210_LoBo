@@ -324,12 +324,14 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_2(ftest_obj, ftest);
 STATIC mp_obj_t test (mp_obj_t obj_in)
 {
     printf("OBJ: [%016lX]\r\n", (uint64_t)obj_in);
+    printf("size_t: %lu\r\n", sizeof(size_t));
     return obj_in;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(test_obj, test);
 
 
 static handle_t timer_dev = 0;
+static handle_t timer_dev1 = 0;
 static size_t timer_counter = 0;
 
 //----------------------------------------
@@ -346,23 +348,32 @@ STATIC mp_obj_t test_timer(mp_obj_t obj_in)
     size_t res = 0;
     if (mp_obj_is_true(obj_in)) {
         timer_dev = io_open("/dev/timer0");
+        timer_dev1 = io_open("/dev/timer1");
         timer_set_on_tick(timer_dev, test_timer_isr, NULL);
-        res = timer_set_interval(timer_dev, 1000000);
+        res = timer_set_interval(timer_dev, 1000000000); // 1 second
+        printf("Interval #1: %lu\r\n", res);
+        res = timer_set_interval(timer_dev1, 20000000000); // 20 seconds
+        printf("Interval #2: %lu\r\n", res);
 
         timer_set_enable(timer_dev, true);
+        timer_set_enable(timer_dev1, true);
         vTaskDelay(20);
     }
     else {
         double resolution = 0;
-        uint32_t load = 0;
-        uint32_t val = timer_get_value(timer_dev, &resolution, &load);
+        size_t runtime1 = 1;
+        size_t runtime2 = 1;
+        size_t val1 = timer_get_value(timer_dev, &resolution, &runtime1);
+        size_t val2 = timer_get_value(timer_dev1, NULL, &runtime2);
         res = timer_counter;
-        mp_obj_t tuple[4];
+        mp_obj_t tuple[6];
         tuple[0] = mp_obj_new_int(res);
         tuple[1] = mp_obj_new_float(resolution);
-        tuple[2] = mp_obj_new_int(load);
-        tuple[3] = mp_obj_new_int(val);
-        return mp_obj_new_tuple(4, tuple);
+        tuple[2] = mp_obj_new_int(val1);
+        tuple[3] = mp_obj_new_int(val2);
+        tuple[4] = mp_obj_new_float(((double)runtime1 * resolution) / 1e9);
+        tuple[5] = mp_obj_new_float(((double)runtime2 * resolution) / 1e9);
+        return mp_obj_new_tuple(6, tuple);
     }
 
     return mp_obj_new_int(res);
