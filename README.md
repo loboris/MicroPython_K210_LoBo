@@ -2,17 +2,17 @@
 
 
 > This MicroPython port is now in a stable phase, but some bugs and issues can be expected, please report<br>
-> All standard MicroPython functionality and modules are implemented, as well as advanced thread support, file system support, display module, nettwork, enhanced K210 peripheral support ...<br>
+> All standard MicroPython functionality and modules are implemented, as well as advanced thread support, file system support, display module, network, enhanced K210 peripheral support ...<br>
 > *Modules providing support for still unsupported K210 peripherals will be implemented soon*
 > 
 
 ***
 
-> For discussion about this MicroPython port please wisit the [dedicated Forum](https://loboris.eu/forum/forumdisplay.php?fid=17)
+> For discussion about this MicroPython port please visit the [dedicated Forum](https://loboris.eu/forum/forumdisplay.php?fid=17)
 
 ***
 
-[Wiki pages](https://github.com/loboris/MicroPython_K210_LoBo/wiki) are provided with detailed imformation about usage, classes, methods ... (not yet complete)
+[Wiki pages](https://github.com/loboris/MicroPython_K210_LoBo/wiki) are provided with detailed information about usage, classes, methods ... (not yet complete)
 
 ***
 
@@ -20,11 +20,11 @@ _**If you find this project useful, you can contribute by making a donation**_.&
 
 ***
 
-This implementation was based on Sipeed [**MaixPy**](https://github.com/sipeed/MaixPy), but it deverged from it and is now a completely independent project.<br>
+This implementation was based on Sipeed [**MaixPy**](https://github.com/sipeed/MaixPy), but it diverged from it and is now a completely independent project.<br>
 
 ### Main features:
 
-* Based on **kendryte-freertos-sdk**, modified to include some needed features not yet implemented and enhenced drivers support
+* Based on **kendryte-freertos-sdk**, modified to include some needed features not yet implemented and enhanced drivers support
 * **MicroPython core** based on **latest release** build from [main Micropython repository](https://github.com/micropython/micropython)<br>Unchanged except for the *thread* support and other changes needed to work with 64-bit RISC-V.
 * `BUILD.sh` script is provided to make building MicroPython firmware as easy as possible
 * Running **two** independent **Micropython instances** on **two K210 cores** is supported.<br>Rich set of functions for data exchange between instances is provided.
@@ -55,7 +55,7 @@ SPIFFS is also supported (with directories support) and can be selected when bui
   * Full featured **mqtt module** (written in C) with callbacks on all events
   * **FTP Server** and **Web Server** provided as **frozen modules**
 * **usqlite3** module, data base on internal flash or SD Card, in-memory database supported
-* **Boot menu**, invoked by external pin, is provided which can help solve some issues.<br>Options to prevent loading of *boot.py* and/or *main.py*, force format of the internal file system, load the default configuation ...
+* **Boot menu**, invoked by external pin, is provided which can help solve some issues.<br>Options to prevent loading of *boot.py* and/or *main.py*, force format of the internal file system, load the default configuration ...
 * Many **configuration options** can be configured directly from MicroPython (saved on Flash):
   * running two MicroPython instances
   * heap and stack sizes
@@ -68,7 +68,7 @@ SPIFFS is also supported (with directories support) and can be selected when bui
   * MicroPython VM divisor
 * **pye**, full screen file editor (as MicroPython **frozen module**) is provided
 * **MPyTerm**, serial terminal emulator specially designed for MicroPython is provided.<br>
-Included are commands to syncronize MicroPython time from PC, change the REPL baudrate, transfer files to/from MicroPython filesystem (including transfering whole directories).<br>Fast block file transfer is used, protected with CRC.
+Included are commands to synchronize MicroPython time from PC, change the REPL baudrate, transfer files to/from MicroPython filesystem (including transferring whole directories).<br>Fast block file transfer is used, protected with CRC.
 * **Eclipse** project files included.<br>To include it into Eclipse goto:<br> `File->Import->General->Existing Projects into Workspace`<br>`Select root directory` [select *MicroPython_K210_LoBo* directory]<br>`Finish`.<br>Rebuild index<br>Execute `Index->Freshen All Files`.
 * Many modules from my [MicroPython for ESP32](https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/wiki) port are already ported, porting some others is planned.
 * _More to come soon ..._
