@@ -71,6 +71,7 @@ typedef enum _gpio_func_t
     GPIO_FUNC_GSM_UART,
     GPIO_FUNC_WIFI_UART,
     GPIO_FUNC_TIMER,
+    GPIO_FUNC_1WIRE,
 } gpio_pin_func_t;
 
 typedef enum _gpio_func_as_t
@@ -95,6 +96,7 @@ typedef enum _gpio_func_as_t
     GPIO_USEDAS_DATA1,
     GPIO_USEDAS_DATA2,
     GPIO_USEDAS_DATA3,
+    GPIO_USEDAS_1WIRE,
 } gpio_pin_func_as_t;
 
 
@@ -210,8 +212,8 @@ extern handle_t flash_spi;
 extern handle_t gpiohs_handle;
 extern uint32_t mp_used_gpiohs;
 extern machine_pin_def_t mp_used_pins[FPIOA_NUM_IO];
-extern const char *gpiohs_funcs[15];
-extern const char *gpiohs_funcs_in_use[15];
+extern const char *gpiohs_funcs[16];
+extern const char *gpiohs_funcs_in_use[16];
 extern const char *reset_reason[8];
 extern const char *term_colors[8];
 extern mpy_config_t mpy_config;
@@ -242,5 +244,7 @@ extern const mp_obj_type_t machine_hw_i2c_type;
 extern const mp_obj_type_t machine_hw_spi_type;
 extern const mp_obj_type_t machine_timer_type;
 extern const mp_obj_type_t machine_pwm_type;
+extern const mp_obj_type_t machine_onewire_type;
+extern const mp_obj_type_t machine_ds18x20_type;
 
 #endif // MICROPY_MODMACHINE_H

@@ -41,8 +41,8 @@
 #define MICROPY_HW_BOARD_NAME       "Sipeed_board"
 #define MICROPY_HW_MCU_NAME         "Kendryte-K210"
 #define MICROPY_PY_SYS_PLATFORM     "K210/FreeRTOS"
-#define MICROPY_PY_LOBO_VERSION     "1.11.10"
-#define MICROPY_PY_LOBO_VERSION_NUM (0x011110)
+#define MICROPY_PY_LOBO_VERSION     "1.11.11"
+#define MICROPY_PY_LOBO_VERSION_NUM (0x011111)
 
 #define MICROPY_PY_USE_LOG_COLORS   (1)
 
@@ -108,9 +108,9 @@
 //     #define FIRMWARE_SIZE        (value*4096)
 //     Round the value to the 4 KB: value = ((file_size // 4096) * 4096 + 4096) / 4096
 #if MICROPY_PY_USE_SQLITE
-#define FIRMWARE_SIZE                           (447*4096)
+#define FIRMWARE_SIZE                           (455*4096)
 #else
-#define FIRMWARE_SIZE                           (343*4096)
+#define FIRMWARE_SIZE                           (351*4096)
 #endif
 
 // === SRAM reserved for dynamic allocation by standard malloc function

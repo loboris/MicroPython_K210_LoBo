@@ -59,7 +59,7 @@ handle_t flash_spi = 0;
 
 uintptr_t sys_rambuf_ptr = 0;
 
-const char *gpiohs_funcs[15] = {
+const char *gpiohs_funcs[16] = {
         "Not used",
         "Flash",
         "SD Card",
@@ -75,9 +75,10 @@ const char *gpiohs_funcs[15] = {
         "GSM_UART",
         "WiFi_UART",
         "TIMER",
+        "I/O"
 };
 
-const char *gpiohs_funcs_in_use[15] = {
+const char *gpiohs_funcs_in_use[16] = {
         "pin not used",
         "pin used by Flash",
         "pin used by SD Card",
@@ -93,9 +94,10 @@ const char *gpiohs_funcs_in_use[15] = {
         "pin used by GSM_UART",
         "pin used by WiFi_UART",
         "pin used by Timer",
+        "pin used by 1Wire"
 };
 
-const char *gpiohs_usedas[20] = {
+const char *gpiohs_usedas[21] = {
         "--",
         "Tx",
         "Rx",
@@ -116,6 +118,7 @@ const char *gpiohs_usedas[20] = {
         "data1",
         "data2",
         "data3",
+        "1wire"
 };
 
 const char *reset_reason[8] = {
@@ -835,6 +838,7 @@ STATIC const mp_map_elem_t machine_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_SPI),             MP_ROM_PTR(&machine_hw_spi_type) },
     { MP_ROM_QSTR(MP_QSTR_Timer),           MP_ROM_PTR(&machine_timer_type) },
     { MP_ROM_QSTR(MP_QSTR_PWM),             MP_ROM_PTR(&machine_pwm_type) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_Onewire),     MP_ROM_PTR(&machine_onewire_type) },
 
     { MP_ROM_QSTR(MP_QSTR_RAM_START),       MP_ROM_INT(K210_SRAM_START_ADDRESS) },
     { MP_ROM_QSTR(MP_QSTR_LOG_NONE),        MP_ROM_INT(LOG_NONE) },

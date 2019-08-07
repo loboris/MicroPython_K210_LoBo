@@ -109,7 +109,7 @@ int uart_buf_find_from(uart_ringbuf_t *r, size_t start_pos, size_t size, const c
 int uart_buf_find(uart_ringbuf_t *r, size_t size, const char *pattern, int pattern_length, size_t *buflen);
 void uart_buf_flush(uart_ringbuf_t *r);
 void uart_ringbuf_alloc(uint8_t uart_num, size_t sz);
-int uart_hard_init(uint32_t uart_num, uint8_t tx, uint8_t rx, gpio_pin_func_t func, bool mutex, bool semaphore, int rb_size);
+int uart_hard_init(uint32_t uart_num, uint8_t tx, int8_t rx, gpio_pin_func_t func, bool mutex, bool semaphore, int rb_size);
 bool uart_deinit(uint32_t uart_num, uint8_t *end_task, uint8_t tx, uint8_t rx);
 
 #endif

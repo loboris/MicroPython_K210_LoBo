@@ -42,6 +42,8 @@ SPIFFS is also supported (with directories support) and can be selected when bui
 * **i2c** module, **master** & **slave**, compatible with the i2c module on my ESP32 port<br>SSD1306 module provided as MicroPython frozen module
 * **spi** module, **master** & **slave**, compatible with the spi module on my ESP32 port with added slave support
 * **WS2812** (neopyxel) support, using **spi** module
+* **Timer** and **PWM** modules
+* **OneWire** & **DS18x20** module
 * **ymodem** module for file transfer to/from K210 board using ymodem protocol is provided
 * **uhashlib** and **ucryptolib** using K210 hardware AES are implemented
 * **Display** module ported from my MicroPython for ESP32 display module<br>Rich set of drawing methods, direct write or **framebuffer**, *jpeg*, *bmp* and *raw* image format<br>Flexible fonts support (fixed width and proportional) with user fonts loadable from file (online *Font creator* provided)

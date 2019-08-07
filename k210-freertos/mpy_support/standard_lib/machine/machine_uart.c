@@ -465,9 +465,12 @@ void mp_uart_close(uint32_t uart_num)
     memset(&mpy_uarts[uart_num], 0, sizeof(uart_uarts_t));
 }
 
-//--------------------------------------------------------------------------------------------------------------------------
-int uart_hard_init(uint32_t uart_num, uint8_t tx, uint8_t rx, gpio_pin_func_t func, bool mutex, bool semaphore, int rb_size)
+//-------------------------------------------------------------------------------------------------------------------------
+int uart_hard_init(uint32_t uart_num, uint8_t tx, int8_t rx, gpio_pin_func_t func, bool mutex, bool semaphore, int rb_size)
 {
+    /* If tx == rx, special handling is used
+     * tx pin is initialized as INPUT and switched to OUTPUT only when sending
+     */
     if (mp_used_pins[tx].func != GPIO_FUNC_NONE) {
         LOGD(TAG, "Tx %s", gpiohs_funcs_in_use[mp_used_pins[tx].func]);
         return -1;
@@ -899,13 +902,15 @@ STATIC void machine_uart_init_helper(machine_uart_obj_t *self, size_t n_args, co
 
     // set pins
     if (((self->tx == -2) && (args[ARG_tx].u_int == UART_PIN_NO_CHANGE)) ||	((self->rx == -2) && (args[ARG_rx].u_int == UART_PIN_NO_CHANGE))) {
+        // Tx or Tx not ye initialized
         nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "Tx&Rx pins must be set: u=machine.UART(uart_num, tx=pin, rx=pin)"));
     }
 
     if ((self->tx != args[ARG_tx].u_int) || (self->rx != args[ARG_rx].u_int)) {
+        // Tx or Rx changed
         self->tx = args[ARG_tx].u_int;
         self->rx = args[ARG_rx].u_int;
-
+        /*
         if (mp_used_pins[self->tx].func != GPIO_FUNC_NONE) {
             mp_printf(&mp_plat_print, "Tx pin\r\n");
             mp_raise_ValueError(gpiohs_funcs_in_use[mp_used_pins[self->tx].func]);
@@ -921,6 +926,7 @@ STATIC void machine_uart_init_helper(machine_uart_obj_t *self, size_t n_args, co
         // Setup and mark used pins
         fpioa_setup_pins(2, uart_pin_func);
         fpioa_setused_pins(2, uart_pin_func, GPIO_FUNC_UART);
+        */
     }
 
     // set timeout

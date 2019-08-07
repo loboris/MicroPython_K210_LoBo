@@ -107,8 +107,8 @@ const char Banner[] = {"\n __  __              _____  __   __  _____   __     __
 |_|  |_| /_/    \\_\\ |_____| /_/ \\_\\ |_|         |_|\n\
 ------------------------------------------------------\n"};
 
-static const char *ver_info1 = "\nMaixPy-FreeRTOS by LoBo v"MICROPY_PY_LOBO_VERSION" (two MPY tasks)\n-----------------------------------------------\n";
-static const char *ver_info2 = "\nMaixPy-FreeRTOS by LoBo v"MICROPY_PY_LOBO_VERSION"\n-------------------------------\n";
+static const char *ver_info1 = "\nMaixPy-FreeRTOS by LoBo v"MICROPY_PY_LOBO_VERSION" (two MPY tasks)\n------------------------------------------------\n";
+static const char *ver_info2 = "\nMaixPy-FreeRTOS by LoBo v"MICROPY_PY_LOBO_VERSION"\n--------------------------------\n";
 
 static const char* TAG = "[MAIN]";
 static const char* TAG_MAIN = "[MAIXPY]";
