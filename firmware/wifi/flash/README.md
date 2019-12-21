@@ -87,11 +87,11 @@ Flash to ESP8266, 512KB, single firmware, no OTA:
 Note: Be careful that your _USBtoSerial_ adapter is labeled correctly. Some are not.
 2. Connect the **ESP8285 boot** pin (the M1 module's corner pin near the WiFi antenna) to the ground before powering the the board, after power on, the pin can be released
 3. Power on the board (connect USB cable to the board's USB-C connector)
-4. Execute `./flash.sh -eo -t 1MB -m dout -ne` to erase the existing firmware
+4. Execute `./flash.sh -eo -t 1MB -m dout` to erase the existing firmware
 5. Power off the board (disconnect USB cable from the board's USB-C connector)
 6. Connect the **ESP8285 boot** pin to the ground before powering the the board, after power on, the pin can be released
 7. Power on the board (connect USB cable to the board's USB-C connector)
-8. Execute `./flash.sh -t 1MB -m dout` to flash the new firmware
+8. Execute `./flash.sh -t 1MB -m dout -ne` to flash the new firmware
 9. Power off the board
 
 After booting to MicroPython, test the WiFi functionality:
