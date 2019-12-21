@@ -49,7 +49,7 @@ The default comm port is `/dev/ttyUSB0`, you can use a different com port by add
 
 Flash to ESP8285, 1MB, 512+512 map, in dout mode:
 ```
-./flash.sh -t 1MB -m DOUT
+./flash.sh -t 1MB -m dout
 ```
 Flash to ESP8266, 1MB, 512+512 map, in qio mode:
 ```
@@ -83,15 +83,15 @@ Flash to ESP8266, 512KB, single firmware, no OTA:
 ![Sipeed_DanDock](Sipeed_DanDock_wifi.jpg)
 
 
-1. Connect some _USBtoSerial_ adapter to the board, connetc adapter's Tx to the Rx pin on the image, adapter's Rx to the Tx pin on the image
-1. Connect the **ESP8285 boot** pin (the M1 module's corner pin near the WiFi antenna) to the ground before powering the the board, after power on, the pin can be released
-1. Power on the board (connect USB cable to the board's USB-C connector)
-1. Execute `./flash.sh -eo -t 1MB -m DOUT` to erase the existing firmware
-1. Power off the board (disconnect USB cable from the board's USB-C connector)
-1. Connect the **ESP8285 boot** pin to the ground before powering the the board, after power on, the pin can be released
-1. Power on the board (connect USB cable to the board's USB-C connector)
-1. Execute `./flash.sh -t 1MB -m DOUT` to flash the new firmware
-1. Power off the board
+1. Connect some _USBtoSerial_ adapter to the board, connect adapter's Tx to the Rx pin on the image, adapter's Rx to the Tx pin on the image
+2. Connect the **ESP8285 boot** pin (the M1 module's corner pin near the WiFi antenna) to the ground before powering the the board, after power on, the pin can be released. Be sure to connect ground.
+3. Power on the board (connect USB cable to the board's USB-C connector)
+4. Execute `./flash.sh -eo -t 1MB -m dout` to erase the existing firmware
+5. Power off the board (disconnect USB cable from the board's USB-C connector)
+6. Connect the **ESP8285 boot** pin to the ground before powering the the board, after power on, the pin can be released
+7. Power on the board (connect USB cable to the board's USB-C connector)
+8. Execute `./flash.sh -t 1MB -m dout -ne` to flash the new firmware
+9. Power off the board
 
 After booting to MicroPython, test the WiFi functionality:
 
