@@ -13,7 +13,7 @@
 
 #include "platform_k210.h"
 
-#ifdef MICROPY_PY_USE_MQTT
+#if MICROPY_PY_USE_NETTWORK
 
 #include <stdlib.h>
 #include <string.h>

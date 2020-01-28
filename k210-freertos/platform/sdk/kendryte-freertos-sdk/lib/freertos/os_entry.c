@@ -31,12 +31,21 @@ typedef struct
 extern void __libc_init_array(void);
 extern void __libc_fini_array(void);
 
+// LoBo: heap allocator changed
+#if (configAPPLICATION_ALLOCATED_HEAP == 1)
+// Global variables defined in the main function
+extern size_t FREERTOS_HEAP_SIZE;
+extern size_t FREERTOS_HEAP_START;
+
+static HeapRegion_t xHeapRegions[2];
+#endif
+
 static StaticTask_t s_idle_task[portNUM_PROCESSORS];
 static StackType_t s_idle_task_stack[portNUM_PROCESSORS][configMINIMAL_STACK_SIZE];
 static StaticTask_t s_timer_task[portNUM_PROCESSORS];
 static StackType_t s_timer_task_stack[portNUM_PROCESSORS][configMINIMAL_STACK_SIZE];
 
-// LoBo: comented because not used
+// LoBo: commented because not used
 //void start_scheduler(int core_id);
 
 int __attribute__((weak)) configure_fpioa()
@@ -78,8 +87,18 @@ int os_entry(int (*user_main)(int, char **))
     main_thunk_param_t param = {};
     param.user_main = user_main;
 
+    #if ( configAPPLICATION_ALLOCATED_HEAP != 0 )
+    // Define heap regions
+    xHeapRegions[0].pucStartAddress = (uint8_t *)FREERTOS_HEAP_START;
+    xHeapRegions[0].xSizeInBytes = FREERTOS_HEAP_SIZE;
+    xHeapRegions[1].pucStartAddress = NULL;
+    xHeapRegions[1].xSizeInBytes = 0;
+    vPortDefineHeapRegions(xHeapRegions);
+    #endif
+
     if (xTaskCreate(main_thunk, "Core 0 Main", configMAIN_TASK_STACK_SIZE, &param, configMAIN_TASK_PRIORITY, &mainTask) != pdPASS)
     {
+        printf("Create MAIN task failed!\r\n");
         return -1;
     }
 

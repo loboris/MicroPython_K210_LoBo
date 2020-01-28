@@ -1,9 +1,10 @@
 #
-# Makefile for maixpy
-# ports/k210-freetos/mpy_support/Makefile
+# Makefile for MicroPython for K210 project
 #
+
 .PHONY:all update_mk compile
 CUR_DIR_ADDR := $(shell pwd)/
+
 ###################################
 # USER OPTION
 LIB_NAME ?= third_party
@@ -13,6 +14,14 @@ OUTPUT_STATIC_LIB := $(LIB_NAME).a
 CC := $(CROSS_COMPILE)gcc
 CXX ?= $(CROSS_COMPILE)c++
 AR ?= $(CROSS_COMPILE)AR
+
+BUILD_VERBOSE ?= 0
+ifeq ($(BUILD_VERBOSE), 1)
+	VERBOSE :=
+else
+	VERBOSE := -s V=1
+endif
+
 ####################################
 # Optional options
 PLATFORM ?=
@@ -29,19 +38,19 @@ CFLAGS :=
 ###############################################################################
 # SOME FUNCTIONS
 define sub_clean
-	$(MAKE) -C $(1) clean CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM);
+	$(MAKE) -C $(1) clean -s V=1 CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM);
 endef
 
 define sub_make
-	$(info =====[ $(dir $(1)) ]=====)
-	$(MAKE) -C $(basename $(patsubst %/,%,$(patsubst ./%,%,$(dir $(1))))) all CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM)
+	$(info =====[    ThirdParty: $(dir $(1)))
+	$(MAKE) -C $(basename $(patsubst %/,%,$(patsubst ./%,%,$(dir $(1))))) $(VERBOSE) all CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM)
 
 endef
 
 define update_sub_mk
 	if [ "$(dir $(1))" != "./" ] ; \
 	then \
-		$(MAKE) -C $(1) update_mk CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM); \
+		$(MAKE) -C $(1) update_mk -s V=1 CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM); \
 	fi;
 endef
 ###############################################################################
@@ -68,15 +77,17 @@ all: compile
 .SILENT: clean update_mk compile
 
 compile:
+	$(info =====[    ThirdParty: compile)
 	$(foreach n,$(FILE_MAKEFILE),$(call sub_make,$(n)))
 
 update_mk:
+	$(info =====[    ThirdParty: update mk file)
 	$(foreach n,$(FILE_MAKEFILE),$(call update_sub_mk, $(dir $(n))))
-	$(info =====[ thirdparty update mk file$(foreach n,$(SUBDIRS) , $(wildcard $(n)/mk)) ... ]=====)
-	$(shell echo $(MK_VALUE)$(foreach nn,$(foreach n,$(SUBDIRS) , $(wildcard $(n)/mk)),"-include "$(CUR_DIR_ADDR)$(nn)"\n") > mk)
+	$(shell printf '%s\n' $(MK_VALUE) > mk)
+	$(shell printf '%s\n' $(foreach nn,$(foreach n,$(SUBDIRS) , $(wildcard $(n)/mk)),"-include "$(CUR_DIR_ADDR)$(nn)) >> mk)
 
 clean:
 	rm -f mk
-	$(info =====[ Cleaning $(SUBDIRS) ... ]=====)
+	$(info =====[    ThirdParty: clean)
 	$(foreach n,$(FILE_MAKEFILE),$(call sub_clean, $(dir $(n))))
 

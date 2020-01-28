@@ -186,10 +186,13 @@ static void _pin_deinit(machine_pin_obj_t *self)
     if (self->pin >= 0) {
         if (self->debounce_task) {
             // Terminate debounce task
+            BaseType_t res = xTaskNotify(self->debounce_task, 0xA500, eSetValueWithoutOverwrite);
+            vTaskDelay(10);
             while (self->debounce_task) {
                 // Terminate the debounce task
-                BaseType_t res = xTaskNotify(self->debounce_task, 0xA500, eSetValueWithoutOverwrite);
+                res = xTaskNotify(self->debounce_task, 0xA500, eSetValueWithoutOverwrite);
                 vTaskDelay(10);
+                // if res == pdPASS, the task has received the notification
                 if (res == pdPASS) break;
             }
         }

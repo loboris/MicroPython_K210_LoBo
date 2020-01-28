@@ -39,20 +39,20 @@
 
 #define mp_obj_is_meth(o) (mp_obj_is_obj(o) && (((mp_obj_base_t*)MP_OBJ_TO_PTR(o))->type->name == MP_QSTR_bound_method))
 
-#define PLL0_MAX_OUTPUT_FREQ    988000000UL
-#define PLL1_MAX_OUTPUT_FREQ    400000000UL
-#define PLL2_MAX_OUTPUT_FREQ    45100000UL
-#define CPU_MAX_FREQ            (PLL0_MAX_OUTPUT_FREQ / 2)
-#define KPU_MAX_FREQ            PLL1_MAX_OUTPUT_FREQ
-#define I2S_MAX_FREQ            0
+#define PLL0_MAX_OUTPUT_FREQ        988000000UL
+#define PLL1_MAX_OUTPUT_FREQ        800000000UL
+#define PLL2_DEFAULT_OUTPUT_FREQ    45158400UL
+#define CPU_MAX_FREQ                (PLL0_MAX_OUTPUT_FREQ / 2)
+#define KPU_MAX_FREQ                (PLL1_MAX_OUTPUT_FREQ / 2)
+#define I2S_MAX_FREQ                0
 
-#define SYS_RESET_REASON_NONE   0
-#define SYS_RESET_REASON_NLR    1
-#define SYS_RESET_REASON_WDT    2
-#define SYS_RESET_REASON_SOFT   3
-#define SYS_RESET_REASON_PWRON  4
+#define SYS_RESET_REASON_NONE       0
+#define SYS_RESET_REASON_NLR        1
+#define SYS_RESET_REASON_WDT        2
+#define SYS_RESET_REASON_SOFT       3
+#define SYS_RESET_REASON_PWRON      4
 
-#define TIMER_MAX_TIMERS    12
+#define TIMER_MAX_TIMERS            12
 
 typedef enum _gpio_func_t
 {
@@ -72,6 +72,7 @@ typedef enum _gpio_func_t
     GPIO_FUNC_WIFI_UART,
     GPIO_FUNC_TIMER,
     GPIO_FUNC_1WIRE,
+    GPIO_FUNC_DVP
 } gpio_pin_func_t;
 
 typedef enum _gpio_func_as_t
@@ -97,6 +98,14 @@ typedef enum _gpio_func_as_t
     GPIO_USEDAS_DATA2,
     GPIO_USEDAS_DATA3,
     GPIO_USEDAS_1WIRE,
+    GPIO_USEDAS_DVP_RST,
+    GPIO_USEDAS_DVP_PWDN,
+    GPIO_USEDAS_DVP_XCLK,
+    GPIO_USEDAS_DVP_VSYNC,
+    GPIO_USEDAS_DVP_HREF,
+    GPIO_USEDAS_DVP_PCLK,
+    GPIO_USEDAS_DVP_SCLK,
+    GPIO_USEDAS_DVP_SDA
 } gpio_pin_func_as_t;
 
 
@@ -212,8 +221,8 @@ extern handle_t flash_spi;
 extern handle_t gpiohs_handle;
 extern uint32_t mp_used_gpiohs;
 extern machine_pin_def_t mp_used_pins[FPIOA_NUM_IO];
-extern const char *gpiohs_funcs[16];
-extern const char *gpiohs_funcs_in_use[16];
+extern const char *gpiohs_funcs[17];
+extern const char *gpiohs_funcs_in_use[17];
 extern const char *reset_reason[8];
 extern const char *term_colors[8];
 extern mpy_config_t mpy_config;

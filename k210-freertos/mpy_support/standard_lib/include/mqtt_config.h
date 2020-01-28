@@ -16,7 +16,7 @@
 
 #include "platform_k210.h"
 
-#ifdef MICROPY_PY_USE_MQTT
+#if MICROPY_PY_USE_MQTT
 
 #define MQTT_PROTOCOL_311           1
 #define MQTT_RECONNECT_TIMEOUT_MS   (10*1000)

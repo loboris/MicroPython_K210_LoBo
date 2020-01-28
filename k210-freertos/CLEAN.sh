@@ -2,12 +2,18 @@
 
 cd k210-freertos > /dev/null 2>&1
 
-cd ../micropython/mpy-cross
+make -C ../micropython/mpy-cross clean -s V=1
+
+make -C ../mklittlefs clean -s V=1
+
 make clean
 
-cd ../../mklittlefs
-make clean
+rm -f mpy_support/k210_config.h > /dev/null 2>&1
+cp -f .config.default .config
 
-cd ../k210-freertos #> /dev/null 2>&1
-make clean
-
+rm -Rf build/* > /dev/null 2>&1
+rm -Rf tmp/* > /dev/null 2>&1
+rm mconf > /dev/null 2>&1
+rm conf > /dev/null 2>&1
+rm -f .tmpconfig
+rm -f .tmpconfig_tristate

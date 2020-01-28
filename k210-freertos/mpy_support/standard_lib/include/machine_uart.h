@@ -2,7 +2,6 @@
 #define INC_MACHINE_UART_H
 
 #include <devices.h>
-
 #include "uart.h"
 
 #include "platform.h"

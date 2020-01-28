@@ -27,7 +27,7 @@
 
 #include "platform_k210.h"
 
-#ifdef MICROPY_PY_USE_REQUESTS
+#if MICROPY_PY_USE_REQUESTS
 
 #include <string.h>
 #include <stdlib.h>
@@ -62,6 +62,10 @@ static bool rqbody_ok = true;
 static bool rqheader_ok = true;
 static bool rq_base64 = false;
 static char *cert_pem = NULL;
+
+#if MICROPY_PY_USE_WIFI == 0
+static bool wifi_task_semaphore_active;
+#endif
 
 
 /*

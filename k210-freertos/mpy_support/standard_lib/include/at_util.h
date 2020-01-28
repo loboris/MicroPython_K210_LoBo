@@ -27,6 +27,10 @@
 #ifndef _LIBAT_UTIL_H_
 #define _LIBAT_UTIL_H_
 
+#include "mpconfigport.h"
+
+#if MICROPY_PY_USE_NETTWORK
+
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
@@ -190,13 +194,12 @@ int ppposStatus(uint32_t *ip, uint32_t *netmask, uint32_t *gw);
 
 // ==== Global GSM/WiFi functions ================================
 
+#if MICROPY_PY_USE_WIFI
 extern QueueSetMemberHandle_t wifi_task_semaphore;
 extern bool wifi_task_semaphore_active;
 extern bool wifi_debug;
 
 int wifi_get_addrinfo(const char *domain, const char *portname, const struct addrinfo *hints, struct addrinfo **resp);
-int gsm_get_addrinfo(const char *domain, const char *portname, const struct addrinfo *hints, struct addrinfo **resp);
-int at_get_socket(socket_obj_t *sock);
 int wifi_connect(socket_obj_t *sock, const char *host, int port, int localport);
 int wifi_send(socket_obj_t *sock, const char *data, size_t data_len);
 int wifi_send_to(socket_obj_t *sock, const char *data, size_t data_len, const char *host, int port);
@@ -220,6 +223,15 @@ int wifiStatus();
 
 int wifi_at_Cmd(at_command_t *command);
 int wifi_at_Commands(at_commands_t *commands, int *processed);
+#endif
+
+#if MICROPY_PY_USE_GSM
+int gsm_get_addrinfo(const char *domain, const char *portname, const struct addrinfo *hints, struct addrinfo **resp);
+#endif
+
+int at_get_socket(socket_obj_t *sock);
 mp_obj_t mpy_atCmd(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args, int uart, bool dbg, const char *tag);
+
+#endif // MICROPY_PY_USE_NETTWORK
 
 #endif

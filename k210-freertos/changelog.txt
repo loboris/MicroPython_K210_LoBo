@@ -1,0 +1,256 @@
+Date:   Jan 28 2020
+
+Large amount of changes and additions
+
+The official name of this port is now 'MicroPython for K210'
+  - all refferences to 'maixpy' are removed
+
+Build system
+  - most port specific options can now be configured using menuconfig
+  - added --menuconfig option to BUILD.sh
+  - build on Mac OSX and arm platforms is now supported and toolchains provided
+
+Changed memory management support
+  - if not using KPU, full 8 MB of memory can be used
+
+Updated 'kflash.py' with https://github.com/loboris/ktool
+  - new flash tool name is 'ktool.py', but the old name 'fflash.py' can still be used
+
+FreeRTOS updated
+  - many improvements
+  - added 'mbedtls' library
+  - added 'heap_5' support
+
+Using two MicroPython instances improved
+  - better inter-instances communication
+
+SPI Flash support, including internal file system improved
+  - SPI Flash speed can be changed from MicroPython
+  - added methods for reading Flash chip JEDEC ID and unique ID
+
+MicroPython modules improved, some bugs fixed, new modules added
+  - almost all modules improved
+  - 'Display' module:
+    - added support for ePaper displays
+    - added support for hershey vector fonts
+    - added PNG support
+  - Network support improved
+  - 'machine' module:
+    - added functions 'state', 'sramread', 'addrof', 'k210_id', 'flash_serial', 'flash_speed'
+  - added 'camera' module with full support for OV2640 and OV5640
+  - added 'ulab' module
+
+
+
+Date:   Wed Aug 7 18:30:54 2019 +0200
+
+    Added 'machine.Onewire' module with DS1820 family support
+
+Date:   Tue Aug 6 20:36:27 2019 +0200
+
+    some typos corrected
+
+Date:   Tue Aug 6 15:25:29 2019 +0200
+
+Date:   Thu Aug 1 19:34:18 2019 +0200
+
+    Added 'machine.Timer' module
+
+Date:   Tue Jul 30 22:19:03 2019 +0200
+
+    Updated GSM module
+
+Date:   Mon Jul 29 18:30:25 2019 +0200
+
+    Updates and buf fixes in WiFi and mqtt
+
+Date:   Sun Jul 28 12:24:33 2019 +0200
+
+    README.md updated
+
+Date:   Sun Jul 28 11:57:15 2019 +0200
+
+    Some updates in comments, no code changes
+
+Date:   Sat Jul 27 21:43:38 2019 +0200
+
+    Fixed bug in 'os.rename()' function
+
+Date:   Sat Jul 27 18:07:05 2019 +0200
+
+    Updated 'spi' module
+      - fixed bug in slave callback
+    
+    Updated 'pye' editor
+      - removed mem_info on exit left from testing
+
+Date:   Fri Jul 26 17:49:36 2019 +0200
+
+    Small bug in 'machine_mem.c" fixed
+
+Date:   Fri Jul 26 14:22:34 2019 +0200
+
+    minor updates
+
+Date:   Fri Jul 26 13:42:07 2019 +0200
+
+    Updated mklittlefs/README.md
+
+Date:   Fri Jul 26 13:38:23 2019 +0200
+
+    README.md files updated and added
+
+Date:   Fri Jul 26 12:31:05 2019 +0200
+
+    Updated README.md
+
+Date:   Fri Jul 26 10:34:44 2019 +0200
+
+    Updates and improvements in SPI driver
+    
+    Updated FreeRTOS
+    
+    Improved 'BUILD.sh' script
+      accepts arguments:
+        -v verbose build
+        -V more verbose
+        -jN multithreaded build, much faster (N=2~8)
+    
+    Other minor changes
+
+Date:   Fri Jul 19 10:12:03 2019 +0200
+
+    Fixed bugs in WiFi flash script
+      'firmware/wifi/flash/flash.sh'
+
+Date:   Thu Jul 18 18:17:59 2019 +0200
+
+    Improvements in SPI drivers and related modules
+      - much faster reads from SPI Flash, row speed ~40 MB/second
+    
+    Creating LittleFS filesystem image added
+      - preformated file sysem image can be flashed
+    
+    MicroPython option to run with or without using ansi colors in logs and prints
+      - can be configured via 'machine.mpy_config()'
+    
+    'memstr' and 'membytes' added to machine module
+    
+    Default CPU frequency set to 494 MHz
+    
+    Updated build scripts
+      - auto create 'fpkg' pachage
+      - build runs silenty by default, '-V' option added for verbose mode
+    
+    Updated 'MPyTerm.py'
+      - option to work without ansi colors added
+      - line editir for command mode added
+    
+    Updated 'kflash.py'
+      - erase the whole flash command added
+      - flash at address option added
+      - fixed handling of fpkg
+    
+    Other minor bugfixes and improvements
+
+Date:   Thu Jul 11 15:39:14 2019 +0200
+
+    MPyTerm, added command mode line edit
+    Added BME280 i2c example
+
+Date:   Wed Jul 10 12:40:12 2019 +0200
+
+    Improved MicroPython configuration handling and checking
+
+Date:   Tue Jul 9 14:31:28 2019 +0200
+
+    Updated pre-built firmware
+    Added 'usqlite3' module example
+
+Date:   Tue Jul 9 14:11:13 2019 +0200
+
+    Added usqlite3 module
+    
+    some bug fixes and improvements if file system drivers
+      - added 'trim' method to LittleFS
+
+Date:   Wed Jul 3 17:35:54 2019 +0200
+
+    updated firmware archive 'MaixPy_firmware.zip'
+
+Date:   Wed Jul 3 17:26:47 2019 +0200
+
+    updated precompiled firmware
+
+Date:   Wed Jul 3 17:15:53 2019 +0200
+
+    Large amount of changes, bug fixes and new features
+    All changes will be described in full details on the forum
+
+Date:   Sun Feb 17 13:59:56 2019 +0100
+
+    Updated prebuilt firmware
+
+Date:   Sun Feb 17 13:47:47 2019 +0100
+
+    Upgraded Kendryte toolchain and freertos-sdk to the latest versions
+    Many updates to make the basic system to work better
+
+Date:   Wed Jan 30 16:45:43 2019 +0100
+
+    Added 'machine.Pin' module
+    Tracking of used pins implemented
+      machine.pinstat() lists all used pins
+    Some bugfixes and improvements
+
+Date:   Sun Jan 27 16:21:59 2019 +0100
+
+    Updated precompiled firmware
+
+Date:   Sun Jan 27 16:02:55 2019 +0100
+
+    Changed MPy Object representation to MICROPY_OBJ_REPR_D
+      as K210 is 64-bit CPU, it better suits the architecture
+      and far less heap operations are performed
+    
+    Added some functions to 'machine' module
+      K210 CPU frequency can now be set to higher than default value
+      Frequencies from 200 MHz - 800 MHz are supported (default: 400 MHz)
+      Frequencies above 400 MHz are considerd as overclocking,
+      but works on most boards
+      added functions:
+        'machine.freq()', 'machine.reset()' and 'machine.random'
+    
+    Fixed (partially) issues with using 'ampy' and 'rshell'
+      'ampy' now works
+      'rshell' still have some issues with sending files...
+    
+    Other small bugfixes and improvements
+
+Date:   Sat Jan 26 13:34:02 2019 +0100
+
+    Some updates
+    Code cleanup
+    Couple of bugfixes
+
+Date:   Thu Jan 24 21:54:29 2019 +0100
+
+    Updated README.md
+
+Date:   Thu Jan 24 21:33:09 2019 +0100
+
+    Updated README.md
+
+Date:   Thu Jan 24 21:23:44 2019 +0100
+
+    Updated README.md
+
+Date:   Thu Jan 24 19:15:12 2019 +0100
+
+    Added README.md
+    
+    Added prebuilt formware
+
+Date:   Thu Jan 24 18:01:34 2019 +0100
+
+    First commit

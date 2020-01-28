@@ -4,6 +4,7 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2013-2015 Damien P. George
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -853,14 +854,23 @@ STATIC bool compile_built_in_decorator(compiler_t *comp, int name_len, mp_parse_
     }
 
     #if MICROPY_DYNAMIC_COMPILER
+    // LoBo
     if (*emit_options == MP_EMIT_OPT_NATIVE_PYTHON || *emit_options == MP_EMIT_OPT_VIPER) {
+        #if MICROPY_EMIT_NATIVE
         if (emit_native_table[mp_dynamic_compiler.native_arch] == NULL) {
             compile_syntax_error(comp, name_nodes[1], "invalid arch");
         }
+        #else
+        compile_syntax_error(comp, name_nodes[1], "invalid arch");
+        #endif
     } else if (*emit_options == MP_EMIT_OPT_ASM) {
+        #if MICROPY_EMIT_INLINE_ASM
         if (emit_asm_table[mp_dynamic_compiler.native_arch] == NULL) {
             compile_syntax_error(comp, name_nodes[1], "invalid arch");
         }
+        #else
+        compile_syntax_error(comp, name_nodes[1], "invalid arch");
+        #endif
     }
     #endif
 

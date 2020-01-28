@@ -1,9 +1,11 @@
 /*
+ * This file is part of the MicroPython K210 project, https://github.com/loboris/MicroPython_K210_LoBo
+ *
     Created by Chris Morgan based on the nodemcu project driver.
     Copyright 2017 Chris Morgan <chmorgan@gmail.com>
     Copyright (c) 2019 LoBo (https://github.com/loboris)
 
-    Ported to Kendryte K210 for low-level signal generation by LoBo.
+    *** Ported to Kendryte K210 for low-level signal generation by LoBo. ***
 
     Permission is hereby granted, free of charge, to any person obtaining
     a copy of this software and associated documentation files (the
@@ -85,7 +87,7 @@
 
 volatile gpiohs_t* const gpiohs_1wire = (volatile gpiohs_t*)GPIOHS_BASE_ADDR;
 
-static const char * TAG = "owb_rmt";
+static const char * TAG = "owb_K210";
 static owb_k210_driver_info *driver_info = NULL;
 static double clk_ns = 1;
 

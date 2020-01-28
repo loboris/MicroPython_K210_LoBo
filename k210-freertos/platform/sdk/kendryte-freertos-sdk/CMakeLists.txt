@@ -7,7 +7,7 @@ set_property(GLOBAL PROPERTY RULE_MESSAGES OFF)
 
 # basic config
 if (NOT PROJ)
-    message("FreeRTOS SDK: only compiling libraries")
+    #message("FreeRTOS SDK: only compiling libraries")
     set(PROJ "Dummy")
 else()
     message("PROJ = ${PROJ}")

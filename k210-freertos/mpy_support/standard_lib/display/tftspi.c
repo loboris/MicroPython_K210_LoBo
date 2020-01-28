@@ -43,7 +43,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <devices.h>
-#include "tftspi.h"
+#include "tft.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
@@ -113,27 +113,6 @@ static int tft_rst_gpionum = 0;
 static int tft_dc_gpionum = 0;
 static mp_fpioa_cfg_item_t disp_pin_func[DISP_NUM_FUNC];
 static uint32_t tft_spi_speed = SPI_DEFAULT_SPEED;
-
-// ====================================================
-// ==== Global variables, default values ==============
-
-bool use_frame_buffer = false;
-// Converts colors to grayscale if set to 1
-uint8_t gray_scale = 0;
-
-// Display dimensions
-int _width = DEFAULT_TFT_DISPLAY_WIDTH;
-int _height = DEFAULT_TFT_DISPLAY_HEIGHT;
-
-// Display type
-uint8_t tft_disp_type = DEFAULT_DISP_TYPE;
-uint8_t tft_touch_type = TOUCH_TYPE_NONE;
-
-uint8_t TFT_RGB_BGR = 0;
-uint8_t gamma_curve = 0;
-
-uint16_t *tft_frame_buffer = NULL;
-// ====================================================
 
 //static const char TAG[] = "[TFTSPI]";
 static uint8_t invertrot = 1;
@@ -366,10 +345,9 @@ static void disp_spi_transfer_addrwin(uint16_t x1, uint16_t x2, uint16_t y1, uin
 //=================================================
 void drawPixel(int16_t x, int16_t y, color_t color)
 {
-	if (use_frame_buffer) {
-        if ((y < _height) && (x < _width)) {
-            int pos = y*_width + x;
-            tft_frame_buffer[pos] = color;
+	if (active_dstate->use_frame_buffer) {
+        if ((y < active_dstate->_height) && (x < active_dstate->_width)) {
+            active_dstate->tft_frame_buffer[(y*active_dstate->_width) + x] = color;
         }
 	    return;
 	}
@@ -383,12 +361,11 @@ void drawPixel(int16_t x, int16_t y, color_t color)
 //================================================================================
 void TFT_pushColorRep(int x1, int y1, int x2, int y2, color_t color, uint32_t len)
 {
-    if (use_frame_buffer) {
+    if (active_dstate->use_frame_buffer) {
         for (int y=y1; y<=y2; y++) {
             for (int x=x1; x<=x2; x++) {
-                if ((y < _height) && (x < _width)) {
-                    int pos = y*_width + x;
-                    tft_frame_buffer[pos] = color;
+                if ((y < active_dstate->_height) && (x < active_dstate->_width)) {
+                    active_dstate->tft_frame_buffer[(y*active_dstate->_width) + x] = color;
                 }
             }
         }
@@ -404,17 +381,16 @@ void TFT_pushColorRep(int x1, int y1, int x2, int y2, color_t color, uint32_t le
 }
 
 // Write 'len' color data to TFT 'window' (x1,y2),(x2,y2) from given buffer
-// === Device must already be selected ===
+// === Device must already be selected if not using framebuffer ===
 //========================================================================
 void send_data(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf)
 {
-    if (use_frame_buffer) {
+    if (active_dstate->use_frame_buffer) {
         int idx = 0;
         for (int y=y1; y<y2; y++) {
             for (int x=x1; x<x2; x++) {
-                if ((y < _height) && (x < _width)) {
-                    int pos = y*_width + x;
-                    tft_frame_buffer[pos] = buf[idx];
+                if ((y < active_dstate->_height) && (x < active_dstate->_width)) {
+                    active_dstate->tft_frame_buffer[(y*active_dstate->_width) + x] = buf[idx];
                 }
                 idx++;
                 if (idx >= len) return;
@@ -432,43 +408,55 @@ void send_data(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf)
     tft_write_half(buf, len);
 }
 
-//=============================================================================
-int get_framebuffer(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf)
+// Write color data to TFT framebuffer from given buffer
+//==================================================================================
+void send_data_scale(int x1, int y1, int width, int height, color_t *buf, int scale)
 {
-    if (use_frame_buffer) {
-        int idx = 0;
-        for (int y=y1; y<y2; y++) {
-            for (int x=x1; x<x2; x++) {
-                if ((y < _height) && (x < _width)) {
-                    int pos = y*_width + x;
-                    buf[idx] = tft_frame_buffer[pos];
-                }
-                else buf[idx] = 0;
-                idx++;
-                if (idx >= len) return idx;
-            }
-        }
-        return idx;
+    if (!active_dstate->use_frame_buffer) return;
+
+    if ((x1==0) && (y1==0) && (width == active_dstate->_width) && (height == active_dstate->_height) && (scale <= 1)) {
+        memcpy(active_dstate->tft_frame_buffer, buf, width*height*2);
+        return;
     }
-    return -1;
+
+    int x, y;   // input buffer coordinates
+    int tx, ty; // tft buffer coordinates
+    int xyscale = scale;
+    if (scale < 1) {
+        xyscale = width / active_dstate->_width;
+        if ((width % active_dstate->_width) > 0) xyscale++;
+    }
+    if (xyscale <= 1) xyscale = 1;
+
+    for (y = 0; y < height; y++) {
+        ty = (y/xyscale) + y1; // display row
+        if (ty < 0) continue;
+        if (ty >= active_dstate->_height) break;
+        for (x = 0; x < width; x++) {
+            tx = (x/xyscale) + x1; // display column
+            if (tx < 0) continue;
+            if (tx >= active_dstate->_width) break;
+            active_dstate->tft_frame_buffer[(ty * active_dstate->_width) + tx] = buf[(y * width) + x];
+        }
+    }
 }
 
 // ToDo: Why SPI drive cannot send more than ~120 KB at once !?
 //======================
 void send_frame_buffer()
 {
-    if ((use_frame_buffer) && tft_frame_buffer) {
+    if ((active_dstate->use_frame_buffer) && active_dstate->tft_frame_buffer) {
         /*
         // ** Send address window **
-        disp_spi_transfer_addrwin(0, _width-1, 0, _height-1);
+        disp_spi_transfer_addrwin(0, active_dstate->_width-1, 0, active_dstate->_height-1);
         // Send color buffer
-        tft_write_half(tft_frame_buffer, 0xFC00);
+        tft_write_half(active_dstate->tft_frame_buffer, 0xFC00);
         */
         // ** Send address window **
-        disp_spi_transfer_addrwin(0, _width-1, 0, _height/2-1);
-        tft_write_half(tft_frame_buffer, _width*_height/2);
-        disp_spi_transfer_addrwin(0, _width-1, _height/2, _height-1);
-        tft_write_half(tft_frame_buffer+(_width*_height/2), _width*_height/2);
+        disp_spi_transfer_addrwin(0, active_dstate->_width-1, 0, active_dstate->_height/2-1);
+        tft_write_half(active_dstate->tft_frame_buffer, active_dstate->_width*active_dstate->_height/2);
+        disp_spi_transfer_addrwin(0, active_dstate->_width-1, active_dstate->_height/2, active_dstate->_height-1);
+        tft_write_half(active_dstate->tft_frame_buffer+(active_dstate->_width*active_dstate->_height/2), active_dstate->_width*active_dstate->_height/2);
     }
 }
 
@@ -481,81 +469,81 @@ void _tft_setRotation(uint8_t rot) {
 
     if ((rotation & 1)) {
         // in landscape modes must be width > height
-        if (_width < _height) {
-            tmp = _width;
-            _width  = _height;
-            _height = tmp;
+        if (active_dstate->_width < active_dstate->_height) {
+            tmp = active_dstate->_width;
+            active_dstate->_width  = active_dstate->_height;
+            active_dstate->_height = tmp;
         }
     }
     else {
         // in portrait modes must be width < height
-        if (_width > _height) {
-            tmp = _width;
-            _width  = _height;
-            _height = tmp;
+        if (active_dstate->_width > active_dstate->_height) {
+            tmp = active_dstate->_width;
+            active_dstate->_width  = active_dstate->_height;
+            active_dstate->_height = tmp;
         }
     }
     if (invertrot == 2) {
         switch (rotation) {
             case PORTRAIT:
-            madctl = (MADCTL_MV | TFT_RGB_BGR);
+            madctl = (MADCTL_MV | active_dstate->TFT_RGB_BGR);
             break;
             case LANDSCAPE:
-            madctl = (MADCTL_MX | TFT_RGB_BGR);
+            madctl = (MADCTL_MX | active_dstate->TFT_RGB_BGR);
             break;
             case PORTRAIT_FLIP:
-            madctl = (MADCTL_MV | TFT_RGB_BGR);
+            madctl = (MADCTL_MV | active_dstate->TFT_RGB_BGR);
             break;
             case LANDSCAPE_FLIP:
-            madctl = (MADCTL_MY | TFT_RGB_BGR);
+            madctl = (MADCTL_MY | active_dstate->TFT_RGB_BGR);
             break;
         }
     }
     else if (invertrot == 3) {
         switch (rotation) {
             case PORTRAIT:
-            madctl = (MADCTL_MX | MADCTL_MV | TFT_RGB_BGR);
+            madctl = (MADCTL_MX | MADCTL_MV | active_dstate->TFT_RGB_BGR);
             break;
             case LANDSCAPE:
-            madctl = (TFT_RGB_BGR);
+            madctl = (active_dstate->TFT_RGB_BGR);
             break;
             case PORTRAIT_FLIP:
-            madctl = (MADCTL_MY | MADCTL_MV | TFT_RGB_BGR);
+            madctl = (MADCTL_MY | MADCTL_MV | active_dstate->TFT_RGB_BGR);
             break;
             case LANDSCAPE_FLIP:
-            madctl = (MADCTL_MY | MADCTL_MX | TFT_RGB_BGR);
+            madctl = (MADCTL_MY | MADCTL_MX | active_dstate->TFT_RGB_BGR);
             break;
         }
     }
     else if (invertrot == 1) {
         switch (rotation) {
             case PORTRAIT:
-            madctl = (MADCTL_MY | MADCTL_MX | TFT_RGB_BGR);
+            madctl = (MADCTL_MY | MADCTL_MX | active_dstate->TFT_RGB_BGR);
             break;
             case LANDSCAPE:
-            madctl = (MADCTL_MY | MADCTL_MV | TFT_RGB_BGR);
+            madctl = (MADCTL_MY | MADCTL_MV | active_dstate->TFT_RGB_BGR);
             break;
             case PORTRAIT_FLIP:
-            madctl = (TFT_RGB_BGR);
+            madctl = (active_dstate->TFT_RGB_BGR);
             break;
             case LANDSCAPE_FLIP:
-            madctl = (MADCTL_MX | MADCTL_MV | TFT_RGB_BGR);
+            madctl = (MADCTL_MX | MADCTL_MV | active_dstate->TFT_RGB_BGR);
             break;
         }
     }
     else {
         switch (rotation) {
             case PORTRAIT:
-            madctl = (MADCTL_MX | TFT_RGB_BGR);
+            madctl = (MADCTL_MX | active_dstate->TFT_RGB_BGR);
             break;
             case LANDSCAPE:
-            madctl = (MADCTL_MV | TFT_RGB_BGR);
+            madctl = (MADCTL_MV | active_dstate->TFT_RGB_BGR);
             break;
             case PORTRAIT_FLIP:
-            madctl = (MADCTL_MY | TFT_RGB_BGR);
+            madctl = (MADCTL_MY | active_dstate->TFT_RGB_BGR);
             break;
             case LANDSCAPE_FLIP:
-            madctl = (MADCTL_MX | MADCTL_MY | MADCTL_MV | TFT_RGB_BGR);
+            madctl = (MADCTL_MX | MADCTL_MY | MADCTL_MV | active_dstate->TFT_RGB_BGR);
             break;
         }
     }
@@ -569,11 +557,11 @@ void _tft_setRotation(uint8_t rot) {
 void TFT_display_setvars(display_config_t *dconfig)
 {
     // === SET GLOBAL VARIABLES ==========================
-    tft_disp_type = dconfig->type;
-    _width = dconfig->width;
-    _height = dconfig->height;
-    TFT_RGB_BGR = dconfig->bgr;
-    gamma_curve = dconfig->gamma;
+    active_dstate->tft_disp_type = dconfig->type;
+    active_dstate->_width = dconfig->width;
+    active_dstate->_height = dconfig->height;
+    active_dstate->TFT_RGB_BGR = dconfig->bgr;
+    active_dstate->gamma_curve = dconfig->gamma;
     tft_spi_speed = dconfig->speed;
     invertrot = dconfig->invrot;
     // ===================================================
@@ -585,7 +573,7 @@ int TFT_display_init(display_config_t *dconfig)
 {
     TFT_display_setvars(dconfig);
 
-    if (!tft_init(2)) return -1;
+    if (!tft_init(3)) return -1;
     vTaskDelay(100);
 
     return 0;

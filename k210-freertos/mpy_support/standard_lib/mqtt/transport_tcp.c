@@ -13,7 +13,7 @@
 
 #include "platform_k210.h"
 
-#ifdef MICROPY_PY_USE_MQTT
+#if MICROPY_PY_USE_NETTWORK
 
 #include <stdlib.h>
 #include <string.h>
@@ -56,6 +56,7 @@ static int mqtcp_connect(transport_handle_t t, const char *host, int port, int t
     transport_tcp_t *tcp = transport_get_context_data(t);
 
     if (net_active_interfaces & ACTIVE_INTERFACE_WIFI) {
+        #if MICROPY_PY_USE_WIFI
         tcp->sock->fd = at_get_socket(tcp->sock);
         if (tcp->sock->fd < 0) {
             if (transport_debug) LOGE(TAG, "Error creating socket");
@@ -72,6 +73,9 @@ static int mqtcp_connect(transport_handle_t t, const char *host, int port, int t
         if (transport_debug) LOGD(TAG, "Connected to %s:%d", host, port);
         tcp->sock->peer_closed = false;
         return tcp->sock->fd;
+        #else
+        return -1;
+        #endif
     }
 
     // Connect using lwip sockets
@@ -118,11 +122,15 @@ static int mqtcp_write(transport_handle_t t, const char *buffer, int len, int ti
     transport_tcp_t *tcp = transport_get_context_data(t);
 
     if (net_active_interfaces & ACTIVE_INTERFACE_WIFI) {
+        #if MICROPY_PY_USE_WIFI
         ret = wifi_send(tcp->sock, buffer, len);
         if (ret <= 0) {
             if (transport_debug) LOGE(TAG, "Write error, errno=%s", strerror(errno));
         }
         return ret;
+        #else
+        return -1;
+        #endif
     }
 
     // Write using lwip socket
@@ -141,6 +149,7 @@ static int mqtcp_read(transport_handle_t t, char *buffer, int len, int timeout_m
     int poll = -1;
 
     if (net_active_interfaces & ACTIVE_INTERFACE_WIFI) {
+        #if MICROPY_PY_USE_WIFI
         if (tcp->sock->buffer.length <= 0) {
             poll = transport_poll_read(t, timeout_ms);
             if (poll <= 0) return poll;
@@ -150,6 +159,9 @@ static int mqtcp_read(transport_handle_t t, char *buffer, int len, int timeout_m
             return -1;
         }
         return ret;
+        #else
+        return -1;
+        #endif
     }
 
     // Read using lwip socket
@@ -212,7 +224,9 @@ static int mqtcp_close(transport_handle_t t)
 
     if (transport_debug) LOGD(TAG, "Close socket (%d)", tcp->sock->fd);
     if (net_active_interfaces & ACTIVE_INTERFACE_WIFI) {
+        #if MICROPY_PY_USE_WIFI
         ret = wifi_close(tcp->sock);
+        #endif
     }
     else if (tcp->sock->fd >= 0) {
         ret = lwip_close(tcp->sock->fd);

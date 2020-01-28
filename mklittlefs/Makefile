@@ -48,7 +48,7 @@ mklfs: $(OBJ)
 	$(CC) -S $(CFLAGS) $< -o $@
 
 clean:
-	rm -f $(TARGET)
-	rm -f $(OBJ)
-	rm -f $(DEP)
-	rm -f $(ASM)
+	@rm -f $(TARGET)
+	@rm -f $(OBJ)
+	@rm -f $(DEP)
+	@rm -f $(ASM)

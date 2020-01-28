@@ -26,7 +26,7 @@
 
 #include "mpconfigport.h"
 
-#if defined(MICROPY_PY_USE_WIFI) || defined(MICROPY_PY_USE_WIFI) || defined(MICROPY_PY_USE_WIFI) || defined(MICROPY_PY_USE_WIFI)
+#if MICROPY_PY_USE_NETTWORK
 
 #include "at_util.h"
 #include "py/nlr.h"
@@ -44,19 +44,19 @@ STATIC mp_obj_t mp_module_network_initialize()
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(mp_module_network_initialize_obj, mp_module_network_initialize);
 
 
-#ifdef MICROPY_PY_USE_WIFI
+#if MICROPY_PY_USE_WIFI
 extern const mp_obj_type_t wifi_type;
 #endif
 
-#ifdef MICROPY_PY_USE_GSM
+#if MICROPY_PY_USE_GSM
 extern const mp_obj_type_t gsm_type;
 #endif
 
-#ifdef MICROPY_PY_USE_MQTT
+#if MICROPY_PY_USE_MQTT
 extern const mp_obj_type_t mqtt_type;
 #endif
 
-#ifdef MICROPY_PY_USE_REQUESTS
+#if MICROPY_PY_USE_REQUESTS
 extern const mp_obj_type_t requests_type;
 #endif
 
@@ -64,10 +64,10 @@ extern const mp_obj_type_t requests_type;
 //---------------------------------------
 STATIC mp_obj_t mod_network_wifi_active()
 {
-    #ifdef MICROPY_PY_USE_WIFI
+    #if MICROPY_PY_USE_WIFI
     return (wifiStatus() == ATDEV_STATEIDLE) ? mp_const_true : mp_const_false;
     #else
-    return mp_const_none
+    return mp_const_false;
     #endif
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_network_wifi_active_obj, mod_network_wifi_active);
@@ -75,11 +75,11 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_network_wifi_active_obj, mod_network_wifi_a
 //--------------------------------------
 STATIC mp_obj_t mod_network_gsm_active()
 {
-    #ifdef MICROPY_PY_USE_GSM
+    #if MICROPY_PY_USE_GSM
     int gsm_state = ppposStatus(NULL, NULL, NULL);
     return ((gsm_state == ATDEV_STATEIDLE) || (gsm_state == ATDEV_STATECONNECTED)) ? mp_const_true : mp_const_false;
     #else
-    return mp_const_none
+    return mp_const_false;
     #endif
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_network_gsm_active_obj, mod_network_gsm_active);
@@ -87,11 +87,11 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_network_gsm_active_obj, mod_network_gsm_act
 //-----------------------------------------
 STATIC mp_obj_t mod_network_gsm_connected()
 {
-    #ifdef MICROPY_PY_USE_GSM
+    #if MICROPY_PY_USE_GSM
     int gsm_state = ppposStatus(NULL, NULL, NULL);
     return (gsm_state == ATDEV_STATECONNECTED) ? mp_const_true : mp_const_false;
     #else
-    return mp_const_none
+    return mp_const_false;
     #endif
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_network_gsm_connected_obj, mod_network_gsm_connected);
@@ -105,19 +105,19 @@ STATIC const mp_map_elem_t mp_module_network_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_gsm_active),      MP_ROM_PTR(&mod_network_gsm_active_obj) },
     { MP_ROM_QSTR(MP_QSTR_gsm_connected),   MP_ROM_PTR(&mod_network_gsm_connected_obj) },
 
-    #ifdef MICROPY_PY_USE_WIFI
+    #if MICROPY_PY_USE_WIFI
     { MP_ROM_QSTR(MP_QSTR_wifi),            MP_ROM_PTR(&wifi_type) },
     #endif
 
-    #ifdef MICROPY_PY_USE_GSM
+    #if MICROPY_PY_USE_GSM
     { MP_ROM_QSTR(MP_QSTR_gsm),             MP_ROM_PTR(&gsm_type) },
     #endif
 
-    #ifdef MICROPY_PY_USE_MQTT
+    #if MICROPY_PY_USE_MQTT
     { MP_ROM_QSTR(MP_QSTR_mqtt),            MP_ROM_PTR(&mqtt_type) },
     #endif
 
-    #ifdef MICROPY_PY_USE_REQUESTS
+    #if MICROPY_PY_USE_REQUESTS
     { MP_ROM_QSTR(MP_QSTR_requests),        MP_ROM_PTR(&requests_type) },
     #endif
 };

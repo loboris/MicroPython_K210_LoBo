@@ -766,24 +766,6 @@ STATIC mp_obj_t mod_thread_pystack(mp_uint_t n_args, const mp_obj_t *args)
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_thread_pystack_obj, 0, 1, mod_thread_pystack);
 
-//-----------------------------------------------------
-STATIC mp_obj_t mod_thread_set_callback(mp_obj_t cb_in)
-{
-    if (xTaskGetCurrentTaskHandle() != MainTaskHandle) return mp_const_false;
-
-    if ((mp_obj_is_fun(cb_in)) || (mp_obj_is_meth(cb_in))) {
-        main_task_callback = cb_in;
-    }
-    else if ((cb_in == mp_const_none) || (cb_in == mp_const_false)) {
-        main_task_callback = 0;
-    }
-    else {
-        mp_raise_ValueError("Function, None or False argument expected");
-    }
-    return mp_const_true;
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_thread_set_callback_obj, mod_thread_set_callback);
-
 
 // -------------------------------------
 // Inter Processor Communication methods
@@ -795,6 +777,14 @@ typedef struct _prnbuf_t {
     size_t size;
     bool   status;
 } prnbuf_t;
+
+//-----------------------------
+static void checkTwoInstances()
+{
+    if (!mpy_config.config.use_two_main_tasks) {
+        mp_raise_NotImplementedError("Not available in single MicroPython instance mode");
+    }
+}
 
 //-------------------------------------------------------------------
 STATIC void _mp_print_to_buf(void *data, const char *str, size_t len)
@@ -822,10 +812,31 @@ STATIC void _mp_print_to_buf(void *data, const char *str, size_t len)
     buf->data[buf->len] = '\0';
 }
 
+//-----------------------------------------------------
+STATIC mp_obj_t mod_thread_set_callback(mp_obj_t cb_in)
+{
+    if ((!mp_obj_is_fun(cb_in)) && (!mp_obj_is_meth(cb_in)) && (cb_in != mp_const_none) && (cb_in != mp_const_false)) {
+        mp_raise_TypeError("Function, None or False argument expected");
+    }
+    // We can only set this callback for main MicroPython task
+    if (xTaskGetCurrentTaskHandle() == MainTaskHandle) {
+        if ((cb_in == mp_const_none) || (cb_in == mp_const_false)) main_task_callback = mp_const_none;
+        else main_task_callback = cb_in;
+    }
+    else if (xTaskGetCurrentTaskHandle() == MainTaskHandle2) {
+        if ((cb_in == mp_const_none) || (cb_in == mp_const_false)) mpy2_task_callback = mp_const_none;
+        else mpy2_task_callback = cb_in;
+    }
+    else return mp_const_false;
+
+    return mp_const_true;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_thread_set_callback_obj, mod_thread_set_callback);
+
 //-----------------------------------------
 STATIC mp_obj_t mod_thread_get_ipc_outbuf()
 {
-    if (!mpy_config.config.use_two_main_tasks) return mp_const_false;
+    checkTwoInstances();
     if (xSemaphoreTake(inter_proc_mutex, 100 / portTICK_PERIOD_MS) != pdTRUE) {
         return mp_const_false;
     }
@@ -846,21 +857,23 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_thread_get_ipc_outbuf_obj, mod_thread_get_i
 //--------------------------------------------
 STATIC mp_obj_t mod_thread_get_ipc_outbuflen()
 {
+    checkTwoInstances();
+    mp_obj_t tuple[2];
     if (xSemaphoreTake(inter_proc_mutex, 100 / portTICK_PERIOD_MS) != pdTRUE) {
         return mp_const_false;
     }
-
-    int res = task_ipc.ipc_response_buff_idx;
+    tuple[0] = mp_obj_new_int(task_ipc.ipc_response_buff_idx);
+    tuple[1] = mp_obj_new_int(task_ipc.ipc_response_buff_size);
     xSemaphoreGive(inter_proc_mutex);
 
-    return mp_obj_new_int(res);
+    return mp_obj_new_tuple(2, tuple);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_thread_get_ipc_outbuflen_obj, mod_thread_get_ipc_outbuflen);
 
 //-------------------------------------------
 STATIC mp_obj_t mod_thread_get_ipc_clearout()
 {
-    if (!mpy_config.config.use_two_main_tasks) return mp_const_false;
+    checkTwoInstances();
     if (xSemaphoreTake(inter_proc_mutex, 100 / portTICK_PERIOD_MS) != pdTRUE) {
         return mp_const_false;
     }
@@ -880,7 +893,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_thread_get_ipc_clearout_obj, mod_thread_get
 //-----------------------------------------------------
 STATIC mp_obj_t mod_thread_ipc_command(mp_obj_t cmd_in)
 {
-    if (!mpy_config.config.use_two_main_tasks) return mp_const_false;
+    checkTwoInstances();
     int res;
 
     if (mp_obj_is_str(cmd_in)) {
@@ -906,7 +919,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_thread_ipc_command_obj, mod_thread_ipc_comm
 //------------------------------------------------------------------------
 STATIC mp_obj_t mod_thread_ipc_msg(mp_uint_t n_args, const mp_obj_t *args)
 {
-    if (!mpy_config.config.use_two_main_tasks) return mp_const_false;
+    checkTwoInstances();
     int res;
 
     if (n_args > 1) {
@@ -933,7 +946,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_thread_ipc_msg_obj, 1, 2, mod_thr
 //-----------------------------------------------------------------------
 STATIC mp_obj_t mod_thread_set_ipc_var(mp_obj_t name_in, mp_obj_t obj_in)
 {
-    if (!mpy_config.config.use_two_main_tasks) return mp_const_false;
+    checkTwoInstances();
     const char *name = mp_obj_str_get_str(name_in);
 
     prnbuf_t pbuf;
@@ -978,7 +991,9 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_2(mod_thread_set_ipc_var_obj, mod_thread_set_ipc_
 //----------------------------------------
 STATIC mp_obj_t mod_thread_get_ipc_state()
 {
-    if (!mpy_config.config.use_two_main_tasks) return mp_const_false;
+    checkTwoInstances();
+    if (xTaskGetCurrentTaskHandle() == MainTaskHandle2) return mp_const_false;
+
     if (xSemaphoreTake(inter_proc_mutex, 100 / portTICK_PERIOD_MS) != pdTRUE) {
         return mp_const_false;
     }
@@ -992,7 +1007,9 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_thread_get_ipc_state_obj, mod_thread_get_ip
 //-----------------------------------------------
 STATIC mp_obj_t mod_thread_get_ipc_setexception()
 {
-    if (!mpy_config.config.use_two_main_tasks) return mp_const_none;
+    checkTwoInstances();
+    if (xTaskGetCurrentTaskHandle() == MainTaskHandle2) return mp_const_none;
+
     if (xSemaphoreTake(inter_proc_mutex, 100 / portTICK_PERIOD_MS) != pdTRUE) {
         return mp_const_false;
     }
@@ -1006,7 +1023,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_thread_get_ipc_setexception_obj, mod_thread
 //------------------------------------------------------
 STATIC mp_obj_t mod_thread_ipc_notify(mp_obj_t in_value)
 {
-    if (!mpy_config.config.use_two_main_tasks) return mp_const_false;
+    checkTwoInstances();
     uintptr_t thr_id = (uintptr_t)MainTaskHandle2;
     if (xTaskGetCurrentTaskHandle() == MainTaskHandle2) thr_id = (uintptr_t)MainTaskHandle;
 
@@ -1046,15 +1063,16 @@ STATIC const mp_rom_map_elem_t mp_module_thread_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_getPriority),         MP_ROM_PTR(&mod_thread_getpriority_obj) },
     { MP_ROM_QSTR(MP_QSTR_setPriority),         MP_ROM_PTR(&mod_thread_setpriority_obj) },
     { MP_ROM_QSTR(MP_QSTR_pystack),             MP_ROM_PTR(&mod_thread_pystack_obj) },
-    { MP_ROM_QSTR(MP_QSTR_mainCallback),        MP_ROM_PTR(&mod_thread_set_callback_obj) },
 
+    // Two MicroPython instances methods
+    { MP_ROM_QSTR(MP_QSTR_ipc_callback),        MP_ROM_PTR(&mod_thread_set_callback_obj) },
     { MP_ROM_QSTR(MP_QSTR_ipc_command),         MP_ROM_PTR(&mod_thread_ipc_command_obj) },
     { MP_ROM_QSTR(MP_QSTR_ipc_msg),             MP_ROM_PTR(&mod_thread_ipc_msg_obj) },
     { MP_ROM_QSTR(MP_QSTR_ipc_getout),          MP_ROM_PTR(&mod_thread_get_ipc_outbuf_obj) },
     { MP_ROM_QSTR(MP_QSTR_ipc_clearout),        MP_ROM_PTR(&mod_thread_get_ipc_clearout_obj) },
     { MP_ROM_QSTR(MP_QSTR_ipc_getoutlen),       MP_ROM_PTR(&mod_thread_get_ipc_outbuflen_obj) },
     { MP_ROM_QSTR(MP_QSTR_ipc_setvar),          MP_ROM_PTR(&mod_thread_set_ipc_var_obj) },
-    { MP_ROM_QSTR(MP_QSTR_ipc_bussy),           MP_ROM_PTR(&mod_thread_get_ipc_state_obj) },
+    { MP_ROM_QSTR(MP_QSTR_ipc_busy),            MP_ROM_PTR(&mod_thread_get_ipc_state_obj) },
     { MP_ROM_QSTR(MP_QSTR_ipc_break),           MP_ROM_PTR(&mod_thread_get_ipc_setexception_obj) },
     { MP_ROM_QSTR(MP_QSTR_ipc_notify),          MP_ROM_PTR(&mod_thread_ipc_notify_obj) },
 

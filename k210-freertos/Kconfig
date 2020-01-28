@@ -1,0 +1,335 @@
+mainmenu "MicroPython for Kendryte K210"
+
+    menu "General settings"
+
+        config FIRMWARE_SIZE_TYPE
+            int
+            default 0 if FIRMWARE_SIZE_2_MB
+            default 1 if FIRMWARE_SIZE_2_5_MB
+            default 2 if FIRMWARE_SIZE_3_MB
+            default 3 if FIRMWARE_SIZE_3_5_MB
+
+            choice
+                prompt "Set the size reserved for the firmware"
+                default 2
+                help
+                    Select K210 SRAM size reserved for the MicroPython firmware.
+                    
+                    K210 executes the code from SRAM and the firmware from SPI Flash is loaded into SRAM on boot.
+                    The space for the code and all static and global variables and constants must be reserved.
+                    'BUILD.sh' script select the right linker script according to this setting.
+                    
+                    Three predefined sizes can be used:
+                      2 MB - enough to build minimal MicroPython firmware
+                    2.5 MB - enough to build most MicroPython modules, sqlite3 cannot be included
+                      3 MB - enough to build all MicroPython modules including sqlite3
+                    3.5 MB - should be enough to build any firmware
+                    
+                    If the insufficient size is selected, linker or runtime error will be reported
+                      
+                    The rest of the K210 SRAM is used for FreeRTOS and MicroPython heaps
+
+                config FIRMWARE_SIZE_2_MB
+                    bool "2 MB"
+                config FIRMWARE_SIZE_2_5_MB
+                    bool "2.5 MB"
+                config FIRMWARE_SIZE_3_MB
+                    bool "3 MB"
+                config FIRMWARE_SIZE_3_5_MB
+                    bool "3.5 MB"
+            endchoice
+
+        config MICROPY_K210_KPU_USED
+            bool "KPU used"
+            default n
+            help
+                K210 includes a KPU (Neural Network Processor).
+                KPU, when used, reserves 2 MB of K210's SRAM which cannot be used by the CPU.
+                Is KPU is not used, 2 MB of SRAM is free to use and is used for FreeRTOS and MicroPython heaps.
+                At the moment, KPU is not used by MicroPython, so this option can be disabled.
+
+        config MICRO_PY_FREE_RTOS_RESERVED
+            int "Default FreeRTOS heap size (KB)"
+            default 896 if !MICROPY_K210_KPU_USED
+            default 640 if MICROPY_K210_KPU_USED
+            help
+                Default amount of K210 SRAM used for FreeRTOS heap in KB.
+                The remaining free SRAM is used for MicroPython heap.
+                
+                MicroPython heap size and memory used for FreeRTOS heap can be changed using 'machine.mpy_config()'
+
+        config MICROPY_HW_BOARD_NAME
+            string "Board name"
+            default "Sipeed_board"
+            help
+                Hardware board mame
+
+        config MICROPY_HW_MCU_NAME
+            string "MCU name"
+            default "Kendryte-K210"
+            help
+                Hardware MCU mame
+
+        config MICROPY_PY_USE_LOG_COLORS
+            bool "Colored log messages"
+            default y
+            help
+                Enable or disable using ansi colors in system log messages
+                
+                Can be changed using 'machine.mpy_config()'
+
+        config MICROPY_USE_TWO_MAIN_TASKS
+            bool "Use two MicroPython instances"
+            default n
+            help
+                If set, two main MicroPython tasks are created on boot,
+                each running on its own K210 processor and using the separate environments.
+                Various functions for inter process communications are provided.
+                
+                Can be changed using 'machine.mpy_config()'
+
+        config MICROPY_ENABLE_PYSTACK
+            bool "Use PyStack"
+            default y
+            help
+                Whether to enable a separate allocator for the Python stack.
+                If not enabled, the thread's (FreeRTOS task's) stack is used
+                It is recommended to enable this setting.
+                
+                Can be changed using 'machine.mpy_config()'
+
+        config MICROPY_PY_THREAD_GIL_VM_DIVISOR
+            int "Default MicroPython VM divisor"
+            range 1 64
+            default 32
+            help
+                How many bytecodes are executed by virtual machine before the threads are switched.
+                
+                Can be changed using 'machine.mpy_config()'
+
+        config MICRO_PY_BOOT_MENU_PIN
+            int "Default Boot menu pin"
+            range 0 40
+            default 17
+            help
+                Select pin (GPIO) used to enter the Boot menu.
+                Selecting 0 disables boot menu.
+                Selected pin is used only on boot, after boot it is free to be used as any other pin.
+                
+                Can be changed using 'machine.mpy_config()'
+
+        config MICROPY_WQ25XXX_MAX_SPEED
+            int "Default Flash chip speed (MHz)"
+            range 40 83
+            default 40
+            help
+                Default SPI Flash chip clock.
+                On most board Flash chip will work without issues with the maximum clock of 83 MHZ.
+                On some boards it will not work and the maximum clock must be reduced.
+
+        config MICROPY_BANK67_3V
+            bool "Pwr Bank 6&7 at 3.3V"
+            default n
+            help
+                Set voltage for power bank 6 & 7 to 3.3V.
+                If enabled gpio voltage for pins powered by bank 6&7 (IO36~IO47) will be 3.3V, if not the voltage will be 1.8V
+                BE CAREFULL WHEN ENABLING THIS. Those pins are usually used to drive LCD & DVP and must be at 1.8V.
+
+        config MICRO_PY_DEFAULT_BAUDRATE
+            int
+            default 115200 if MICRO_PY_DEFAULT_BAUDRATE0
+            default 230400 if MICRO_PY_DEFAULT_BAUDRATE1
+            default 460800 if MICRO_PY_DEFAULT_BAUDRATE2
+            default 921600 if MICRO_PY_DEFAULT_BAUDRATE3
+            default 1000000 if MICRO_PY_DEFAULT_BAUDRATE4
+            default 2000000 if MICRO_PY_DEFAULT_BAUDRATE5
+            default 2500000 if MICRO_PY_DEFAULT_BAUDRATE6
+            default 4000000 if MICRO_PY_DEFAULT_BAUDRATE7
+
+            choice
+                prompt "Default REPL baudrate"
+                default 115200
+                help
+                    Select the dafault REPL baudrate after boot.
+                    Remember that your terminal emulator baudrate must match the boards baudrate.
+                    
+                    Can be changed using 'machine.mpy_config()'
+
+                config MICRO_PY_DEFAULT_BAUDRATE0
+                    bool "115200"
+                config MICRO_PY_DEFAULT_BAUDRATE1
+                    bool "230400"
+                config MICRO_PY_DEFAULT_BAUDRATE2
+                    bool "460800"
+                config MICRO_PY_DEFAULT_BAUDRATE3
+                    bool "921600"
+                config MICRO_PY_DEFAULT_BAUDRATE4
+                    bool "1000000"
+                config MICRO_PY_DEFAULT_BAUDRATE5
+                    bool "2000000"
+                config MICRO_PY_DEFAULT_BAUDRATE6
+                    bool "2500000"
+                config MICRO_PY_DEFAULT_BAUDRATE7
+                    bool "4000000"
+            endchoice
+
+    endmenu
+
+    menu "File systems"
+        config MICRO_PY_FLASH_SIZE
+            int "Flash size (MB)"
+            range 8 32
+            default 16
+            help
+                Size of the SPI Flash attached to the K210 (in MB)
+                Usually the Flash chip used is of 16MB capacity.
+
+        config MICRO_PY_FLASHFS_START_ADDRESS
+            int "Flash file system start address (MB)"
+            range 3 12
+            default 4
+            help
+                Start address of the Flash file system (in MB)
+
+        config MICRO_PY_FLASHFS_SIZE
+            int "Flash file system size (MB)"
+            range 4 12
+            default 10
+            help
+                Size of the Flash file system (in MB)
+
+        config MICROPY_FILESYSTEM_TYPE
+            int
+            default 0 if MICRO_PY_FLASHFS_LITTLEFS
+            default 1 if MICRO_PY_FLASHFS_SPIFFS
+
+            choice
+                prompt "Set internal file system type"
+                default MICRO_PY_FLASHFS_LITTLEFS
+                help
+                    Select internal (Flash) file system type
+
+                config MICRO_PY_FLASHFS_LITTLEFS
+                    bool "LittleFS"
+                config MICRO_PY_FLASHFS_SPIFFS
+                    bool "SPIFFS"
+            endchoice
+
+        menu "SD Card config"
+            config MICRO_PY_SD_MISO
+                int "MISO Pin"
+                range 0 42
+                default 26
+                help
+                    GPIO used as SD Card DATA0/MISO (default 26)
+    
+            config MICRO_PY_SD_MOSI
+                int "MOSI Pin"
+                range 0 42
+                default 28
+                help
+                    GPIO used as SD Card CMD/MOSI (default 28)
+    
+            config MICRO_PY_SD_SCLK
+                int "SCLK Pin"
+                range 0 42
+                default 27
+                help
+                    GPIO used as SD Card CLK (default 27)
+    
+            config MICRO_PY_SD_CS
+                int "CS Pin"
+                range 0 42
+                default 29
+                help
+                    GPIO used as SD Card DAT3/CS (default 29)
+    
+    
+        endmenu
+    endmenu
+
+    menu "MicroPython modules"
+        config MICROPY_PY_USE_SQLITE
+            bool "SQLite 3 module"
+            default n
+            depends on FIRMWARE_SIZE_TYPE = 2
+            help
+                Full support for Sqlite3 data base on internal Flash file system or SD Card.
+                In-memory database is also supported.
+                
+                sqlite3 module uses ~416 KB of code (and SRAM) space and requires 3MB firmware size
+
+        config MICROPY_USE_DISPLAY
+            bool "Display module"
+            default y
+            help
+                Module supporting various SPI connected display modules.
+
+        config MICROPY_USE_TFT
+            bool "TFT module"
+            default y
+            depends on MICROPY_USE_DISPLAY
+            help
+                Module supporting TFT displays connected to the K210's display port
+
+        config MICROPY_USE_EPD
+            bool "EPD (ePaper) module"
+            default n
+            depends on MICROPY_USE_DISPLAY
+            help
+                Module supporting ePaper displays connected to the K210's SPI port
+                Waveshare 2.9 & 4.2 inch displays are supported.
+                
+
+        config MICROPY_USE_CAMERA
+            bool "Camera module"
+            default y
+            help
+                Module supporting camera modules connected to the K210's DVP.
+                At the moment OV2640 and OV5640 cameras are supported.
+
+        config MICROPY_PY_USE_GSM
+            bool "GSM module"
+            default y
+            help
+                This module includes full support for using various GSM/GPRS modules connected via UART for Internet access
+                as well as for sending/receiving SMS messages.
+
+                2G, 3G or 4G modules can be used, tested with Simcom and Telit modules, but any module should work.
+
+        config MICROPY_PY_USE_WIFI
+            bool "WiFi module"
+            default y
+            help
+                wifi module enables accessing the network resources using the ESP8266/ESP8285.
+                Some K210 boards (like MAIX-M1, DanDock) already have ESP8266 attached to K210 UART.
+                For other boards, any ESP8266/ESP8285 board or module can be simply attached, only Tx, Rx and GND are needed.
+
+        config MICROPY_PY_USE_MQTT
+            bool "Mqtt module"
+            default y
+            depends on MICROPY_PY_USE_GSM || MICROPY_PY_USE_WIFI
+            help
+                Mqtt support.
+                Mqtt runs in separate thread (FreeRTOS task).
+                Standard mqtt (TCP, port 1883), Secured mqtt (TCP over SSL/TLS, port 8883), mqtt over WebSockets and secured mqtt over WebSockets are all supported.
+                Can be used with WiFi or GSM interface.
+                Secured mqtt is supported only with WiFi interface
+
+        config MICROPY_PY_USE_REQUESTS
+            bool "Requests module"
+            default y
+            depends on MICROPY_PY_USE_GSM || MICROPY_PY_USE_WIFI
+            help
+                Http/https requests support.
+                Requests module enables trasfering data between K210 MicroPython and the remote http//https server.
+
+        config MICROPY_PY_USE_ULAB
+            bool "Ulab module"
+            default n
+            help
+                ulab is a numpy-like array manipulation library for micropython.
+                The module is written in C, defines compact containers for numerical data, and is fast.
+                See https://micropython-ulab.readthedocs.io/en/latest/index.html for details
+
+    endmenu

@@ -61,9 +61,8 @@ s32_t sys_spiffs_erase(int addr, int size)
 #endif
 {
     // size is always 4096!
-    uint8_t rd_buf[w25qxx_FLASH_SECTOR_SIZE];
-    uint8_t *pread = rd_buf;
-    w25qxx_read_data(addr, rd_buf, w25qxx_FLASH_SECTOR_SIZE);
+    uint8_t *pread = swap_buf;
+    w25qxx_read_data(addr, swap_buf, w25qxx_FLASH_SECTOR_SIZE);
     for (int index = 0; index < w25qxx_FLASH_SECTOR_SIZE; index++)
     {
         if (*pread != 0xFF) {

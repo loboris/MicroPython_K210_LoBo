@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <sysctl.h>
 #include <utility.h>
+#include <iomem.h>
 
 using namespace sys;
 
@@ -136,7 +137,9 @@ public:
     virtual void set_output_attributes(uint32_t index, video_format_t format, void *output_buffer) override
     {
         configASSERT(index < 2);
-
+#if FIX_CACHE
+        configASSERT(!is_memory_cache((uintptr_t)output_buffer));
+#endif
         if (index == 0)
         {
             configASSERT(format == VIDEO_FMT_RGB24_PLANAR);
@@ -199,23 +202,23 @@ public:
         int16_t xclk_divide = apb1_pclk / clock_rate / 2 - 1;
         configASSERT((xclk_divide >= 0) && (xclk_divide < (1 << 8)));
         xclk_devide_ = xclk_divide;
-        return apb1_pclk / (xclk_divide + 1);
+        return (double)(apb1_pclk / ((xclk_divide*2) + 1)); // LoBo
     }
 
 private:
     static void dvp_frame_event_isr(void *userdata)
     {
         auto &driver = *reinterpret_cast<k_dvp_driver *>(userdata);
+        // LoBo
+        dvp_on_frame_event_t callback;
         if (driver.dvp_.sts & DVP_STS_FRAME_START)
         {
-            dvp_on_frame_event_t callback;
             if ((callback = driver.frame_event_callback_))
                 callback(VIDEO_FE_BEGIN, driver.frame_event_callback_data_);
             driver.dvp_.sts |= DVP_STS_FRAME_START | DVP_STS_FRAME_START_WE;
         }
         if (driver.dvp_.sts & DVP_STS_FRAME_FINISH)
         {
-            dvp_on_frame_event_t callback;
             if ((callback = driver.frame_event_callback_))
                 callback(VIDEO_FE_END, driver.frame_event_callback_data_);
             driver.dvp_.sts |= DVP_STS_FRAME_FINISH | DVP_STS_FRAME_FINISH_WE;

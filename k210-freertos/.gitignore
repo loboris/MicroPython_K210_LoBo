@@ -9,6 +9,12 @@
 *.dis
 #*.exe
 *.dump
+tmpconf*
+auto.conf.cmd
+.config.old
+.config.mkm
+.tmpconfig*.*
+*.tmp
 
 # Packages 
 ############
@@ -20,6 +26,7 @@
 # Build directory
 ######################
 build/
+tmp/
 
 patches/
 test/
@@ -31,3 +38,7 @@ __pycache__/
 qstrdefs.generated.h
 
 MaixPy.*
+MicroPython.*
+
+mconf
+conf

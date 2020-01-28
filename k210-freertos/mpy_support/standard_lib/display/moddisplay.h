@@ -34,31 +34,46 @@
 #include "py/obj.h"
 #include "tftspi.h"
 #include "tft.h"
-#ifdef MICROPY_USE_EVE
+#if MICROPY_USE_EVE
 #include "eve/FT8.h"
 #endif
 
-extern uint8_t disp_used_spi_host;
-
 typedef struct _display_tft_obj_t {
-    mp_obj_base_t base;
-    display_config_t dconfig;
-    uint32_t tp_calx;
-    uint32_t tp_caly;
+    mp_obj_base_t       base;
+    mp_obj_t            buff_obj0;
+    mp_obj_t            buff_obj1;
+    display_config_t    dconfig;
+    uint32_t            tp_calx;
+    uint32_t            tp_caly;
+    uint8_t             active_fb;
 } display_tft_obj_t;
 
 extern const mp_obj_type_t display_tft_type;
 
+#if MICROPY_USE_EPD
 typedef struct _display_epd_obj_t {
-    mp_obj_base_t base;
-    display_config_t dconfig;
-    uint8_t *drawBuff;
-    uint8_t *gs_drawBuff;
+    mp_obj_base_t   base;
+    uint8_t         type;
+    uint16_t        width;
+    uint16_t        height;
+    uint8_t         *drawBuff;
+    uint8_t         *drawBuff_col;
+    uint32_t        speed;
+    uint8_t         spi_num;
+    int             mosi;
+    int             sck;
+    int             cs;
+    int             dc;
+    int             busy;
+    int             reset;
+    int             pwr;
+    handle_t        handle;
 } display_epd_obj_t;
 
 extern const mp_obj_type_t display_epd_type;
+#endif
 
-#ifdef MICROPY_USE_EVE
+#if MICROPY_USE_EVE
 
 typedef struct _display_eve_obj_t {
     mp_obj_base_t base;
@@ -87,11 +102,22 @@ MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_drawPoly_obj);
 MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_drawRect_obj);
 MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_drawRoundRect_obj);
 MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_setFont_obj);
+MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_getFont_obj);
 MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_getFontSize_obj);
 MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_print_obj);
 MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_getSize_obj);
 MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_setclipwin_obj);
 MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_resetclipwin_obj);
+MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_setRot_obj);
+MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_7segAttrib_obj);
+MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_vectAttrib_obj);
+MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_stringWidth_obj);
+MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_stringSize_obj);
+MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_clearStringRect_obj);
+MP_DECLARE_CONST_FUN_OBJ_1(display_tft_get_X_obj);
+MP_DECLARE_CONST_FUN_OBJ_1(display_tft_get_Y_obj);
+MP_DECLARE_CONST_FUN_OBJ_1(display_tft_get_fg_obj);
+MP_DECLARE_CONST_FUN_OBJ_1(display_tft_get_bg_obj);
 
 // Used only by EPD
 MP_DECLARE_CONST_FUN_OBJ_KW(display_tft_fillScreen_obj);

@@ -24,6 +24,8 @@
  * THE SOFTWARE.
  */
 
+#ifndef _MP_CONFIG_PORT_H_
+#define _MP_CONFIG_PORT_H_
 
 #include <sys/types.h>
 #include <stdint.h>
@@ -32,19 +34,32 @@
 #include <limits.h>
 // We need to provide a declaration/definition of alloca()
 #include <alloca.h>
+#include "FreeRTOSConfig.h"
+#include "k210_config.h"
 
+extern uint32_t _ram_start;
+extern uint32_t _ram_end;
+
+
+// Set this to 0 for normal build!
+#define  MICROPY_DEBUG_BUILD         (1)
 
 // ===========================================
 // Options to control how MicroPython is built
 // ===========================================
 
-#define MICROPY_HW_BOARD_NAME       "Sipeed_board"
-#define MICROPY_HW_MCU_NAME         "Kendryte-K210"
-#define MICROPY_PY_SYS_PLATFORM     "K210/FreeRTOS"
-#define MICROPY_PY_LOBO_VERSION     "1.11.11"
-#define MICROPY_PY_LOBO_VERSION_NUM (0x011111)
+#define MICROPY_HW_BOARD_NAME       CONFIG_MICROPY_HW_BOARD_NAME
+#define MICROPY_HW_MCU_NAME         CONFIG_MICROPY_HW_MCU_NAME
 
+#define MICROPY_PY_SYS_PLATFORM     "K210/FreeRTOS"
+#define MICROPY_PY_LOBO_VERSION     "1.11.12"
+#define MICROPY_PY_LOBO_VERSION_NUM (0x011112)
+
+#ifdef CONFIG_MICROPY_PY_USE_LOG_COLORS
 #define MICROPY_PY_USE_LOG_COLORS   (1)
+#else
+#define MICROPY_PY_USE_LOG_COLORS   (0)
+#endif
 
 /*
    Several basic configurations can be selected for build:
@@ -74,57 +89,107 @@
 // If set to 1, two main MicroPython tasks are created on boot,
 // each running on its own K210 processor and using the separate environments
 // Various functions for inter process communications are provided
+#ifdef CONFIG_MICROPY_USE_TWO_MAIN_TASKS
+#define MICROPY_USE_TWO_MAIN_TASKS              (1)
+#else
 #define MICROPY_USE_TWO_MAIN_TASKS              (0)
+#endif
 //---------------------------------------------------------------------------
 
 //---------------------------------------------------------------------------
 // Whether to enable a separate allocator for the Python stack.
 // If not enabled, the thread's (FreeRTOS task's) stack is used
+#ifdef CONFIG_MICROPY_ENABLE_PYSTACK
 #define MICROPY_ENABLE_PYSTACK                  (1)
+#else
+#define MICROPY_ENABLE_PYSTACK                  (1)
+#endif
 //---------------------------------------------------------------------------
 
-#define MICROPY_K210_KPU_USED                   (0)
-
-// sqlite3 module uses ~416 KB of code (and SRAM) space
-#define MICROPY_PY_USE_SQLITE                   (0)
-
-//---- K210 Memory usage -------------------------------------------------------------------------------------
-// MicroPython heap is allocated from FreeRTOS heap which is allocated at system start
-// Some heap space is reserved for FreeRTOS,
-//   thread's (task's) stacks and all buffers are allocated from that space
-// All other heap space is used for MicroPython heap if a single MicroPython instance is running
-// If two MicroPython instances are configured, the available heap space is divided between them,
-//   default values are: 5/8 for 1st MicroPython instance and 3/8 for the 2nd
-
-#define K210_SRAM_START_ADDRESS                 (0x80000000)
-// === Total usable K210 SRAM size
-#define K210_SRAM_SIZE                          (6*1024*1024)
-
-// === SRAM used by firmware (text + data segments) aligned to 256 bytes
-//     Firmware size is reported at the end of compilation
-//     as a result of '../kendryte-toolchain/bin/riscv64-unknown-elf-size MaixPy'
-//     Setting the nearest value will maximize the available
-//     memory for FreeRTOS and MicroPython
-//     #define FIRMWARE_SIZE        (value*4096)
-//     Round the value to the 4 KB: value = ((file_size // 4096) * 4096 + 4096) / 4096
-#if MICROPY_PY_USE_SQLITE
-#define FIRMWARE_SIZE                           (455*4096)
+#ifdef CONFIG_MICROPY_K210_KPU_USED
+#define MICROPY_K210_KPU_USED                   (1)
 #else
-#define FIRMWARE_SIZE                           (351*4096)
+#define MICROPY_K210_KPU_USED                   (0)
 #endif
 
-// === SRAM reserved for dynamic allocation by standard malloc function
-//     and other memory requirements of the system
-#define RESERVED_FOR_SYSTEM                     (1024*1024)
-// === SRAM buffer used for FreeRTOS heap
-//     All other dynamic memory allocation is done from this are
-//     including MicroPython heap and PyStack
-#define FREE_RTOS_TOTAL_HEAP_SIZE               (( size_t )(K210_SRAM_SIZE - FIRMWARE_SIZE - RESERVED_FOR_SYSTEM))
-// === Reserved size of FreeRTOS heap
-#define MICRO_PY_FREE_RTOS_RESERVED             (7*128*1024)
+
+/* ==== K210 Memory usage =========================================================================================
+ * K210 has 8 MB of SRAM
+ * 2.5 MB or 3 MB is reserved for firmware, static and global variables and heap used by various internal functions
+ * If the KPU is used, last 2 MB are reserved for its use
+ * The remaining (5.5 MB, 5 MB or 3 MB) is used for FreeRTOS heap
+ *   - MicroPython heap is allocated from FreeRTOS heap
+ *   - thread's (task's) stacks and all buffers are allocated from FreeRTOS heap
+ *   - If two MicroPython instances are configured, the available heap space is divided between them,
+ *     default values are: 5/8 for 1st MicroPython instance and 3/8 for the 2nd
+ * ================================================================================================================
+*/
+
+#define K210_SRAM_START_ADDRESS                 (0x80000000UL)
+//#define K210_SRAM_START_ADDRESS_NOCACHE         (0x40000000UL)
+// === Total usable K210 SRAM size, excluding the 2MB KPU SRAM
+#define K210_SRAM_SIZE                          (6*1024*1024)
+// ==== K210 AiSRAM size
+#define K210_AISRAM_SIZE                        (2*1024*1024)
+#define K210_TOTAL_SRAM_SIZE                    (K210_SRAM_SIZE+K210_AISRAM_SIZE)
+
+/* ========================================================
+ * CONFIG_FIRMWARE_SIZE_TYPE is used by the BUILD.sh script
+ * to select the appropriate linker script
+ * 0 - 2   MB of SRAM is used for the firmware
+ * 1 - 2.5 MB of SRAM is used for the firmware
+ * 2 - 3   MB of SRAM is used for the firmware
+ * 3 - 3.5 MB of SRAM is used for the firmware
+ * ========================================================
+ */
+
+/*
+ * SRAM size reserved for the firmware
+ * if sqlite is compiled, 3MB must be used
+ *
+ */
+#if (CONFIG_FIRMWARE_SIZE_TYPE == 0)
+#define FIRMWARE_SRAM_SIZE                      (0x200000UL)
+#elif (CONFIG_FIRMWARE_SIZE_TYPE == 1)
+#define FIRMWARE_SRAM_SIZE                      (0x280000UL)
+#elif (CONFIG_FIRMWARE_SIZE_TYPE == 2)
+#define FIRMWARE_SRAM_SIZE                      (0x300000UL)
+#else
+#define FIRMWARE_SRAM_SIZE                      (0x380000UL)
+#endif
+
+// === Size of the SRAM area used for RAMBUFFER
+//     variables placed in this area will be preserved after reset
+#define MYCROPY_SYS_RAMBUF_SIZE                 4096
+
+#define MICRO_PY_FREE_RTOS_RESERVED             (CONFIG_MICRO_PY_FREE_RTOS_RESERVED * 1024)
+
+#if MICROPY_K210_KPU_USED
+/*
+ * !!! IMPORTANT !!!
+ * ======================================================================
+ * When KPU memory is used to expand the FreeRTOS heap
+ * some variables (on task stack or on FreeRTOS heap) may be placed
+ * at SRAM address above 0x8060000 !
+ * Those wariabled CAN'T be used in DMA transfers involving peripherals !
+ * ======================================================================
+ */
+#define MICROPY_SYS_RAMBUF_ADDR                 (K210_SRAM_START_ADDRESS+FIRMWARE_SRAM_SIZE)
+#define FREE_RTOS_TOTAL_HEAP_SIZE               (K210_SRAM_SIZE - FIRMWARE_SRAM_SIZE - MYCROPY_SYS_RAMBUF_SIZE)
+#define FREE_RTOS_HEAP_START_ADDR               (MICROPY_SYS_RAMBUF_ADDR + MYCROPY_SYS_RAMBUF_SIZE)
+
+#else
+// KPU memory is NOT used
+#define MICROPY_SYS_RAMBUF_ADDR                 (K210_SRAM_START_ADDRESS+FIRMWARE_SRAM_SIZE)
+#define FREE_RTOS_TOTAL_HEAP_SIZE               (K210_SRAM_SIZE - FIRMWARE_SRAM_SIZE - MYCROPY_SYS_RAMBUF_SIZE + K210_AISRAM_SIZE)
+#define FREE_RTOS_HEAP_START_ADDR               (MICROPY_SYS_RAMBUF_ADDR + MYCROPY_SYS_RAMBUF_SIZE)
+
+#endif
+
 // === FreeRTOS heap used for MicroPython heap
 #define MICRO_PY_MAX_HEAP_SIZE                  (FREE_RTOS_TOTAL_HEAP_SIZE - MICRO_PY_FREE_RTOS_RESERVED)
 #define MICRO_PY_MIN_HEAP_SIZE                  (128*1024)
+
 #if MICROPY_USE_TWO_MAIN_TASKS
 #define MICROPY_HEAP_SIZE                       (MICRO_PY_MAX_HEAP_SIZE * 5 / 8)
 #define MICROPY_HEAP_SIZE2                      (MICRO_PY_MAX_HEAP_SIZE * 3 / 8)
@@ -146,27 +211,32 @@
 #else
 #define MICROPY_PYSTACK_SIZE                    (0)
 #endif
-
-#define MYCROPY_SYS_RAMBUF_SIZE                 1024
-extern uintptr_t sys_rambuf_ptr;
-//------------------------------------------------------------------------------------------------------------
+// ================================================================================================================
 
 
-//------------------------------------------------------------------------------------------------------------
+//==================================================================
 // Flash chip configuration and Flash FS selection and configuration
+//==================================================================
 
-#define MICRO_PY_FLASH_SIZE                     (16*1024*1024)  // Flash chip size (usually 16 MB Flash)
-#define MICRO_PY_FLASH_ERASE_SECTOR_SIZE        (4096)          // Flash chip erase size
+// Flash chip size (usually 16 MB Flash)
+#define MICRO_PY_FLASH_SIZE                     (CONFIG_MICRO_PY_FLASH_SIZE*1024*1024)
+// Flash chip erase size
+#define MICRO_PY_FLASH_ERASE_SECTOR_SIZE        (4096)
 
 // Flash chip address where the file system starts
-#define MICRO_PY_FLASHFS_START_ADDRESS          (4*1024*1024)
-  // Flash file system size in bytes
-#define MICRO_PY_FLASHFS_SIZE                   (10*1024*1024)
+#define MICRO_PY_FLASHFS_START_ADDRESS          (CONFIG_MICRO_PY_FLASHFS_START_ADDRESS*1024*1024)
 
-#define MICRO_PY_FLASHFS_SPIFFS                 0
-#define MICRO_PY_FLASHFS_LITTLEFS               1
+// Flash file system size in bytes
+#if (MICRO_PY_FLASHFS_START_ADDRESS + (CONFIG_MICRO_PY_FLASHFS_SIZE*1024*1024)) > MICRO_PY_FLASH_SIZE
+#define MICRO_PY_FLASHFS_SIZE                   (MICRO_PY_FLASH_SIZE - MICRO_PY_FLASHFS_START_ADDRESS)
+#else
+#define MICRO_PY_FLASHFS_SIZE                   (CONFIG_MICRO_PY_FLASHFS_SIZE*1024*1024)
+#endif
+
+#define MICRO_PY_FLASHFS_LITTLEFS               0
+#define MICRO_PY_FLASHFS_SPIFFS                 1
 // define which file system is used
-#define MICRO_PY_FLASHFS_USED                   (MICRO_PY_FLASHFS_LITTLEFS)
+#define MICRO_PY_FLASHFS_USED                   (CONFIG_MICROPY_FILESYSTEM_TYPE)
 
 #define MICRO_PY_FLASH_CONFIG_START             (MICRO_PY_FLASHFS_START_ADDRESS + MICRO_PY_FLASHFS_SIZE + MICRO_PY_FLASH_ERASE_SECTOR_SIZE*2)
 #define MICRO_PY_FLASH_CONFIG_SIZE              (4096)
@@ -175,6 +245,10 @@ extern uintptr_t sys_rambuf_ptr;
 #define MICRO_PY_FLASH_USER_VAR_SIZE            (16*1024)
 
 #define MICRO_PY_FLASH_USED_END                 (MICRO_PY_FLASH_USER_VAR_START + MICRO_PY_FLASH_USER_VAR_SIZE)
+
+#if (MICRO_PY_FLASH_USED_END > MICRO_PY_FLASH_SIZE)
+#error "Misconfigured Flash sizes"
+#endif
 
 // -------------------------
 // File system configuration
@@ -197,20 +271,20 @@ extern uintptr_t sys_rambuf_ptr;
 #else
 #define MICROPY_VFS_LITTLEFS                    (0)
 #endif
-//------------------------------------------------------------------------------------------------------------
+//==================================================================
 
-//---------------------------------------------------------------------------
+//---------------------------------------------------------------------
 // === In this MicroPython port threads are always supported! ===
 #define MICROPY_PY_THREAD                       (1)  // !DO NOT CHANGE!
 #define MICROPY_PY_THREAD_GIL                   (1)  // !DO NOT CHANGE!
 // How many bytecodes are executed before the threads are switched
-#define MICROPY_PY_THREAD_GIL_VM_DIVISOR        (32)
-//---------------------------------------------------------------------------
+#define MICROPY_PY_THREAD_GIL_VM_DIVISOR        (CONFIG_MICROPY_PY_THREAD_GIL_VM_DIVISOR)
+//---------------------------------------------------------------------
 
-#define MICRO_PY_DEFAULT_CPU_CLOCK              (400000000) // default cpu clock in Hz
-#define MICRO_PY_DEFAULT_BAUDRATE               (115200)    // default REPL baudrate
+#define MICRO_PY_DEFAULT_CPU_CLOCK              (400000000)                        // default cpu clock in Hz
+#define MICRO_PY_DEFAULT_BAUDRATE               (CONFIG_MICRO_PY_DEFAULT_BAUDRATE) // default REPL baudrate
 
-#define MICRO_PY_BOOT_MENU_PIN                  (17)
+#define MICRO_PY_BOOT_MENU_PIN                  (CONFIG_MICRO_PY_BOOT_MENU_PIN)
 
 #define MICRO_PY_ALLOW_OVERCLOCK                (0)
 #if MICRO_PY_ALLOW_OVERCLOCK
@@ -273,7 +347,7 @@ extern void vm_loop_hook();
 // Whether to provide "sys.getsizeof" function
 #define MICROPY_PY_SYS_GETSIZEOF                (0)
 
-// MCU definition
+// MCU definition, do not change
 #define MP_ENDIANNESS_LITTLE                    (1)
 #define MICROPY_NO_ALLOCA                       (0)
 #define MICROPY_OBJ_BASE_ALIGNMENT              __attribute__((aligned(8)))
@@ -437,17 +511,83 @@ extern const struct _mp_print_t mp_debug_print;
 #define MICROPY_PY_FUNCTION_ATTRS               (1)
 #define MICROPY_PY_DESCRIPTORS                  (1)
 
-//-----------------
-// extended modules
-//-----------------
-#define MICROPY_PY_USE_TEST_MODULE              (0)  // used only for testing, should not be included in releases
-#define MICROPY_PY_USE_GSM                      (1)
-#define MICROPY_PY_USE_WIFI                     (1)
-#define MICROPY_PY_USE_MQTT                     (1)
-#define MICROPY_PY_USE_REQUESTS                 (1)
+//=================
+// Extended modules
+//=================
 
+// used only for testing, should not be included in releases
+#define MICROPY_PY_USE_TEST_MODULE              (0)
+
+// -----------------------------------------------------
+// sqlite3 module uses ~416 KB of code (and SRAM) space!
+// and requires 3MB firmware size
+// -----------------------------------------------------
+#if (CONFIG_FIRMWARE_SIZE_TYPE >= 2)
+#ifdef CONFIG_MICROPY_PY_USE_SQLITE
+#define MICROPY_PY_USE_SQLITE                   (1)
+#else
+#define MICROPY_PY_USE_SQLITE                   (0)
+#endif
+#else
+#define MICROPY_PY_USE_SQLITE                   (0)
+#endif
+
+#ifdef CONFIG_MICROPY_PY_USE_GSM
+#define MICROPY_PY_USE_GSM                      (1)
+#else
+#define MICROPY_PY_USE_GSM                      (0)
+#endif
+#ifdef CONFIG_MICROPY_PY_USE_WIFI
+#define MICROPY_PY_USE_WIFI                     (1)
+#else
+#define MICROPY_PY_USE_WIFI                     (0)
+#endif
+
+#if (MICROPY_PY_USE_WIFI == 1) || (MICROPY_PY_USE_GSM == 1)
+#define MICROPY_PY_USE_NETTWORK                 (1)
+#else
+#define MICROPY_PY_USE_NETTWORK                 (0)
+#endif
+
+#if MICROPY_PY_USE_NETTWORK
+#ifdef CONFIG_MICROPY_PY_USE_MQTT
+#define MICROPY_PY_USE_MQTT                     (1)
+#else
+#define MICROPY_PY_USE_MQTT                     (0)
+#endif
+#ifdef CONFIG_MICROPY_PY_USE_REQUESTS
+#define MICROPY_PY_USE_REQUESTS                 (1)
+#else
+#define MICROPY_PY_USE_REQUESTS                 (0)
+#endif
+#endif
+
+#ifdef CONFIG_MICROPY_USE_DISPLAY
 #define MICROPY_USE_DISPLAY                     (1)
+#else
+#define MICROPY_USE_DISPLAY                     (0)
+#endif
+#ifdef CONFIG_MICROPY_USE_TFT
 #define MICROPY_USE_TFT                         (1)
+#else
+#define MICROPY_USE_TFT                         (0)
+#endif
+#ifdef CONFIG_MICROPY_USE_EPD
+#define MICROPY_USE_EPD                         (1)
+#else
+#define MICROPY_USE_EPD                         (0)
+#endif
+#ifdef CONFIG_MICROPY_USE_CAMERA
+#define MICROPY_USE_CAMERA                      (1)
+#else
+#define MICROPY_USE_CAMERA                      (0)
+#endif
+
+#ifdef CONFIG_MICROPY_PY_USE_ULAB
+#define MODULE_ULAB_ENABLED                     (1)
+#else
+#define MODULE_ULAB_ENABLED                     (0)
+#endif
 
 #define MICROPY_PY_UCTYPES                      (1)
 #define MICROPY_PY_UZLIB                        (1)
@@ -455,22 +595,20 @@ extern const struct _mp_print_t mp_debug_print;
 #define MICROPY_PY_URE                          (1)
 #define MICROPY_PY_URE_SUB                      (1)
 #define MICROPY_PY_UHEAPQ                       (1)
-#define MICROPY_PY_UTIMEQ                       (0)
-#define MICROPY_PY_UTIMEQ_K210                  (1)
-// MicroPython implementation of hash functions is not used!
+#define MICROPY_PY_UTIMEQ                       (0) // !do not change!
+#define MICROPY_PY_UTIMEQ_K210                  (1) // !do not change!
+
+// MicroPython implementation of hash/crypto functions is not used!
 #define MICROPY_PY_UHASHLIB                     (0) // !do not change!
 #define MICROPY_PY_UHASHLIB_MD5                 (0) // !do not change!
 #define MICROPY_PY_UHASHLIB_SHA1                (0) // !do not change!
 #define MICROPY_PY_UHASHLIB_SHA256              (0) // !do not change!
-// K210 specific implementation of hash functions
+#define MICROPY_PY_UCRYPTOLIB                   (0) // !do not change!
+// K210 specific implementation of hash/crypto functions, do not disable !
 #define MICROPY_PY_UHASHLIB_K210                (1)
 #define MICROPY_PY_UHASHLIB_MD5_K210            (1)
 #define MICROPY_PY_UHASHLIB_SHA1_K210           (1)
 #define MICROPY_PY_UHASHLIB_SHA256_K210         (1)
-
-// MicroPython implementation of crypto functions is not used!
-#define MICROPY_PY_UCRYPTOLIB                   (0) // !do not change!
-// K210 specific implementation of crypto functions
 #define MICROPY_PY_UCRYPTOLIB_K210              (1)
 
 #define MICROPY_PY_UBINASCII                    (1)
@@ -479,19 +617,21 @@ extern const struct _mp_print_t mp_debug_print;
 #define MICROPY_PY_URANDOM_EXTRA_FUNCS          (1)
 #define MICROPY_PY_OS_DUPTERM                   (0)
 
-#define MICROPY_PY_MACHINE_PULSE                (1)
-#define MICROPY_PY_MACHINE_I2C                  (0)
-#define MICROPY_PY_MACHINE_SPI                  (0)
+#define MICROPY_PY_MACHINE_PULSE                (1) // !do not change
+#define MICROPY_PY_MACHINE_I2C                  (0) // !do not change
+
+#define MICROPY_PY_MACHINE_SPI                  (0) // !do not change
 #define MICROPY_PY_MACHINE_SPI_MSB              (0)
 #define MICROPY_PY_MACHINE_SPI_LSB              (1)
 #define MICROPY_PY_MACHINE_SPI_MAKE_NEW         machine_hw_spi_make_new
 #define MICROPY_HW_SOFTSPI_MIN_DELAY            (0)
 #define MICROPY_HW_SOFTSPI_MAX_BAUDRATE         (sysctl_clock_get_freq(SYSCTL_CLOCK_CPU) / 100) // roughly
-#define MICROPY_PY_USSL                         (0)
-#define MICROPY_SSL_MBEDTLS                     (0)
+
+#define MICROPY_PY_USSL                         (1)
+#define MICROPY_SSL_MBEDTLS                     (1)
 #define MICROPY_PY_USSL_FINALISER               (0)
 #define MICROPY_PY_WEBSOCKET                    (1)
-#define MICROPY_PY_WEBREPL                      (0)
+#define MICROPY_PY_WEBREPL                      (0) // !do not change
 #define MICROPY_PY_FRAMEBUF                     (1)
 #define MICROPY_PY_USOCKET_EVENTS               (MICROPY_PY_WEBREPL)
 
@@ -527,10 +667,8 @@ extern const struct _mp_print_t mp_debug_print;
     } while (0);
 #endif
 
-// This port is intended to be 32-bit, but unfortunately, int32_t for
-// different targets may be defined in different ways - either as int
-// or as long. This requires different printf formatting specifiers
-// to print such value. So, we avoid int32_t and use int directly.
+// This port is 64-bit
+// This requires appropriate printf formatting specifiers
 #define UINT_FMT "%lu"
 #define INT_FMT "%ld"
 
@@ -544,17 +682,24 @@ typedef int64_t mp_off_t;
 #define MICROPY_PORT_BUILTINS \
     { MP_ROM_QSTR(MP_QSTR_open), MP_ROM_PTR(&mp_builtin_open_obj) },
 
+// ==== Include extra modules into build ===================================
 extern const struct _mp_obj_module_t machine_module;
 extern const struct _mp_obj_module_t uos_module;
 extern const struct _mp_obj_module_t utime_module;
 extern const struct _mp_obj_module_t mp_module_ymodem;
-extern const struct _mp_obj_module_t mp_module_usocket;
 
-#if defined(MICROPY_PY_USE_WIFI) || defined(MICROPY_PY_USE_GSM) || defined(MICROPY_PY_USE_REQUESTS) || defined(MICROPY_PY_USE_MQTT)
+#if MICROPY_PY_USE_NETTWORK
 extern const struct _mp_obj_module_t mp_module_network;
 #define BUILTIN_MODULE_NETWORK { MP_ROM_QSTR(MP_QSTR_network),     MP_ROM_PTR(&mp_module_network) },
 #else
 #define BUILTIN_MODULE_NETWORK
+#endif
+
+#if MICROPY_PY_USE_NETTWORK
+extern const struct _mp_obj_module_t mp_module_usocket;
+#define BUILTIN_MODULE_SOCKET { MP_OBJ_NEW_QSTR(MP_QSTR_usocket),     (mp_obj_t)&mp_module_usocket }, { MP_OBJ_NEW_QSTR(MP_QSTR_socket),      (mp_obj_t)&mp_module_usocket },
+#else
+#define BUILTIN_MODULE_SOCKET
 #endif
 
 #if MICROPY_PY_UHASHLIB_K210
@@ -576,6 +721,13 @@ extern const struct _mp_obj_module_t mp_module_display;
 #define BUILTIN_MODULE_DISPLAY { MP_OBJ_NEW_QSTR(MP_QSTR_display), (mp_obj_t)&mp_module_display },
 #else
 #define BUILTIN_MODULE_DISPLAY
+#endif
+
+#if MICROPY_USE_CAMERA
+extern const struct _mp_obj_module_t mp_module_camera;
+#define BUILTIN_MODULE_CAMERA { MP_OBJ_NEW_QSTR(MP_QSTR_camera), (mp_obj_t)&mp_module_camera },
+#else
+#define BUILTIN_MODULE_CAMERA
 #endif
 
 #if MICROPY_PY_UTIMEQ_K210
@@ -611,12 +763,12 @@ extern const struct _mp_obj_module_t mp_test_module;
     { MP_OBJ_NEW_QSTR(MP_QSTR_utime),       (mp_obj_t)&utime_module }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_machine),     (mp_obj_t)&machine_module }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_ymodem),      (mp_obj_t)&mp_module_ymodem }, \
-    { MP_OBJ_NEW_QSTR(MP_QSTR_socket),      (mp_obj_t)&mp_module_usocket }, \
-    { MP_OBJ_NEW_QSTR(MP_QSTR_usocket),     (mp_obj_t)&mp_module_usocket }, \
     BUILTIN_MODULE_NETWORK \
+    BUILTIN_MODULE_SOCKET \
     BUILTIN_MODULE_UHASHLIB_K210 \
     BUILTIN_MODULE_UCRYPTOLIB_K210 \
     BUILTIN_MODULE_DISPLAY \
+    BUILTIN_MODULE_CAMERA \
     BUILTIN_MODULE_UTIMEQ_K210 \
     BUILTIN_MODULE_SQLITE \
     BUILTIN_MODULE_TEST \
@@ -638,3 +790,5 @@ extern const struct _mp_obj_module_t mp_test_module;
 
 #define MICROPY_PORT_ROOT_POINTERS \
     const char *readline_hist[32];
+
+#endif

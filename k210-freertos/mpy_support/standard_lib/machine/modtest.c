@@ -24,6 +24,11 @@
  * THE SOFTWARE.
  */
 
+
+#include "mpconfigport.h"
+
+#if MICROPY_PY_USE_TEST_MODULE
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -37,8 +42,16 @@
 #include "modmachine.h"
 #include "mphalport.h"
 #include "w25qxx.h"
+#include "camera/dvp_camera.h"
+#include "../display/tftspi.h"
+#include "py/objstr.h"
 
-#if MICROPY_PY_USE_TEST_MODULE
+static bool camera_is_init = false;
+static sensor_t sensor = {0};
+static int pio_num = 0;
+static handle_t timer_dev = 0;
+static handle_t timer_dev1 = 0;
+static size_t timer_counter = 0;
 
 //------------------------------------------------------------------------------------
 STATIC mp_obj_t test_flash(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
@@ -330,10 +343,6 @@ STATIC mp_obj_t test (mp_obj_t obj_in)
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(test_obj, test);
 
 
-static handle_t timer_dev = 0;
-static handle_t timer_dev1 = 0;
-static size_t timer_counter = 0;
-
 //----------------------------------------
 STATIC void test_timer_isr(void *userdata)
 {
@@ -380,6 +389,378 @@ STATIC mp_obj_t test_timer(mp_obj_t obj_in)
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(test_timer_obj, test_timer);
 
+//===========================================================
+
+
+static SemaphoreHandle_t dvp_semaphore = NULL;
+
+//-------------------------------------------------------------
+static void on_dvp_irq(dvp_frame_event_t event, void* userdata)
+{
+    sensor_t *sensor = (sensor_t *)userdata;
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    switch (event)
+    {
+        case VIDEO_FE_BEGIN:
+            if (!sensor->dvp_finish_flag) {
+                dvp_enable_frame(sensor->dvp_handle);
+                gpio_set_pin_value(gpiohs_handle, pio_num, 1);
+            }
+            break;
+        case VIDEO_FE_END:
+            // Frame complete
+            if (sensor->frame_count) sensor->frame_count--;
+            sensor->gram_mux ^= 0x01;
+            if (sensor->frame_count) {
+                dvp_set_output_attributes(sensor->dvp_handle, DATA_FOR_DISPLAY, VIDEO_FMT_RGB565, sensor->gram_mux ? sensor->gram1 : sensor->gram0);
+            }
+            else {
+                sensor->dvp_finish_flag = true;
+                dvp_disable(sensor);
+            }
+            gpio_set_pin_value(gpiohs_handle, pio_num, 0);
+            xSemaphoreGiveFromISR(dvp_semaphore, &xHigherPriorityTaskWoken);
+            if (xHigherPriorityTaskWoken)
+            {
+                portYIELD_FROM_ISR();
+            }
+            break;
+        default:
+            sensor->frame_count = 0;
+            dvp_disable(sensor);
+            sensor->dvp_finish_flag = true;
+            gpio_set_pin_value(gpiohs_handle, pio_num, 0);
+            gpio_set_pin_value(gpiohs_handle, pio_num, 1);
+            gpio_set_pin_value(gpiohs_handle, pio_num, 0);
+            gpio_set_pin_value(gpiohs_handle, pio_num, 1);
+            gpio_set_pin_value(gpiohs_handle, pio_num, 0);
+            gpio_set_pin_value(gpiohs_handle, pio_num, 1);
+    }
+}
+
+#include "../display/moddisplay.h"
+
+//-------------------------------------------------------------------------------------
+STATIC mp_obj_t test_camera(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
+{
+    enum { ARG_n, ARG_bar, ARG_mode, ARG_size, ARG_qs, ARGS_type, ARG_test, ARG_fb, ARG_effect, ARG_night, ARG_contrast, ARG_width, ARG_height };
+    const mp_arg_t allowed_args[] = {
+       { MP_QSTR_n,         MP_ARG_KW_ONLY | MP_ARG_INT,  { .u_int = 10 } },
+       { MP_QSTR_bar,       MP_ARG_KW_ONLY | MP_ARG_INT,  { .u_int = 0 } },
+       { MP_QSTR_mode,      MP_ARG_KW_ONLY | MP_ARG_INT,  { .u_int = PIXFORMAT_RGB565 } },
+       { MP_QSTR_size,      MP_ARG_KW_ONLY | MP_ARG_INT,  { .u_int = FRAMESIZE_QVGA } },
+       { MP_QSTR_qs,        MP_ARG_KW_ONLY | MP_ARG_INT,  { .u_int = -1 } },
+       { MP_QSTR_type,      MP_ARG_KW_ONLY | MP_ARG_INT,  { .u_int = SENSORTYPE_OV2640 } },
+       { MP_QSTR_test,      MP_ARG_KW_ONLY | MP_ARG_BOOL, { .u_bool = false } },
+       { MP_QSTR_fb,        MP_ARG_KW_ONLY | MP_ARG_BOOL, { .u_bool = true } },
+       { MP_QSTR_effect,    MP_ARG_KW_ONLY | MP_ARG_INT,  { .u_int = -1 } },
+       { MP_QSTR_night,     MP_ARG_KW_ONLY | MP_ARG_INT,  { .u_int = -1 } },
+       { MP_QSTR_contrast,  MP_ARG_KW_ONLY | MP_ARG_INT,  { .u_int = -5 } },
+       { MP_QSTR_width,     MP_ARG_KW_ONLY | MP_ARG_INT,  { .u_int = 0 } },
+       { MP_QSTR_height,    MP_ARG_KW_ONLY | MP_ARG_INT,  { .u_int = 0 } },
+    };
+
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    mp_obj_t buff_obj0 = mp_const_none, buff_obj1 = mp_const_none;
+    int n = args[ARG_n].u_int;
+    if (n < 1) n = 1;
+    int bar = args[ARG_bar].u_int & 0xff;
+    int mode = args[ARG_mode].u_int;
+    int size = args[ARG_size].u_int;
+    bool test = args[ARG_test].u_bool;
+    //if (mode == PIXFORMAT_JPEG) n = 1;
+    mp_uint_t tstart, tend;
+    //if (mode != PIXFORMAT_JPEG) size = FRAMESIZE_QVGA;
+
+    if (pio_num == 0) {
+        pio_num = gpiohs_get_free();
+        if (pio_num) {
+            if (fpioa_set_function(18, FUNC_GPIOHS0 + pio_num) == 0) {
+                gpio_set_drive_mode(gpiohs_handle, pio_num, GPIO_DM_OUTPUT);
+                gpio_set_pin_value(gpiohs_handle, pio_num, 0);
+            }
+        }
+    }
+    else gpio_set_pin_value(gpiohs_handle, pio_num, 0);
+    vTaskDelay(10);
+
+    if (!camera_is_init) {
+        fpioa_set_function(42, FUNC_CMOS_RST);
+        fpioa_set_function(44, FUNC_CMOS_PWDN);
+        fpioa_set_function(46, FUNC_CMOS_XCLK);
+        fpioa_set_function(43, FUNC_CMOS_VSYNC);
+        fpioa_set_function(45, FUNC_CMOS_HREF);
+        fpioa_set_function(47, FUNC_CMOS_PCLK);
+        fpioa_set_function(41, FUNC_SCCB_SCLK);
+        fpioa_set_function(40, FUNC_SCCB_SDA);
+
+        sysctl_set_spi0_dvp_data(1);
+        memset(&sensor, 0, sizeof(sensor_t));
+        camera_is_init = true;
+    }
+
+    dvp_deinit(&sensor);
+
+    memset(&sensor, 0, sizeof(sensor_t));
+    sensor.sensor_type = args[ARGS_type].u_int;
+    sensor.pixformat = mode;
+    sensor.framesize = size;
+
+    sensor.irq_func = on_dvp_irq;
+    sensor.irq_func_data = (void *)&sensor;
+    sensor.frame_count = n;
+    sensor.dvp_finish_flag = true;
+
+    if (!dvp_init(&sensor)) {
+        mp_raise_msg(&mp_type_OSError, "Error initializing DVP");
+        return mp_const_false;
+    }
+
+    buff_obj0 = mp_obj_new_frame_buffer(sensor.gram_size+8);
+    if (buff_obj0 == mp_const_none) {
+        dvp_deinit(&sensor);
+        mp_raise_msg(&mp_type_OSError, "Error creating camera frame buffer #0.");
+    }
+    mp_obj_array_t *gram0 = (mp_obj_array_t *)buff_obj0;
+    sensor.gram0 = gram0->items + 8;
+
+    buff_obj1 = mp_obj_new_frame_buffer(sensor.gram_size+8);
+    if (buff_obj1 == mp_const_none) {
+        dvp_deinit(&sensor);
+        if (buff_obj0 != mp_const_none) mp_obj_delete_frame_buffer((mp_obj_array_t *)buff_obj0);
+        if (buff_obj1 != mp_const_none) mp_obj_delete_frame_buffer((mp_obj_array_t *)buff_obj1);
+        mp_raise_msg(&mp_type_OSError, "Error creating camera frame buffer #1.");
+    }
+    mp_obj_array_t *gram1 = (mp_obj_array_t *)buff_obj1;
+    sensor.gram1 = gram1->items + 8;
+
+    if (!dvp_semaphore) dvp_semaphore = xSemaphoreCreateBinary();
+    if (!dvp_semaphore) {
+        dvp_deinit(&sensor);
+        if (buff_obj0 != mp_const_none) mp_obj_delete_frame_buffer((mp_obj_array_t *)buff_obj0);
+        if (buff_obj1 != mp_const_none) mp_obj_delete_frame_buffer((mp_obj_array_t *)buff_obj1);
+        mp_raise_msg(&mp_type_OSError, "Error creating camera semaphore.");
+    }
+
+    //sensor.set_pixformat(mode);
+    sensor.set_colorbar(bar);
+    if (args[ARG_effect].u_int >= 0) sensor.set_special_effect((uint8_t)args[ARG_effect].u_int);
+    if (args[ARG_night].u_int >= 0) sensor.set_night_mode((uint8_t)args[ARG_night].u_int);
+    if (args[ARG_contrast].u_int > -5) sensor.set_contrast((uint8_t)args[ARG_contrast].u_int);
+    if ((mode == PIXFORMAT_JPEG) && (args[ARG_qs].u_int > 0)) sensor.set_quality(args[ARG_qs].u_int);
+    //if (mode == PIXFORMAT_JPEG) vTaskDelay(500);
+
+    uint16_t *fb = tft_frame_buffer;
+    memset(fb, 0, 320*240*2);
+    int fb_ok = 0;
+    int fb_ok_n = -1;
+    mp_obj_t buffer = mp_const_true;
+
+    gpio_set_pin_value(gpiohs_handle, pio_num, 1);
+    vTaskDelay(4);
+    gpio_set_pin_value(gpiohs_handle, pio_num, 0);
+    vTaskDelay(8);
+
+    mp_hal_wdt_reset();
+    tstart = mp_hal_ticks_ms();
+    sensor.dvp_finish_flag = false;
+    dvp_enable(&sensor);
+
+    while (sensor.frame_count) {
+        if (xSemaphoreTake(dvp_semaphore, 750/portTICK_PERIOD_MS ) != pdTRUE) {
+            sensor.frame_count = 0;
+            dvp_deinit(&sensor);
+            if (buff_obj0 != mp_const_none) mp_obj_delete_frame_buffer((mp_obj_array_t *)buff_obj0);
+            if (buff_obj1 != mp_const_none) mp_obj_delete_frame_buffer((mp_obj_array_t *)buff_obj1);
+            if (dvp_semaphore) vSemaphoreDelete(dvp_semaphore);
+            dvp_semaphore = NULL;
+            mp_raise_msg(&mp_type_OSError, "Error waiting for frame.");
+        }
+
+        if (!test) {
+            if (mode != PIXFORMAT_JPEG) {
+                uint16_t *cbuf = (uint16_t *)((sensor.gram_mux) ? sensor.gram0 : sensor.gram1);
+                uint16_t cbufinc = 1;
+                if (dvp_cam_resolution[sensor.framesize][0] > 320) cbufinc = dvp_cam_resolution[sensor.framesize][0] / 320;
+                int x, y;
+                for (y=0; y<dvp_cam_resolution[sensor.framesize][1]; y+=cbufinc) {
+                    for (x=0; x<dvp_cam_resolution[sensor.framesize][0]; x += (cbufinc*2)) {
+                        fb[(y/cbufinc*320) + (x/cbufinc)] = cbuf[(y*dvp_cam_resolution[sensor.framesize][0]) + x + 1];
+                        fb[(y/cbufinc*320) + (x/cbufinc) + 1] = cbuf[(y*dvp_cam_resolution[sensor.framesize][0]) + x];
+                    }
+                }
+                tft_frame_buffer = fb;
+                send_frame_buffer();
+            }
+            else {
+                uint8_t *frame_buffer = sensor.gram_mux ? sensor.gram0 : sensor.gram1;
+                // jpeg data have swapped 4-byte values
+                uint8_t tmpb0, tmpb1;
+                for (int i = 0; i < sensor.gram_size; i+=4) {
+                    tmpb0 = frame_buffer[i];
+                    tmpb1 = frame_buffer[i+1];
+                    frame_buffer[i] = frame_buffer[i+3];
+                    frame_buffer[i+1] = frame_buffer[i+2];
+                    frame_buffer[i+2] = tmpb1;
+                    frame_buffer[i+3] = tmpb0;
+                }
+                uint32_t jpeg_buffer_idx = 0;
+                if ((frame_buffer[0] == 0xff) && (frame_buffer[1] == 0xd8) && (memcmp(frame_buffer+6, "JFIF", 4) == 0)) {
+                    for (int i = 0; i < (sensor.gram_size-4); i++) {
+                        if ((frame_buffer[i] == 0xff) && (frame_buffer[i+1] == 0xd9)) {
+                            jpeg_buffer_idx = i+2;
+                            break;
+                        }
+                    }
+                }
+                if (jpeg_buffer_idx > 0) {
+                    uint8_t scale = 0;
+                    if (TFT_jpg_image(0, 0, scale, mp_const_none, frame_buffer, jpeg_buffer_idx+2)) {
+                        fb_ok++;
+                        fb_ok_n = sensor.frame_count;
+                        if (buffer == mp_const_true) buffer = mp_obj_new_str_copy(&mp_type_bytes, (const byte*)frame_buffer, jpeg_buffer_idx+2);
+                        send_frame_buffer();
+                    }
+                }
+            }
+        }
+        mp_hal_wdt_reset();
+        if (mode != PIXFORMAT_JPEG) {
+            sensor.set_pixformat(sensor.pixformat);
+        }
+    }
+    tend = mp_hal_ticks_ms();
+
+    uint8_t *frame_buffer = sensor.gram_mux ? sensor.gram0 : sensor.gram1;
+
+    mp_hal_wdt_reset();
+    vTaskDelay(1000);
+    mp_hal_wdt_reset();
+
+    dvp_deinit(&sensor);
+    vTaskDelay(10);
+    gpio_set_pin_value(gpiohs_handle, pio_num, 1);
+    vTaskDelay(4);
+    gpio_set_pin_value(gpiohs_handle, pio_num, 0);
+
+    printf("Time: %lu ms, framerate=%0.2f, jpegOK=%d (%d)\r\n", tend-tstart, 1.0 / ((double)(tend-tstart) / 1000.0 / (double)n), fb_ok, fb_ok_n);
+
+    mp_hal_wdt_reset();
+    if (test) {
+        if (mode != PIXFORMAT_JPEG) {
+            if ((dvp_cam_resolution[sensor.framesize][0] != 320) || (dvp_cam_resolution[sensor.framesize][1] != 240)) {
+                uint8_t cbufinc = 1;
+                uint16_t *cbuf = (uint16_t *)frame_buffer;
+                if (dvp_cam_resolution[sensor.framesize][0] > 320) cbufinc = dvp_cam_resolution[sensor.framesize][0] / 320;
+                int x, y;
+                for (y=0; y<dvp_cam_resolution[sensor.framesize][1]; y+=cbufinc) {
+                    for (x=0; x<dvp_cam_resolution[sensor.framesize][0]; x += (cbufinc*2)) {
+                        fb[(y/cbufinc*320) + (x/cbufinc)] = cbuf[(y*dvp_cam_resolution[sensor.framesize][0]) + x + 1];
+                        fb[(y/cbufinc*320) + (x/cbufinc) + 1] = cbuf[(y*dvp_cam_resolution[sensor.framesize][0]) + x];
+                    }
+                }
+                tft_frame_buffer = fb;
+            }
+            else {
+                if (mode == PIXFORMAT_RGB565) {
+                    tft_frame_buffer = (uint16_t *)frame_buffer;
+                    memcpy(fb, tft_frame_buffer, sensor.gram_size);
+                    tft_frame_buffer = fb;
+                }
+                else {
+                    uint16_t clr;
+                    for (int i=0; i<sensor.gram_size; i+=2) {
+                        clr = (frame_buffer[i] & 0xf8) << 8;
+                        clr |= (frame_buffer[i] & 0xfc) << 3;
+                        clr |= (frame_buffer[i] & 0xf8) >> 3;
+                        fb[i] = clr;
+                    }
+                }
+            }
+            send_frame_buffer();
+        }
+
+        for (int i= 0; i<1280; i++) {
+            if ((i % 32) == 0) printf("\r\n%04x: ", i);
+            printf("%02X ", frame_buffer[i]);
+        }
+        printf("\r\n");
+    }
+    else if (mode == PIXFORMAT_JPEG) {
+        // jpeg data have swapped 4-byte values
+        /*printf("Swap jpeg\r\n");
+        for (int i= 0; i<32; i++) {
+            printf("%02X ", frame_buffer[i]);
+        }
+        printf("\r\n");
+        uint8_t tmpb0, tmpb1;
+        for (int i = 0; i < sensor.gram_size; i+=4) {
+            tmpb0 = frame_buffer[i];
+            tmpb1 = frame_buffer[i+1];
+            frame_buffer[i] = frame_buffer[i+3];
+            frame_buffer[i+1] = frame_buffer[i+2];
+            frame_buffer[i+2] = tmpb1;
+            frame_buffer[i+3] = tmpb0;
+        }*/
+        printf("Find jpeg size\r\n");
+        for (int i= 0; i<32; i++) {
+            printf("%02X ", frame_buffer[i]);
+        }
+        printf("\r\n");
+        uint32_t jpeg_buffer_idx = 0;
+        if ((frame_buffer[0] == 0xff) && (frame_buffer[1] == 0xd8) && (memcmp(frame_buffer+6, "JFIF", 4) == 0)) {
+            for (int i = 0; i < (sensor.gram_size-4); i++) {
+                if ((frame_buffer[i] == 0xff) && (frame_buffer[i+1] == 0xd9)) {
+                    printf("jpeg end marker at %d\r\n", i);
+                    jpeg_buffer_idx = i+2;
+                    break;
+                }
+            }
+        }
+        if (jpeg_buffer_idx > 0) {
+            printf("jpeg -> string object\r\n");
+            buffer = mp_obj_new_str_copy(&mp_type_bytes, (const byte*)frame_buffer, jpeg_buffer_idx+2);
+            printf("jpeg done.\r\n");
+        }
+        else {
+            printf("jpeg error\r\n");
+            if (buffer == mp_const_true) buffer = mp_obj_new_str_copy(&mp_type_bytes, (const byte*)frame_buffer, sensor.gram_size);
+        }
+    }
+
+    if (dvp_semaphore) vSemaphoreDelete(dvp_semaphore);
+    dvp_semaphore = NULL;
+
+    tft_frame_buffer = fb;
+    if (buff_obj0 != mp_const_none) mp_obj_delete_frame_buffer((mp_obj_array_t *)buff_obj0);
+    if (buff_obj1 != mp_const_none) mp_obj_delete_frame_buffer((mp_obj_array_t *)buff_obj1);
+
+    return buffer;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(test_camera_obj, 0, test_camera);
+
+
+//------------------------
+STATIC mp_obj_t test_mem()
+{
+    uint8_t *xbuf = (uint8_t *)0x40600000;
+    for (int i= 0; i<256; i++) {
+        xbuf[i] = i;
+    }
+    for (int i= 0; i<256; i++) {
+        if ((i % 32) == 0) printf("\r\n");
+        printf("%02X ", xbuf[i]);
+    }
+    printf("\r\n");
+
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(test_mem_obj, test_mem);
+
+
 
 //===========================================================
 STATIC const mp_map_elem_t test_module_globals_table[] = {
@@ -389,6 +770,8 @@ STATIC const mp_map_elem_t test_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_ftest),           MP_ROM_PTR(&ftest_obj) },
     { MP_ROM_QSTR(MP_QSTR_test),            MP_ROM_PTR(&test_obj) },
     { MP_ROM_QSTR(MP_QSTR_timer),           MP_ROM_PTR(&test_timer_obj) },
+    { MP_ROM_QSTR(MP_QSTR_camera),          MP_ROM_PTR(&test_camera_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mem),             MP_ROM_PTR(&test_mem_obj) },
 };
 
 //===========================

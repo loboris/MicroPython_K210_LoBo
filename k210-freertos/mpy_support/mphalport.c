@@ -63,12 +63,12 @@ static QueueSetMemberHandle_t inter_proc_semaphore = NULL;
 static uint8_t stdin_ringbuf_array[MICRO_PY_UARTHS_BUFFER_SIZE];
 
 ringbuf_t stdin_ringbuf = {stdin_ringbuf_array, sizeof(stdin_ringbuf_array), 0, 0};
-mp_obj_t main_task_callback = 0;
+mp_obj_t main_task_callback = mp_const_none;
+mp_obj_t mpy2_task_callback = mp_const_none;
 bool use_vm_hook = USE_MICROPY_VM_HOOK_LOOP;
 bool wdt_reset_in_vm_hook = false;
 task_ipc_t task_ipc = { 0 };
 SemaphoreHandle_t inter_proc_mutex = NULL;
-mp_obj_t ipc_callback_1 = 0;
 uint64_t sys_us_counter_cpu = 0;
 uint64_t sys_us_counter = 0;
 uint32_t system_status = 0;
@@ -113,7 +113,7 @@ void mp_hal_set_cpu_frequency(uint32_t freq)
     system_set_cpu_frequency(freq);
     mp_hal_usdelay(1000);
     if (flash_spi > 0) {
-        w25qxx_init(flash_spi, SPI_FF_QUAD, WQ25QXX_MAX_SPEED);
+        w25qxx_init(flash_spi, SPI_FF_QUAD, w25qxx_max_speed);
     }
 }
 
@@ -179,7 +179,7 @@ uint64_t vGetRunTimeCounterValue()
 // ===========================================================
 
 // FreeRTOS task running at lowest priority
-// restarts WDT counter
+// restarts WDT counter if gets the chance to execute
 //------------------------------------------
 static void sys_tick_task(void *pvParameter)
 {
@@ -284,9 +284,24 @@ static int on_wdt_timeout(void *userdata)
 {
     wdt_set_enable(mpy_wdt, false);
     wdt_restart_counter(mpy_wdt);
-    LOGe("[RESET]", "Watchdog reset)\r\n");
+
     mp_hal_usdelay(2000);
-    sysctl->soft_reset.soft_reset = 1;
+    //sysctl->soft_reset.soft_reset = 1;
+    while (1) {
+        ;
+    }
+    return 0;
+}
+
+// WDT1 interrupt handler
+//========================================
+static int on_wdt1_timeout(void *userdata)
+{
+    wdt_set_enable(mpy_wdt1, false);
+    wdt_restart_counter(mpy_wdt1);
+
+    mp_hal_usdelay(2000);
+    //sysctl->soft_reset.soft_reset = 1;
     while (1) {
         ;
     }
@@ -296,12 +311,12 @@ static int on_wdt_timeout(void *userdata)
 //-----------------------------------------
 void mp_hal_wtd_enable(bool en, size_t tmo)
 {
+    wdt_set_enable(mpy_wdt, false);
     if (tmo > 0) {
-        wdt_set_enable(mpy_wdt, false);
         wdt_set_timeout(mpy_wdt, tmo * 1e9);
         wdt_restart_counter(mpy_wdt);
-        wdt_set_enable(mpy_wdt, en);
     }
+    wdt_set_enable(mpy_wdt, en);
 }
 
 //---------------------
@@ -381,7 +396,7 @@ void mp_hal_init(void)
     mp_hal_wtd_enable(true, 6);
 
     wdt_set_response_mode(mpy_wdt1, WDT_RESP_RESET);
-    wdt_set_on_timeout(mpy_wdt1, NULL, NULL);
+    wdt_set_on_timeout(mpy_wdt1, on_wdt1_timeout, NULL);
 
     // Configure uarths (stdio uart) for interrupts
     mp_hal_uarths_setirq_default();
@@ -423,7 +438,7 @@ int mp_hal_stdin_rx_chr(void)
                         tuple[0] = mp_obj_new_int(msg.type);
                         tuple[1] = mp_obj_new_int((uintptr_t)msg.sender_id);
                         tuple[2] = mp_obj_new_int(msg.intdata);
-                        if (msg.type == THREAD_MSG_TYPE_STRING) tuple[3] = mp_obj_new_str((const char*)msg.strdata, msg.strlen);
+                        if ((msg.type == THREAD_MSG_TYPE_STRING) && (msg.strdata != NULL)) tuple[3] = mp_obj_new_str((const char*)msg.strdata, msg.strlen);
                         else tuple[3] = mp_const_none;
                         mp_sched_schedule(main_task_callback, mp_obj_new_tuple(4, tuple));
                     }

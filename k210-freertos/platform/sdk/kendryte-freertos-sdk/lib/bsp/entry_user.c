@@ -18,24 +18,29 @@
 #include <clint.h>
 #include <fpioa.h>
 #include <hal.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sysctl.h>
 #include <uarths.h>
 
-#define PLL1_OUTPUT_FREQ 160000000UL
+#define PLL0_OUTPUT_FREQ 988000000UL
+#define PLL1_OUTPUT_FREQ 800000000UL
 #define PLL2_OUTPUT_FREQ 45158400UL
 
-extern uint8_t _tls_data[];
+// LoBo: commented because not used
+//extern uint8_t _tls_data[];
 
 extern int main(int argc, char *argv[]);
 extern int os_entry(int (*user_main)(int, char **));
 
 static void setup_clocks()
 {
+    sysctl_pll_set_freq(SYSCTL_PLL0, PLL0_OUTPUT_FREQ);
     sysctl_pll_set_freq(SYSCTL_PLL1, PLL1_OUTPUT_FREQ);
     sysctl_pll_set_freq(SYSCTL_PLL2, PLL2_OUTPUT_FREQ);
+    sysctl_clock_set_threshold(SYSCTL_THRESHOLD_AI, 1);
+    //sysctl_clock_enable(SYSCTL_CLOCK_AI);
+    //sysctl_clock_set_threshold(SYSCTL_CLOCK_SRAM0, 0);
+    //sysctl_clock_set_threshold(SYSCTL_CLOCK_SRAM1, 0);
 }
 
 void _init_bsp()

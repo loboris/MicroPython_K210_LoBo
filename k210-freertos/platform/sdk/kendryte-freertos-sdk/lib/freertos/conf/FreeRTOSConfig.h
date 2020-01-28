@@ -101,17 +101,18 @@ enum
 
 /* memory */
 
-/* If set to 1, the application writer has already defined the array used for the RTOS
-   heap - probably so it can be placed in a special segment or address.
-   In that case, the followig external variables must be provided
-   size_t configTOTAL_HEAP_SIZE
-   uint8_t ucHeap[]
+/* If configAPPLICATION_ALLOCATED_HEAP is set to 1,
+   the application writer must provide a HeapRegion_t structure
+   and call vPortDefineHeapRegions() to initialize the heap.
    If set to 0, configTOTAL_HEAP_SIZE must be defined here
+   and the heap array of that size will be created internally
+   and one-region heap will be created on first execution of pvPortMalloc
  */
 #define configAPPLICATION_ALLOCATED_HEAP        1
 #if ( configAPPLICATION_ALLOCATED_HEAP == 0 )
 #define configTOTAL_HEAP_SIZE                   ( ( size_t ) ( 1024 * 1024 ) )
 #endif
+
 #define configMINIMAL_STACK_SIZE			    ( ( unsigned short ) 1024 )
 #define configSUPPORT_STATIC_ALLOCATION			1
 #define configSUPPORT_DYNAMIC_ALLOCATION		1
@@ -121,7 +122,9 @@ enum
 #define configUSE_TICKLESS_IDLE					1
 #define configUSE_STATS_FORMATTING_FUNCTIONS	1
 
-/* If set to 1, external functions must be provided */
+/* If set to 1, external functions must be provided:
+ * vConfigureTimerForRunTimeStats & vGetRunTimeCounterValue
+ */
 #define configGENERATE_RUN_TIME_STATS           1
 #if ( configGENERATE_RUN_TIME_STATS == 1 )
 extern void vConfigureTimerForRunTimeStats( void );

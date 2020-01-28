@@ -13,8 +13,11 @@
 // limitations under the License.
 
 
-#include <string.h>
+#include "mpconfigport.h"
 
+#if MICROPY_PY_USE_NETTWORK
+
+#include <string.h>
 #include "syslog.h"
 #include "portable.h"
 #include "http_header.h"
@@ -25,6 +28,7 @@
 #include "http_auth.h"
 #include "transport.h"
 #include "http_client.h"
+#include "at_util.h"
 
 static const char *TAG = "HTTP_CLIENT";
 
@@ -724,7 +728,9 @@ static int esp_http_client_get_data(esp_http_client_handle_t client)
     if (rlen >= 0) {
         http_parser_execute(client->parser, client->parser_settings, res_buffer->data, rlen);
     }
+    #if MICROPY_PY_USE_WIFI
     if ((net_active_interfaces & ACTIVE_INTERFACE_WIFI) && (wifi_task_semaphore) && (wifi_task_semaphore_active)) xSemaphoreGive(wifi_task_semaphore);
+    #endif
     return rlen;
 }
 
@@ -763,12 +769,16 @@ int esp_http_client_read(esp_http_client_handle_t client, char *buffer, int len)
         if (transport_debug) LOGD(TAG, "need_read=%d, byte_to_read=%d, rlen=%d, ridx=%d", need_read, byte_to_read, rlen, ridx);
 
         if (rlen <= 0) {
+            #if MICROPY_PY_USE_WIFI
             if ((net_active_interfaces & ACTIVE_INTERFACE_WIFI) && (wifi_task_semaphore) && (wifi_task_semaphore_active)) xSemaphoreGive(wifi_task_semaphore);
+            #endif
             return ridx;
         }
         res_buffer->output_ptr = buffer + ridx;
         http_parser_execute(client->parser, client->parser_settings, res_buffer->data, rlen);
+        #if MICROPY_PY_USE_WIFI
         if ((net_active_interfaces & ACTIVE_INTERFACE_WIFI) && (wifi_task_semaphore) && (wifi_task_semaphore_active)) xSemaphoreGive(wifi_task_semaphore);
+        #endif
         ridx += res_buffer->raw_len;
         need_read -= res_buffer->raw_len;
 
@@ -889,11 +899,15 @@ int esp_http_client_fetch_headers(esp_http_client_handle_t client)
     while (client->state < HTTP_STATE_RES_COMPLETE_HEADER) {
         buffer->len = transport_read(client->transport, buffer->data, client->buffer_size, client->timeout_ms);
         if (buffer->len <= 0) {
+            #if MICROPY_PY_USE_WIFI
             if ((net_active_interfaces & ACTIVE_INTERFACE_WIFI) && (wifi_task_semaphore) && (wifi_task_semaphore_active)) xSemaphoreGive(wifi_task_semaphore);
+            #endif
             return -1;
         }
         http_parser_execute(client->parser, client->parser_settings, buffer->data, buffer->len);
+        #if MICROPY_PY_USE_WIFI
         if ((net_active_interfaces & ACTIVE_INTERFACE_WIFI) && (wifi_task_semaphore) && (wifi_task_semaphore_active)) xSemaphoreGive(wifi_task_semaphore);
+        #endif
     }
     if (transport_debug) LOGD(TAG, "content_length = %d", client->response->content_length);
     if (client->response->content_length <= 0) {
@@ -1072,3 +1086,5 @@ esp_http_client_transport_t esp_http_client_get_transport_type(esp_http_client_h
         return HTTP_TRANSPORT_UNKNOWN;
     }
 }
+
+#endif

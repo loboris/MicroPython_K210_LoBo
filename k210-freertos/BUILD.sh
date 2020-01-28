@@ -1,11 +1,39 @@
 #!/bin/bash
 
-TOOLS_VER=ver20190410.id
-TOOLCHAIN_ARCHIVE_NAME="kendryte-toolchain_v2a.tar.xz"
+machine=Linux
+uname_full="$(uname -a)"
+unameOut="$(uname -s)"
+case "${unameOut}" in
+    Linux*)     machine=Linux;;
+    Darwin*)    machine=MacOS;;
+    *)          machine=Linux
+esac
 
-VERBOSE=""
-J_OPTION=""
+echo "=====[ BUILD: Building on ${uname_full}"
+
+# Get build arguments 
+
+TOOLS_VER=ver20190410.id
+if [ "${machine}" == "MacOS" ]; then
+TOOLCHAIN_ARCHIVE_NAME="kendryte-toolchain_v2a_OSX.tar.xz"
+else
+linplatform="$(uname -i)"
+linprocessor="$(uname -p)"
+linmachine="$(uname -m)"
+if [ "${linplatform}" == "armv7l" ] || [ "${linprocessor}" == "armv7l" ] || [ "${linmachine}" == "armv7l" ]; then
+TOOLCHAIN_ARCHIVE_NAME="kendryte-toolchain_v2a_armhf.tar.xz"
+elif [ "${linplatform}" == "aarch64" ] || [ "${linprocessor}" == "aarch64" ] || [ "${linmachine}" == "aarch64" ]; then
+TOOLCHAIN_ARCHIVE_NAME="kendryte-toolchain_v2a_aarch64.tar.xz"
+else
+TOOLCHAIN_ARCHIVE_NAME="kendryte-toolchain_v2a.tar.xz"
+fi
+fi
+
+VERBOSE_BUILD=""
+J_OPTION=
 CREATE_DUMP=""
+RUN_MENUCONFIG=""
+USE_CONFIG_FILE=""
 
 # Get arguments
 POSITIONAL_ARGS=()
@@ -13,44 +41,53 @@ arg_key="$1"
 
 while [[ $# -gt 0 ]]
 do
-	arg_key="$1"
-	case $arg_key in
-	    -v|--verbose)
-	    VERBOSE+="yes"
-	    shift # past argument
-	    ;;
-		-V|--VERBOSE)
-	    VERBOSE="yesyes"
-	    shift # past argument
-	    ;;
-		-d|--dump)
-		CREATE_DUMP="yes"
-	    shift # past argument
-	    ;;
-	    *)    # unknown option
-	    arg_opt="$1"
-	    if [ "${arg_opt:0:2}" == "-j" ]; then
-	        J_OPTION=${arg_opt}
-	    else
-	        POSITIONAL_ARGS+=("$1") # save it in an array for later
-	    fi
-	    shift # past argument
-	    ;;
-	esac
+    arg_key="$1"
+    case $arg_key in
+        -v|--verbose)
+        VERBOSE_BUILD+="yes"
+        shift # past argument
+        ;;
+        -V|--VERBOSE)
+        VERBOSE_BUILD="yesyes"
+        shift # past argument
+        ;;
+        -m|--menuconfig)
+        RUN_MENUCONFIG="yes"
+        shift # past argument
+        ;;
+        -d|--dump)
+        CREATE_DUMP="yes"
+        shift # past argument
+        ;;
+        -c|--config)
+        USE_CONFIG_FILE="$2"
+        shift # past argument
+        shift # past value
+        ;;
+        *)    # unknown option
+        arg_opt="$1"
+        if [ "${arg_opt:0:2}" == "-j" ]; then
+            J_OPTION=${arg_opt}
+        else
+            POSITIONAL_ARGS+=("$1") # save it in an array for later
+        fi
+        shift # past argument
+        ;;
+    esac
 done
 #set -- "${POSITIONAL_ARGS[@]}" # restore positional parameters
 
 
 cd k210-freertos > /dev/null 2>&1
 
-# ==============================================
-# Check if the toolchain toolchain is downloaded 
-# ==============================================
+# =============================================
+# Check if the Kendryte toolchain is downloaded 
+# =============================================
 if [ ! -d "${PWD}/../kendryte-toolchain" ]; then
     cd ..
     rm -f kendryte-toolchain.tar.xz > /dev/null 2>&1
     rm -f ${TOOLCHAIN_ARCHIVE_NAME} > /dev/null 2>&1
-    echo "Downloading kendryte-toolchain, please wait ..."
+    echo "Downloading kendryte-toolchain (${TOOLCHAIN_ARCHIVE_NAME}), please wait ..."
     wget https://loboris.eu/sipeed/${TOOLCHAIN_ARCHIVE_NAME} > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo "'kendryte-toolchain' download FAILED"
@@ -109,104 +146,251 @@ if [ ! -f "${PWD}/../kendryte-toolchain/${TOOLS_VER}" ]; then
     sleep 2
 fi
 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 # ===========================================
 # === Start building MicroPython firmware ===
 # ===========================================
 
-# === build mklfs =======================
-make -C ../mklittlefs > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-echo "===[ 'mklfs' created ]==="
-else
-echo "===[ ERROR compiling 'mklfs' ]==="
+# === build mconf =======================
+if [ ! -f "mconf" ] || [ ! -f "conf" ]; then
+	echo "=====[ BUILD: compiling 'menuconfig' files"
+	mkdir -p ../menuconfig/build
+	cd ../menuconfig/build
+	cmake .. #> /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+		make  > /dev/null 2>&1
+	    if [ $? -eq 0 ]; then
+	    cp mconf ../../k210-freertos > /dev/null 2>&1
+	    cp conf ../../k210-freertos > /dev/null 2>&1
+	    fi
+    fi
+    cd ../../k210-freertos
+
+	if [ ! -f "mconf" ] || [ ! -f "conf" ]; then
+    echo "=====[ BUILD: ERROR, 'mconf' not compiled!"
+    exit 1
+	fi
+	echo "=====[ BUILD: OK"
+    sleep 1
 fi
-sleep 1
 # =======================================
 
+# ==== Select confi file if requested =============================
+if [ "${USE_CONFIG_FILE}" != "" ]; then
+	echo "=====[ BUILD: use '${USE_CONFIG_FILE}' as config file"
+    if [ -f "${USE_CONFIG_FILE}" ]; then
+		rm -f mpy_support/k210_config.h > /dev/null 2>&1
+		cp -f .config .config.old > /dev/null 2>&1
+		cp -f ${USE_CONFIG_FILE} .config > /dev/null 2>&1
+		./conf --silentoldconfig mpy_support/k210_config.h Kconfig > /dev/null 2>&1
+	    if [ $? -ne 0 ]; then
+		echo "=====[ BUILD: error creating 'k210.config.h'"
+	    exit 1
+		fi
+		echo "=====[ BUILD: Configuration files created."
+    else
+        echo "=====[ BUILD: ERROR, '${USE_CONFIG_FILE}' not found!"
+    fi
+fi
+# =================================================================
+
+# ==== Run menuconfig if requested or needed ==============================
+if [ -f "mconf" ] && [ -f "conf" ]; then
+	if [ "${RUN_MENUCONFIG}" == "yes" ] || [ ! -f "mpy_support/k210_config.h" ]; then
+		echo "=====[ BUILD: Running 'menuconfig'"
+		rm -f mpy_support/k210_config.h > /dev/null 2>&1
+		./mconf Kconfig
+	    if [ $? -ne 0 ]; then
+	    echo "=====[ BUILD: error running 'mconf'"
+	    exit 1
+		fi
+		cp -f .config .config.old > /dev/null 2>&1
+		./conf --silentoldconfig mpy_support/k210_config.h Kconfig > /dev/null 2>&1
+	    if [ $? -ne 0 ]; then
+		echo "=====[ BUILD: error creating 'k210.config.h'"
+	    exit 1
+		fi
+		echo "=====[ BUILD: Configuration files created."
+		echo ""
+		echo "=====[ BUILD: Run 'BUILD.sh' again to build the MicroPython firmware"
+		exit 0
+	fi
+fi
+# =========================================================================
+
+# === build mklfs =======================
+if [ ! -f "../mklittlefs/mklfs" ]; then
+    echo "=====[ BUILD: compiling 'mklfs'"
+    make -C ../mklittlefs > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+    echo "=====[ BUILD: ok."
+    else
+    echo "=====[ BUILD: ERROR!"
+    exit 1
+    fi
+    sleep 1
+fi
+# =======================================
+
+# === build mpy-cross====================
+if [ ! -f "../micropython/mpy-cross/mpy-cross" ]; then
+    echo "=====[ BUILD: compiling 'mpy-cross'"
+    make -C ../micropython/mpy-cross ${J_OPTION} > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+    echo "=====[ BUILD: ok."
+    else
+    echo "=====[ BUILD: ERROR!"
+    exit 1
+    fi
+    sleep 1
+fi
+# =======================================
+
+if [ ! -f "mpy_support/k210_config.h" ]; then
+    echo "=====[ BUILD: ERROR, 'mpy_support/k210_config.h' not found!"
+    exit 1
+fi
+
+
+# === Prepare the build ===
+
 MICROPY_VER=$( cat mpy_support/mpconfigport.h | grep "MICROPY_PY_LOBO_VERSION" | cut -d'"' -s -f 2 )
-export MICROPY_VERSION="MaixPy-FreeRTOS_LoBo v${MICRO_PI_VER}"
+export MICROPY_VERSION="MicroPython_K210_LoBo v${MICRO_PI_VER}"
 
-MICROPY_FLASH_START=$( cat mpy_support/mpconfigport.h | grep "MICRO_PY_FLASHFS_START_ADDRESS" | cut -d'(' -s -f 2 | cut -d')' -s -f 1 | head -n 1 )
-FLASH_START_ADDRES=$(( ${MICROPY_FLASH_START} ))
+MICROPY_FW_SIZE_TYPE=$( cat mpy_support/k210_config.h | grep "CONFIG_FIRMWARE_SIZE_TYPE" | cut -d' ' -s -f 3 )
 
-FS_USED=$(cat mpy_support/mpconfigport.h | grep "#define MICRO_PY_FLASHFS_USED" | cut -d'(' -f 2)
-if [ "${FS_USED}" == "MICRO_PY_FLASHFS_LITTLEFS)" ]; then
-	# Do not compile spiffs if not used
-	mv third_party/spiffs/Makefile third_party/spiffs/Makefile.notused > /dev/null 2>&1
+MICROPY_FLASH_START=$( cat mpy_support/k210_config.h | grep "CONFIG_MICRO_PY_FLASHFS_START_ADDRESS" | cut -d' ' -s -f 3 )
+FLASH_START_ADDRES=$(( ${MICROPY_FLASH_START} * 1024 * 1024 ))
+
+FS_USED=$( cat mpy_support/k210_config.h | grep "CONFIG_MICROPY_FILESYSTEM_TYPE" | cut -d' ' -s -f 3 )
+if [ "${FS_USED}" == "0" ]; then
+	# === Do not compile spiffs if not used ===
+	if [ -f third_party/spiffs/Makefile ]; then
+		mv third_party/spiffs/Makefile third_party/spiffs/Makefile.notused > /dev/null 2>&1
+	fi
 else
 	if [ -f third_party/spiffs/Makefile.notused ]; then
 		mv third_party/spiffs/Makefile.notused third_party/spiffs/Makefile
 	fi
 fi
 
-echo "===[ BUILDING MicroPython FIRMWARE ]==="
+# --------------------------------------------------------
+# Select the linker script based on firmware size selected
+# --------------------------------------------------------
+# LD_MODE="_kboot"
+LD_MODE=""
 
-make update_mk > /dev/null
-if [ $? -eq 0 ]; then
-echo "."
+if [ "${MICROPY_FW_SIZE_TYPE}" == "0" ]; then
+    echo "=====[ BUILD: 2 MB firmware"
+    cp -f platform/sdk/kendryte-freertos-sdk/lds/kendryte${LD_MODE}_2M.ld platform/sdk/kendryte-freertos-sdk/lds/kendryte.ld
+elif [ "${MICROPY_FW_SIZE_TYPE}" == "1" ]; then
+    echo "=====[ BUILD: 2.5 MB firmware"
+    cp -f platform/sdk/kendryte-freertos-sdk/lds/kendryte${LD_MODE}_2_5M.ld platform/sdk/kendryte-freertos-sdk/lds/kendryte.ld
+elif [ "${MICROPY_FW_SIZE_TYPE}" == "2" ]; then
+    echo "=====[ BUILD: 3 MB firmware"
+    cp -f platform/sdk/kendryte-freertos-sdk/lds/kendryte${LD_MODE}_3M.ld platform/sdk/kendryte-freertos-sdk/lds/kendryte.ld
 else
-echo "===[ First pass ERROR ]==="
+    echo "=====[ BUILD: 3.5 MB firmware"
+    cp -f platform/sdk/kendryte-freertos-sdk/lds/kendryte${LD_MODE}_3_5M.ld platform/sdk/kendryte-freertos-sdk/lds/kendryte.ld
+fi
+
+# --------------------------------------
+# Update mk files, it must be done twice
+# --------------------------------------
+echo ""
+echo "=====[ BUILD: UPDATE mk files"
+make update_mk > /dev/null
+if [ $? -ne 0 ]; then
+echo "=====[ BUILD: ERROR!"
 exit 1
 fi
-make update_mk > /dev/null
-if [ $? -eq 0 ]; then
-echo "."
+
+if [ "${VERBOSE_BUILD}" == "yes" ] || [ "${VERBOSE_BUILD}" == "yesyes" ]; then
+make update_mk
 else
-echo "===[ First pass ERROR ]==="
+make update_mk > /dev/null
+fi
+if [ $? -ne 0 ]; then
+echo "=====[ BUILD: ERROR!"
 exit 1
 fi
+echo ""
+
+echo "==========================================="
+echo "=====[ BUILD: BUILDING MicroPython FIRMWARE"
+echo "==========================================="
 
 export CROSS_COMPILE=${PWD}/../kendryte-toolchain/bin/riscv64-unknown-elf-
 export PLATFORM=k210
 export MAKE_OPT="${J_OPTION}"
 
-if [ "${VERBOSE}" == "yes" ]; then
+if [ "${VERBOSE_BUILD}" == "yes" ]; then
+export BUILD_VERBOSE=0
 make all
-elif [ "${VERBOSE}" == "yesyes" ]; then
-export VERBOSE=""
+elif [ "${VERBOSE_BUILD}" == "yesyes" ]; then
+export BUILD_VERBOSE=1
 make all
 else
+export BUILD_VERBOSE=0
 make all > /dev/null
 fi
 
 # ===============================================================================
 # For some weird reason the compiled binary sometimes won't run
-# It looks it is related to how the binary is created from elf in makefile.
+# It looks it is related to how the binary is created from elf in Makefile.
 # Running the 'objcopy' here again with the following options, solves the problem
 # ===============================================================================
 
 if [ $? -eq 0 ]; then
-FILESIZE=$(stat -c%s MaixPy.bin)
+if [ "${machine}" == "MacOS" ]; then
+FILESIZE=$(stat -s MicroPython.bin | cut -d' ' -s -f 1 | cut -d'=' -s -f 2)
+else
+FILESIZE=$(stat -c%s MicroPython.bin)
+fi
 ALLIGNED_SIZE=$(( (((${FILESIZE} / 4096) * 4096)) + 8192 ))
+# Code in SRAM starts at 0x80000000, correct the address
 END_ADDRESS=$(( ${ALLIGNED_SIZE} + 2147483648 ))
+if [ "${LD_MODE}" == "_kboot" ]; then
+    # Code in SRAM starts at 0x80002000, correct the address
+    END_ADDRESS=$(( ${ALLIGNED_SIZE} + 2147483648 + 8192 ))
+else
+    # Code in SRAM starts at 0x80000000, correct the address
+    END_ADDRESS=$(( ${ALLIGNED_SIZE} + 2147483648 ))
+fi
 
-mv MaixPy.bin MaixPy.bin.bkp
-../kendryte-toolchain/bin/riscv64-unknown-elf-objcopy --output-format=binary --file-alignment 4096 --gap-fill 0xFF --pad-to ${END_ADDRESS} MaixPy MaixPy.bin
+mv MicroPython.bin MicroPython.bin.bkp
+../kendryte-toolchain/bin/riscv64-unknown-elf-objcopy --output-format=binary --file-alignment 4096 --gap-fill 0xFF --pad-to ${END_ADDRESS} MicroPython MicroPython.bin
 
 if [ "${CREATE_DUMP}" == "yes" ]; then
-echo "===[ Exporting objdump ]==="
-../kendryte-toolchain/bin/riscv64-unknown-elf-objdump -S  --disassemble MaixPy > MaixPy.dump
+echo "=====[ BUILD: Exporting objdump"
+../kendryte-toolchain/bin/riscv64-unknown-elf-objdump -S  --disassemble MicroPython > MicroPython.dump
 fi
 
 # =========================================
 # === Create kfpkg package ================
 # =========================================
-echo "===[ Creating 'MaixPy.kfpkg' ]==="
+echo ""
+echo "=====[ BUILD: Creating 'MicroPython.kfpkg'"
 rm -f *.img > /dev/null 2>&1
 echo "{" > flash-list.json
 echo "    \"version\": \"0.1.0\"," >> flash-list.json
 echo "    \"files\": [">> flash-list.json
 echo "        {">> flash-list.json
 echo "            \"address\": 0,">> flash-list.json
-echo "            \"bin\": \"MaixPy.bin\",">> flash-list.json
-echo "            \"sha256Prefix\": true">> flash-list.json
-if [ -f "${PWD}/../mklittlefs/maixpy_lfs.img" ]; then
-cp ${PWD}/../mklittlefs/maixpy_lfs.img .
+echo "            \"bin\": \"MicroPython.bin\",">> flash-list.json
+echo "            \"sha256Prefix\": true,">> flash-list.json
+echo "            \"swap\": false">> flash-list.json
+if [ -f "${PWD}/../mklittlefs/MicroPython_lfs.img" ]; then
+cp ${PWD}/../mklittlefs/MicroPython_lfs.img .
 echo "        },">> flash-list.json
 echo "        {">> flash-list.json
 echo "            \"address\": ${FLASH_START_ADDRES},">> flash-list.json
-echo "            \"bin\": \"maixpy_lfs.img\",">> flash-list.json
-echo "            \"sha256Prefix\": false">> flash-list.json
+echo "            \"bin\": \"MicroPython_lfs.img\",">> flash-list.json
+echo "            \"sha256Prefix\": false,">> flash-list.json
+echo "            \"swap\": true">> flash-list.json
 echo "        }">> flash-list.json
 else
 echo "        }">> flash-list.json
@@ -215,16 +399,16 @@ echo "    ]">> flash-list.json
 echo "}">> flash-list.json
 
 rm -f *.kfpkg > /dev/null 2>&1
-if [ -f maixpy_lfs.img ]; then
-zip MaixPy.kfpkg -9 flash-list.json MaixPy.bin maixpy_lfs.img > /dev/null
+if [ -f MicroPython_lfs.img ]; then
+zip MicroPython.kfpkg -9 flash-list.json MicroPython.bin MicroPython_lfs.img > /dev/null
 else
-zip MaixPy.kfpkg -9 flash-list.json MaixPy.bin > /dev/null
+zip MicroPython.kfpkg -9 flash-list.json MicroPython.bin > /dev/null
 fi
 
 if [ $? -eq 0 ]; then
-echo "===[ kfpkg created ]==="
+echo "=====[ BUILD: kfpkg created"
 else
-echo "===[ ERROR creating kfpkg ]==="
+echo "=====[ BUILD: ERROR creating kfpkg"
 exit 1
 fi
 rm -f *.img > /dev/null 2>&1
@@ -232,16 +416,24 @@ rm -f *.json > /dev/null 2>&1
 # =========================================
 
 echo
-echo "------------------------------------------------"
-../kendryte-toolchain/bin/riscv64-unknown-elf-size MaixPy
-echo "------------------------------------------------"
+if [ "${VERBOSE_BUILD}" == "" ]; then
+echo "---------------------------------------------------"
+../kendryte-toolchain/bin/riscv64-unknown-elf-size MicroPython
+echo "---------------------------------------------------"
 echo
-echo "============================"
-echo "====== Build finished ======"
+fi
+
+
+echo "============================="
+echo "====== Build finished ======="
 echo "            version: ${MICROPY_VER}"
 echo " Firmware file size: ${ALLIGNED_SIZE}"
+MICROPY_FILE_CRC32=$(crc32 MicroPython.bin 2> /dev/null)
+if [ $? -eq 0 ]; then
+echo "     Firmware CRC32: ${MICROPY_FILE_CRC32}"
+fi
 echo " Flash FS starts at: ${FLASH_START_ADDRES}"
-echo "============================"
+echo "============================="
 else
 	
 echo "===================="

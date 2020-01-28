@@ -28,6 +28,7 @@
 #include <utility.h>
 #include <devices.h>
 #include <syslog.h>
+#include <printf.h>
 
 extern uint64_t dmac_intstatus;
 
@@ -36,7 +37,8 @@ using namespace sys;
 // transmission length (frames) bellow which DMA transfer is not used
 // used only by SPI master
 // during the non-DMA transfer interrupts are disabled !
-#define SPI_TRANSMISSION_THRESHOLD  0x800UL
+#define SPI_TRANSMISSION_THRESHOLD  0x400UL     // byte threshold above which a DMA transfer is used
+#define SPI_DMA_BLOCK_TIME          1000UL      // DMA transfer block time in ms
 #define SPI_SLAVE_INFO              "K210 v1.2" // !must be exactly 9 bytes!
 
 /* SPI Controller */
@@ -127,6 +129,7 @@ public:
     bool set_xip_mode(k_spi_device_driver &device, bool enable); // LoBo
     void master_config_half_duplex(k_spi_device_driver &device, int8_t mosi, int8_t miso); // LoBo
     double set_clock_rate(k_spi_device_driver &device, double clock_rate);
+    void set_endian(k_spi_device_driver &device, uint32_t endian);
     int read(k_spi_device_driver &device, gsl::span<uint8_t> buffer);
     int write(k_spi_device_driver &device, gsl::span<const uint8_t> buffer);
     int transfer_full_duplex(k_spi_device_driver &device, gsl::span<const uint8_t> write_buffer, gsl::span<uint8_t> read_buffer);
@@ -273,7 +276,7 @@ private:
         LOGD(SLAVE_TAG, "In IDLE mode");
     }
 
-    // Wait for DMA transfer iniated from command handler to finish
+    // Wait for DMA transfer initiated from command handler to finish
     //-----------------------------------------------
     static bool _wait_transfer_finish(void *userdata)
     {
@@ -290,12 +293,20 @@ private:
             tmo -= 2;
             if (tmo < 0) {
                 f = false;
+                dma_stop(driver.slave_instance_.dma);
+                if (xSemaphoreTake(driver.slave_instance_.dma_event, 500 / portTICK_PERIOD_MS) == pdTRUE) {
+                    driver.slave_instance_.command.err = SPI_CMD_ERR_ERROR;
+                    LOGW(SLAVE_TAG, "DMA transfer not finished, DMA stopped");
+                }
+                else {
+                    driver.slave_instance_.command.err = SPI_CMD_ERR_FATAL;
+                    LOGE(SLAVE_TAG, "DMA transfer not finished, DMA NOT stopped");
+                }
                 break;
             }
         }
         tend = read_csr64(mcycle) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000);
         if ((dmac_intstatus & 0x02) == 0) f = false;
-        if (!f) driver.slave_instance_.command.err = SPI_CMD_ERR_FATAL;
         LOGD(SLAVE_TAG, "Transfer time: %lu us)", tend - tstart);
         return f;
     }
@@ -716,6 +727,11 @@ public:
         return spi_->set_clock_rate(*this, clock_rate);
     }
 
+    virtual void set_endian(uint32_t endian) override
+    {
+        spi_->set_endian(*this, endian);
+    }
+	
     virtual int read(gsl::span<uint8_t> buffer) override
     {
         return spi_->read(*this, buffer);
@@ -786,6 +802,8 @@ private:
     spi_inst_addr_trans_mode_t trans_mode_;
     uint32_t baud_rate_ = 0x2;
     uint32_t buffer_width_ = 0;
+    uint32_t endian_ = 0;
+    // LoBo
     int8_t mosi_ = -1;
     int8_t miso_ = -1;
     uint16_t spi_mosi_func_ = FUNC_MAX;
@@ -823,10 +841,11 @@ bool k_spi_driver::set_xip_mode(k_spi_device_driver &device, bool enable)
 // LoBo: added function
 void k_spi_driver::master_config_half_duplex(k_spi_device_driver &device, int8_t mosi, int8_t miso)
 {
-    device.spi_mosi_func_ = FUNC_MAX;
+    device.spi_mosi_func_ = FUNC_MAX; // indicates device is not in half-duplex mode
     device.mosi_ = mosi;
     device.miso_ = miso;
     if ((mosi >= 0) && (miso == -1)) {
+        // half-duplex mode (device.spi_mosi_func_ < FUNC_MAX)
         if (((uintptr_t)&spi_ == SPI0_BASE_ADDR)) device.spi_mosi_func_ = FUNC_SPI0_D0;
         else if (((uintptr_t)&spi_ == SPI1_BASE_ADDR)) device.spi_mosi_func_ = FUNC_SPI1_D0;
     }
@@ -846,17 +865,78 @@ double k_spi_driver::set_clock_rate(k_spi_device_driver &device, double clock_ra
     return clk / div;
 }
 
+void k_spi_driver::set_endian(k_spi_device_driver &device, uint32_t endian)
+{
+    device.endian_ = endian;
+}
+
+// Wait for DMA transfer to finish
+//------------------------------------------------------------------------------------------------------------------------------------------------
+static int _wait_DMA_transfer(SemaphoreHandle_t dma_event1, SemaphoreHandle_t dma_event2, uintptr_t dma_trans1, uintptr_t dma_trans2, int timeout)
+{
+    // timeout in ms
+    uint64_t tstart = read_csr64(mcycle) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000);
+    uint64_t tend = tstart;
+    uint64_t tcurr;
+    int ret = 1;
+    bool check1 = true;
+    bool check2 = (dma_event2 != NULL);
+    uint64_t tmo = tstart + (timeout * 1000);
+    while (1) {
+        if (check1) {
+            if (xSemaphoreTake(dma_event1, 2 / portTICK_PERIOD_MS) == pdTRUE) {
+                check1 = false;
+                if (!check2) break;
+            }
+        }
+        if (check2) {
+            check2 = false;
+            if (xSemaphoreTake(dma_event2, 2 / portTICK_PERIOD_MS) == pdTRUE) {
+                if (!check1) break;
+            }
+        }
+        if ((!check1) && (!check2)) break;
+
+        tcurr = read_csr64(mcycle) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000);
+        if (tcurr > tmo) {
+            // timeout
+            if (check1) {
+                dma_stop(dma_trans1);
+                if (xSemaphoreTake(dma_event1, 500 / portTICK_PERIOD_MS) == pdTRUE) {
+                    ret = 0;
+                    LOGW(TAG, "DMA transfer not finished, DMA stopped");
+                }
+                else {
+                    ret = -1;
+                    LOGE(TAG, "DMA transfer not finished, DMA NOT stopped");
+                }
+            }
+            if (check2) {
+                dma_stop(dma_trans2);
+                if (xSemaphoreTake(dma_event2, 500 / portTICK_PERIOD_MS) == pdTRUE) {
+                    ret = 0;
+                    LOGW(TAG, "DMA transfer not finished, DMA stopped");
+                }
+                else {
+                    ret = -1;
+                    LOGE(TAG, "DMA transfer not finished, DMA NOT stopped");
+                }
+            }
+            break;
+        }
+    }
+    tend = read_csr64(mcycle) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000);
+    LOGD(TAG, "Transfer time: %lu us)", tend - tstart);
+    return ret;
+}
+
 int k_spi_driver::read(k_spi_device_driver &device, gsl::span<uint8_t> buffer)
 {
     COMMON_ENTRY;
 
     setup_device(device);
 
-    if (device.spi_mosi_func_ < FUNC_MAX) {
-        // In half-duplex mode use MOSI as input (MISO)
-        fpioa_set_function(device.mosi_, (fpioa_function_t)(device.spi_mosi_func_+1));
-    }
-
+    int ret = buffer.size();
     uint32_t i = 0;
     size_t rx_buffer_len = buffer.size();
     size_t rx_frames = rx_buffer_len / device.buffer_width_;
@@ -869,6 +949,10 @@ int k_spi_driver::read(k_spi_device_driver &device, gsl::span<uint8_t> buffer)
         spi_.dr[0] = 0xFFFFFFFF;
     }
 
+    if (device.spi_mosi_func_ < FUNC_MAX) {
+        // In half-duplex mode use MOSI pin as input (MISO)
+        fpioa_set_function(device.mosi_, (fpioa_function_t)(device.spi_mosi_func_+1));
+    }
     if (rx_frames < SPI_TRANSMISSION_THRESHOLD)
     {
         vTaskEnterCritical();
@@ -907,26 +991,31 @@ int k_spi_driver::read(k_spi_device_driver &device, gsl::span<uint8_t> buffer)
         dma_set_request_source(dma_read, dma_req_);
         spi_.dmacr = 0x1;
         SemaphoreHandle_t event_read = xSemaphoreCreateBinary();
+
         dma_transmit_async(dma_read, &spi_.dr[0], buffer_read, 0, 1, device.buffer_width_, rx_frames, 1, event_read);
         const uint8_t *buffer_it = buffer.data();
         write_inst_addr(spi_.dr, &buffer_it, device.inst_width_);
         write_inst_addr(spi_.dr, &buffer_it, device.addr_width_);
         spi_.ser = device.chip_select_mask_;
-        configASSERT(xSemaphoreTake(event_read, portMAX_DELAY) == pdTRUE);
+
+        //configASSERT(pdTRUE == xSemaphoreTake(event_read, SPI_DMA_BLOCK_TIME));
+        int dma_ret = _wait_DMA_transfer(event_read, NULL, dma_read, 0, SPI_DMA_BLOCK_TIME);
+        configASSERT(dma_ret >= 0);
+        if (dma_ret < 1) ret = -1;
+
         dma_close(dma_read);
         vSemaphoreDelete(event_read);
+    }
+    if (device.spi_mosi_func_ < FUNC_MAX) {
+        // In half-duplex mode use MOSI again as output
+        fpioa_set_function(device.mosi_, (fpioa_function_t)device.spi_mosi_func_);
     }
 
     spi_.ser = 0x00;
     spi_.ssienr = 0x00;
     spi_.dmacr = 0x00;
 
-    if (device.spi_mosi_func_ < FUNC_MAX) {
-        // In half-duplex mode use MOSI again as output
-        fpioa_set_function(device.mosi_, (fpioa_function_t)device.spi_mosi_func_);
-    }
-
-    return buffer.size();
+    return ret;
 }
 
 int k_spi_driver::write(k_spi_device_driver &device, gsl::span<const uint8_t> buffer)
@@ -935,6 +1024,7 @@ int k_spi_driver::write(k_spi_device_driver &device, gsl::span<const uint8_t> bu
 
     setup_device(device);
 
+    int ret = buffer.size();
     uint32_t i = 0;
     size_t tx_buffer_len = buffer.size() - (device.inst_width_ + device.addr_width_);
     size_t tx_frames = tx_buffer_len / device.buffer_width_;
@@ -983,9 +1073,14 @@ int k_spi_driver::write(k_spi_device_driver &device, gsl::span<const uint8_t> bu
         write_inst_addr(spi_.dr, &buffer_write, device.inst_width_);
         write_inst_addr(spi_.dr, &buffer_write, device.addr_width_);
         SemaphoreHandle_t event_write = xSemaphoreCreateBinary();
+
         dma_transmit_async(dma_write, buffer_write, &spi_.dr[0], 1, 0, device.buffer_width_, tx_frames, 4, event_write);
         spi_.ser = device.chip_select_mask_;
-        configASSERT(xSemaphoreTake(event_write, portMAX_DELAY) == pdTRUE);
+        //configASSERT(pdTRUE == xSemaphoreTake(event_write, SPI_DMA_BLOCK_TIME));
+        int dma_ret = _wait_DMA_transfer(event_write, NULL, dma_write, 0, SPI_DMA_BLOCK_TIME);
+        configASSERT(dma_ret >= 0);
+        if (dma_ret < 1) ret = -1;
+
         dma_close(dma_write);
         vSemaphoreDelete(event_write);
     }
@@ -995,7 +1090,7 @@ int k_spi_driver::write(k_spi_device_driver &device, gsl::span<const uint8_t> bu
     spi_.ssienr = 0x00;
     spi_.dmacr = 0x00;
 
-    return buffer.size();
+    return ret;
 }
 
 int k_spi_driver::transfer_full_duplex(k_spi_device_driver &device, gsl::span<const uint8_t> write_buffer, gsl::span<uint8_t> read_buffer)
@@ -1008,6 +1103,14 @@ int k_spi_driver::transfer_full_duplex(k_spi_device_driver &device, gsl::span<co
 
 int k_spi_driver::transfer_sequential(k_spi_device_driver &device, gsl::span<const uint8_t> write_buffer, gsl::span<uint8_t> read_buffer)
 {
+    // LoBo: handle half-duplex
+    if (device.spi_mosi_func_ < FUNC_MAX) {
+        // In half-duplex mode MOSI pin is used also as input (MISO)
+        // so, execute write and read operation separately
+        configASSERT(device.frame_format_ == SPI_FF_STANDARD);
+        write(device, write_buffer);
+        return read(device, read_buffer);
+    }
     COMMON_ENTRY;
     setup_device(device);
     set_bit_mask(&spi_.ctrlr0, TMOD_MASK, TMOD_VALUE(3));
@@ -1020,7 +1123,7 @@ int k_spi_driver::transfer_sequential_with_delay(k_spi_device_driver &device, gs
     configASSERT(device.frame_format_ == SPI_FF_STANDARD);
     write(device, write_buffer);
     if (delay > 0) {
-        // Delay before read
+        // Delay before read (in us)
         uint64_t start_us = read_csr64(mcycle) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000);
         uint64_t end_us = start_us + delay;
         while ((read_csr64(mcycle) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000)) < end_us) {
@@ -1033,6 +1136,7 @@ int k_spi_driver::transfer_sequential_with_delay(k_spi_device_driver &device, gs
 int k_spi_driver::read_write(k_spi_device_driver &device, gsl::span<const uint8_t> write_buffer, gsl::span<uint8_t> read_buffer)
 {
     configASSERT(device.frame_format_ == SPI_FF_STANDARD);
+    int ret = read_buffer.size();
     size_t tx_buffer_len = write_buffer.size();
     size_t rx_buffer_len = read_buffer.size();
     size_t tx_frames = tx_buffer_len / device.buffer_width_;
@@ -1073,7 +1177,7 @@ int k_spi_driver::read_write(k_spi_device_driver &device, gsl::span<const uint8_
         }
 
         if (device.spi_mosi_func_ < FUNC_MAX) {
-            // In half-duplex mode use MOSI as input (MISO)
+            // In half-duplex mode use MOSI pin as input (MISO)
             fpioa_set_function(device.mosi_, (fpioa_function_t)(device.spi_mosi_func_+1));
         }
         i = 0;
@@ -1122,7 +1226,10 @@ int k_spi_driver::read_write(k_spi_device_driver &device, gsl::span<const uint8_
         dma_transmit_async(dma_read, &spi_.dr[0], buffer_read, 0, 1, device.buffer_width_, rx_frames, 1, event_read);
         dma_transmit_async(dma_write, buffer_write, &spi_.dr[0], 1, 0, device.buffer_width_, tx_frames, 4, event_write);
 
-        configASSERT(xSemaphoreTake(event_read, portMAX_DELAY) == pdTRUE && xSemaphoreTake(event_write, portMAX_DELAY) == pdTRUE);
+        //configASSERT(xSemaphoreTake(event_read, SPI_DMA_BLOCK_TIME) == pdTRUE && xSemaphoreTake(event_write, SPI_DMA_BLOCK_TIME) == pdTRUE);
+        int dma_ret = _wait_DMA_transfer(event_read, event_write, dma_read, dma_write, SPI_DMA_BLOCK_TIME);
+        configASSERT(dma_ret >= 0);
+        if (dma_ret < 1) ret = -1;
 
         dma_close(dma_write);
         dma_close(dma_read);
@@ -1133,7 +1240,7 @@ int k_spi_driver::read_write(k_spi_device_driver &device, gsl::span<const uint8_
     spi_.ssienr = 0x00;
     spi_.dmacr = 0x00;
 
-    return read_buffer.size();
+    return ret;
 }
 
 void k_spi_driver::fill(k_spi_device_driver &device, uint32_t instruction, uint32_t address, uint32_t value, size_t count)
@@ -1157,7 +1264,10 @@ void k_spi_driver::fill(k_spi_device_driver &device, uint32_t instruction, uint3
     dma_transmit_async(dma_write, &value, &spi_.dr[0], 0, 0, sizeof(uint32_t), count, 4, event_write);
 
     spi_.ser = device.chip_select_mask_;
-    configASSERT(xSemaphoreTake(event_write, portMAX_DELAY) == pdTRUE);
+    //configASSERT(xSemaphoreTake(event_write, SPI_DMA_BLOCK_TIME) == pdTRUE);
+    int dma_ret = _wait_DMA_transfer(event_write, NULL, dma_write, 0, SPI_DMA_BLOCK_TIME);
+    configASSERT(dma_ret >= 0);
+
     dma_close(dma_write);
     vSemaphoreDelete(event_write);
 
@@ -1225,6 +1335,7 @@ void k_spi_driver::setup_device(k_spi_device_driver &device)
         uint32_t addr_l = device.address_length_ / 4;
 
         spi_.spi_ctrlr0 = (device.wait_cycles_ << 11) | (inst_l << 8) | (addr_l << 2) | trans;
+        spi_.endian = device.endian_;
     }
 }
 

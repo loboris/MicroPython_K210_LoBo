@@ -136,9 +136,8 @@ static int internal_erase(const struct lfs_config *c, lfs_block_t block)
     //if (w25qxx_debug) LOGD(TAG, "[ERASE] bkl=%u", block);
 
     // erase sector size is 4096!
-    uint8_t rd_buf[w25qxx_FLASH_SECTOR_SIZE];
-    uint8_t *pread = rd_buf;
-    w25qxx_read_data(phy_addr, rd_buf, w25qxx_FLASH_SECTOR_SIZE);
+    uint8_t *pread = swap_buf;
+    w25qxx_read_data(phy_addr, swap_buf, w25qxx_FLASH_SECTOR_SIZE);
     for (int index = 0; index < w25qxx_FLASH_SECTOR_SIZE; index++)
     {
         if (*pread != 0xFF) {
@@ -370,18 +369,18 @@ MP_NOINLINE bool init_flash_filesystem()
         if ((key != 'F') && (key != 'f') && (key != 'E') && (key != 'e')) return false;
         if ((key == 'E') || (key == 'e')) {
             // erase flash
-            mp_printf(&mp_plat_print, "%sErasing Flash, this can take some time...%s\n", term_color(PURPLE), term_color(DEFAULT));
+            mp_printf(&mp_plat_print, "%sErasing FS Flash area, this can take some time...%s\n", term_color(PURPLE), term_color(DEFAULT));
             for (int i=0; i<(LITTLEFS_CFG_PHYS_SZ / w25qxx_FLASH_SECTOR_SIZE) ; i++) {
                 internal_erase(&littleFlash.lfs_cfg, i);
             }
-            mp_printf(&mp_plat_print, "%sFlash erased%s\n", term_color(CYAN), term_color(DEFAULT));
+            mp_printf(&mp_plat_print, "%sFile system Flash area erased%s\n", term_color(CYAN), term_color(DEFAULT));
         }
         else {
             // Erase first 4 blocks
             for (int i=0; i<4; i++) {
                 err = internal_erase(&littleFlash.lfs_cfg, i);
                 if (err != LFS_ERR_OK) {
-                    mp_printf(&mp_plat_print, "%sError erasing Flash%s\n", term_color(RED), term_color(DEFAULT));
+                    mp_printf(&mp_plat_print, "%sError erasing 1st 4 FS Flash sectors%s\n", term_color(RED), term_color(DEFAULT));
                     goto fail;
                 }
             }

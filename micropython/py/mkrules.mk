@@ -30,6 +30,7 @@ $(BUILD)/%.o: %.s
 	$(ECHO) "AS $<"
 	$(Q)$(AS) -o $@ $<
 
+ifeq ($(BUILD_VERBOSE),1)
 define compile_c
 $(ECHO) "CC $<"
 $(Q)$(CC) $(CFLAGS) -c -MD -o $@ $<
@@ -41,6 +42,18 @@ $(Q)$(CC) $(CFLAGS) -c -MD -o $@ $<
       -e '/^$$/ d' -e 's/$$/ :/' < $(@:.o=.d) >> $(@:.o=.P); \
   $(RM) -f $(@:.o=.d)
 endef
+else
+define compile_c
+$(Q)$(CC) $(CFLAGS) -c -MD -o $@ $<
+@# The following fixes the dependency file.
+@# See http://make.paulandlesley.org/autodep.html for details.
+@# Regex adjusted from the above to play better with Windows paths, etc.
+@$(CP) $(@:.o=.d) $(@:.o=.P); \
+  $(SED) -e 's/#.*//' -e 's/^.*:  *//' -e 's/ *\\$$//' \
+      -e '/^$$/ d' -e 's/$$/ :/' < $(@:.o=.d) >> $(@:.o=.P); \
+  $(RM) -f $(@:.o=.d)
+endef
+endif
 
 vpath %.c . $(TOP) $(USER_C_MODULES)
 $(BUILD)/%.o: %.c
@@ -89,7 +102,8 @@ $(QSTR_DEFS_COLLECTED): $(HEADER_BUILD)/qstr.split
 # object directories (but only for existence), and the object directories
 # will be created if they don't exist.
 OBJ_DIRS = $(sort $(dir $(OBJ)))
-$(OBJ): | $(OBJ_DIRS)
+# LoBo: changed $(OBJ): | $(OBJ_DIRS)
+$(OBJ): $(OBJ_DIRS)
 $(OBJ_DIRS):
 	$(MKDIR) -p $@
 
@@ -104,8 +118,9 @@ endif
 
 ifneq ($(FROZEN_MPY_DIR),)
 # to build the MicroPython cross compiler
-$(TOP)/mpy-cross/mpy-cross: $(TOP)/py/*.[ch] $(TOP)/mpy-cross/*.[ch] $(TOP)/ports/windows/fmode.c
-	$(Q)$(MAKE) -C $(TOP)/mpy-cross
+# LoBo: 'mpy-cross' is built from 'BUILD.sh'
+#$(TOP)/mpy-cross/mpy-cross: $(TOP)/py/*.[ch] $(TOP)/mpy-cross/*.[ch] $(TOP)/ports/windows/fmode.c
+#	$(Q)$(MAKE) -C $(TOP)/mpy-cross
 
 # make a list of all the .py files that need compiling and freezing
 FROZEN_MPY_PY_FILES := $(shell find -L $(FROZEN_MPY_DIR) -type f -name '*.py' | $(SED) -e 's=^$(FROZEN_MPY_DIR)/==')

@@ -324,7 +324,7 @@ static int spi_master_hard_init(uint8_t mosi, int8_t miso, uint8_t sck, int8_t c
     else if ((mp_used_pins[miso].func == func) && (mp_used_pins[miso].usedas == GPIO_USEDAS_MISO)) same_pins++;
 
     if ((mp_used_pins[mosi].func == func) && (mp_used_pins[mosi].usedas == GPIO_USEDAS_MISO)) same_pins++;
-    if ((mp_used_pins[sck].func == func) && (mp_used_pins[sck].usedas == GPIO_USEDAS_MISO)) same_pins++;
+    if ((mp_used_pins[sck].func == func) && (mp_used_pins[sck].usedas == GPIO_USEDAS_CLK)) same_pins++;
 
     if ((!set_cs) && (!set_miso) && (same_pins == 2)) {
         // === no cs, no miso, same mosi & sck, no pins to set
@@ -351,8 +351,8 @@ static int spi_master_hard_init(uint8_t mosi, int8_t miso, uint8_t sck, int8_t c
         LOGW(TAG, "MOSI %s", gpiohs_funcs_in_use[mp_used_pins[mosi].func]);
         return -4;
     }
-    if (mp_used_pins[mosi].func != GPIO_FUNC_NONE) {
-        LOGW(TAG, "MOSI %s", gpiohs_funcs_in_use[mp_used_pins[mosi].func]);
+    if (mp_used_pins[sck].func != GPIO_FUNC_NONE) {
+        LOGW(TAG, "SCK %s", gpiohs_funcs_in_use[mp_used_pins[sck].func]);
         return -5;
     }
 
@@ -600,6 +600,9 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
         else if ((args[ARG_polarity].u_bool != 0) && (args[ARG_phase].u_bool == 0)) mode = 2;
         else if ((args[ARG_polarity].u_bool != 0) && (args[ARG_phase].u_bool != 0)) mode = 3;
     }
+    else {
+        mode = args[ARG_mode].u_int & 0x03;
+    }
 
     self->state = MACHINE_HW_SPI_STATE_DEINIT;
 
@@ -711,7 +714,7 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
 
         if ((self->duplex == false) && (self->miso < 0))
             spi_dev_master_config_half_duplex(self->spi_device, self->mosi, self->miso);
-        self->freq = (uint32_t)spi_dev_set_clock_rate(self->spi_device, args[ARG_baudrate].u_int);
+        self->freq = (uint32_t)spi_dev_set_clock_rate(self->spi_device, self->baudrate);
         self->buffer_size = 0;
 
         if ((self->spi_num == SPI_MASTER_WS2812_0) || (self->spi_num == SPI_MASTER_WS2812_1)) {

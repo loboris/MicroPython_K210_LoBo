@@ -11,6 +11,7 @@
  *
  */
 
+#include <string.h>
 #include <sys/time.h>
 #include "platform_k210.h"
 

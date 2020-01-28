@@ -33,7 +33,7 @@
 
 #include "mpconfigport.h"
 
-#ifdef MICROPY_PY_USE_MQTT
+#if MICROPY_PY_USE_MQTT
 
 #include <stdint.h>
 #include <stdio.h>

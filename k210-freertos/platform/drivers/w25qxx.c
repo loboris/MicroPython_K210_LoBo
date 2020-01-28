@@ -54,13 +54,15 @@ uintptr_t spi_adapter = 0;
 uintptr_t spi_adapter_wr = 0;
 uintptr_t spi_stand = 0;
 uint8_t work_trans_mode = 0;
+uint32_t w25qxx_max_speed = WQ25QXX_MAX_SPEED;
 uint32_t w25qxx_flash_speed = 0;
 uint32_t w25qxx_actual_speed = 0;
 static uint32_t rd_count;
 static uint32_t wr_count;
 static uint32_t er_count;
 static uint64_t op_time;
-static uint8_t __attribute__((aligned(8))) swap_buf[w25qxx_FLASH_SECTOR_SIZE];
+// used only by 'w25qxx_write_data'
+uint8_t __attribute__((aligned(8))) swap_buf[w25qxx_FLASH_SECTOR_SIZE];
 
 //--------------------------------------------------------------------------------------------------------------------
 static enum w25qxx_status_t w25qxx_receive_data(uint8_t* cmd_buff, uint8_t cmd_len, uint8_t* rx_buff, uint32_t rx_len)
@@ -198,6 +200,25 @@ enum w25qxx_status_t w25qxx_read_id(uint8_t *manuf_id, uint8_t *device_id)
     *device_id = data[1];
     return W25QXX_OK;
 }
+
+//----------------------------------------------------------
+enum w25qxx_status_t w25qxx_read_jedec_id(uint8_t *jedec_id)
+{
+    uint8_t cmd[1] = {READ_JEDEC_ID};
+
+    w25qxx_receive_data(cmd, 1, jedec_id, 3);
+    return W25QXX_OK;
+}
+
+//---------------------------------------------------------
+enum w25qxx_status_t w25qxx_read_unique(uint8_t *unique_id)
+{
+    uint8_t cmd[5] = {READ_UNIQUE, 0x00, 0x00, 0x00, 0x00};
+
+    w25qxx_receive_data(cmd, 5, unique_id, 8);
+    return W25QXX_OK;
+}
+
 
 // ==== Flash read functions =====================================================================
 

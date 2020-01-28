@@ -39,7 +39,7 @@ const char kendryte_k210_help_text[] =
 "    https://github.com/micropython/micropython\n"
 "  - built on top of Kendryte-freertos-sdk\n"
 "  - full threads support with many added features\n"
-"  - can run two independent MicroPython instances on two processors"
+"  - can run two independent MicroPython instances on two processors\n"
 "  - internal file system (littlefs) and SD Card support\n"
 "  and many more...\n"
 "\n"

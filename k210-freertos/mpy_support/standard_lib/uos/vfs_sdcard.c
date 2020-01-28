@@ -129,10 +129,10 @@ STATIC mp_obj_t vfs_sdcard_mount(mp_obj_t self_in, mp_obj_t readonly, mp_obj_t m
             mp_raise_msg(&mp_type_OSError, "Error preparing SDCard pins");
         }
 
-        sdcard_pin_func[0] = (mp_fpioa_cfg_item_t){sdcard_cs_gpionum, 29, GPIO_USEDAS_CS, FUNC_GPIOHS0 + sdcard_cs_gpionum};
-        sdcard_pin_func[1] = (mp_fpioa_cfg_item_t){-1, 27, GPIO_USEDAS_CLK, FUNC_SPI1_SCLK};
-        sdcard_pin_func[2] = (mp_fpioa_cfg_item_t){-1, 28, GPIO_USEDAS_DATA0, FUNC_SPI1_D0};
-        sdcard_pin_func[3] = (mp_fpioa_cfg_item_t){-1, 26, GPIO_USEDAS_DATA1, FUNC_SPI1_D1};
+        sdcard_pin_func[0] = (mp_fpioa_cfg_item_t){sdcard_cs_gpionum, CONFIG_MICRO_PY_SD_CS, GPIO_USEDAS_CS, FUNC_GPIOHS0 + sdcard_cs_gpionum};
+        sdcard_pin_func[1] = (mp_fpioa_cfg_item_t){-1, CONFIG_MICRO_PY_SD_SCLK, GPIO_USEDAS_CLK, FUNC_SPI1_SCLK};
+        sdcard_pin_func[2] = (mp_fpioa_cfg_item_t){-1, CONFIG_MICRO_PY_SD_MOSI, GPIO_USEDAS_DATA0, FUNC_SPI1_D0};
+        sdcard_pin_func[3] = (mp_fpioa_cfg_item_t){-1, CONFIG_MICRO_PY_SD_MISO, GPIO_USEDAS_DATA1, FUNC_SPI1_D1};
 
         if (!fpioa_check_pins(4, sdcard_pin_func, GPIO_FUNC_SDCARD)) {
             gpiohs_set_free(sdcard_cs_gpionum);

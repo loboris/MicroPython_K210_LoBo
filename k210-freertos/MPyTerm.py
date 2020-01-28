@@ -58,7 +58,7 @@ class PyTerm:
         self.DEVICE     = device
         self.BAUDRATE   = baudrate
         self.ESCAPECHAR = "\033"
-        self.VERSION = "5.1.3"
+        self.VERSION = "5.1.4"
         self.ShutdownReceiver = False
         self.ReceiverToStdout = True
         self.DefaultTimeout = 0.1
@@ -102,6 +102,10 @@ class PyTerm:
                 self.uart.dtr = True
             else:
                 self.uart.write(b'\r\n')
+            time.sleep(0.1)
+            #self.uart.dtr = False
+            #self.uart.rts = False
+            #time.sleep(0.1)
 
         except Exception as e:
             raise Exception(self.TCLR['RED']+"Accessing "+self.TCLR['WHITE'] + self.DEVICE + " "+self.TCLR['RED']+"failed\r\n"+self.TCLR['WHITE']+"PyTerm exit"+self.TCLR['NORMAL']+"\r\n")

@@ -31,13 +31,20 @@
 #include <stdint.h>
 
 #include "py/obj.h"
-
-uint8_t disp_used_spi_host = 0;
-
+#include "moddisplay.h"
 
 #if MICROPY_USE_TFT
 extern const mp_obj_type_t display_tft_type;
 #endif
+
+#if MICROPY_USE_EPD
+extern const mp_obj_type_t display_epd_type;
+#endif
+
+#if MICROPY_USE_EVE
+extern const mp_obj_type_t display_eve_type;
+#endif
+
 
 //===============================================================
 STATIC const mp_rom_map_elem_t display_module_globals_table[] = {
@@ -45,6 +52,12 @@ STATIC const mp_rom_map_elem_t display_module_globals_table[] = {
 
     #if MICROPY_USE_TFT
     { MP_OBJ_NEW_QSTR(MP_QSTR_TFT), MP_ROM_PTR(&display_tft_type) },
+    #endif
+    #if MICROPY_USE_EPD
+    { MP_OBJ_NEW_QSTR(MP_QSTR_EPD), MP_ROM_PTR(&display_epd_type) },
+    #endif
+    #if MICROPY_USE_EVE
+    { MP_OBJ_NEW_QSTR(MP_QSTR_EVE), MP_ROM_PTR(&display_eve_type) },
     #endif
 };
 

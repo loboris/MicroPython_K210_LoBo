@@ -1,26 +1,35 @@
 #
-# Makefile for maixpy
-# ports/k210-freetos/mpy_support/Makefile
+# Makefile for MicroPython for K210 project
 #
+
 .PHONY:all update_mk compile rm_genhdr_qstrdefs_generated_h
 CUR_DIR_ADDR := $(shell pwd)/
+
 ###############################################################################
 # USER OPTIONS
 LIB_NAME ?= mpy_support
 CROSS_COMPILE ?= 
 OUTPUT_DIR := build/
 FROZEN_MPY_DIR ?= modules
-MK_VALUE :="INC += "$(CUR_DIR_ADDR)"\n"
-#MK_VALUE +="INC += "$(CUR_DIR_ADDR)"Maix/include/""\n"
-MK_VALUE +="INC += "$(CUR_DIR_ADDR)"standard_lib/include/""\n"
-MK_VALUE +="INC += "$(CUR_DIR_ADDR)"../../micropython/""\n"
-MK_VALUE +="INC += "$(CUR_DIR_ADDR)$(OUTPUT_DIR)"\n"
-MK_VALUE +="liba-mpy += "$(CUR_DIR_ADDR)$(OUTPUT_DIR)"mpy_support.a""\n"
-MK_VALUE +="output-file += "'$$(liba-mpy)'"\r\n"
+MK_VALUE :="INC += "$(CUR_DIR_ADDR)
+MK_VALUE +="INC += "$(CUR_DIR_ADDR)"standard_lib/include/"
+MK_VALUE +="INC += "$(CUR_DIR_ADDR)"../platform/sdk/kendryte-freertos-sdk/third_party/mbedtls/include/"
+MK_VALUE +="INC += "$(CUR_DIR_ADDR)"../../micropython/"
+MK_VALUE +="INC += "$(CUR_DIR_ADDR)$(OUTPUT_DIR)
+MK_VALUE +="liba-mpy += "$(CUR_DIR_ADDR)$(OUTPUT_DIR)"mpy_support.a"
+MK_VALUE +="output-file += "'$$(liba-mpy)'
 
 OUTPUT_STATIC_LIB := $(LIB_NAME).a
 CXX ?= $(CROSS_COMPILE)c++
 AR ?= $(CROSS_COMPILE)AR
+
+MAKE_OPT ?=
+BUILD_VERBOSE ?= 0
+ifeq ($(BUILD_VERBOSE), 1)
+	VERBOSE :=
+else
+	VERBOSE := -s V=1
+endif
 
 #  ## Set this if 'MICROPY_OPT_CACHE_MAP_LOOKUP_IN_BYTECODE' is defined as 1 ##
 #MPY_CROSS_FLAGS = -mcache-lookup-bc
@@ -63,18 +72,18 @@ sinclude $(PLATFORM).mk
 ###############################################################################
 # SOME FUNCTIONS
 define sub_clean
-	$(MAKE) -C $(1) clean CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM);
+	$(MAKE) -C $(1) clean -s V=1 CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM);
 endef
 
 define sub_make
-	$(info =====[ $(dir $(1)) ]=====)
-	$(MAKE) -C $(basename $(patsubst %/,%,$(patsubst ./%,%,$(dir $(1))))) all CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM)
+	$(info =====[    MPySupport: $(dir $(1)))
+	$(MAKE) -C $(basename $(patsubst %/,%,$(patsubst ./%,%,$(dir $(1))))) $(VERBOSE) $(MAKE_OPT) all CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM)
 endef
 
 define update_sub_mk
 	if [ "$(dir $(1))" != "./" ] ; \
 	then \
-		$(MAKE) -C $(1) update_mk CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM); \
+		$(MAKE) -C $(1) update_mk -s V=1 CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM); \
 	fi;
 endef
 ###############################################################################
@@ -124,16 +133,18 @@ $(OUTPUT_STATIC_LIB): $(OBJ) $(CXX_OBJ)
 ###############################################################################
 
 sub_compile:
+	$(info =====[    MPySupport: compile)
 	$(foreach n,$(FILE_MAKEFILE),$(call sub_make,$(n)))
 
 update_mk:
+	$(info =====[    MPySupport: update mk file)
 	$(foreach n,$(FILE_MAKEFILE),$(call update_sub_mk, $(dir $(n))))
-	$(info =====[ mpy_support update mk file$(foreach n,$(SUBDIRS) , $(wildcard $(n)/mk)) ... ]=====)
-	$(shell echo $(MK_VALUE)$(foreach nn,$(foreach n,$(SUBDIRS) , $(wildcard $(n)/mk)),"-include "$(CUR_DIR_ADDR)$(nn)"\n") > mk)
+	$(shell printf '%s\n' $(MK_VALUE) > mk)
+	$(shell printf '%s\n' $(foreach nn,$(foreach n,$(SUBDIRS) , $(wildcard $(n)/mk)),"-include "$(CUR_DIR_ADDR)$(nn)) >> mk)
 
 clean_all: clean
 	@rm -f mk
-	$(info =====[ Cleaning $(SUBDIRS) ... ]=====)
+	$(info =====[    MPySupport: clean)
 	$(foreach n,$(FILE_MAKEFILE),$(call sub_clean, $(n)))
 
 include $(TOP)/py/mkrules.mk

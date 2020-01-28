@@ -38,7 +38,14 @@
 
 #include <stdlib.h>
 #include "tftspi.h"
+#include "vfont.h"
 #include "py/obj.h"
+#include "py/objarray.h"
+
+#define TFT_MODE_NONE   0
+#define TFT_MODE_TFT    1
+#define TFT_MODE_EPD    2
+#define TFT_MODE_EVE    3
 
 typedef struct {
 	uint16_t        x1;
@@ -48,42 +55,68 @@ typedef struct {
 } dispWin_t;
 
 typedef struct {
-	uint8_t 	*font;
-	uint8_t 	x_size;
-	uint8_t 	y_size;
-	uint8_t	    offset;
-	uint16_t	numchars;
-    uint16_t	size;
-	uint8_t 	max_x_size;
-    uint8_t     bitmap;
-	color_t     color;
+    uint8_t 	    *font;
+    int     	    x_size;
+    int     	    y_size;
+    uint8_t	        offset;
+    uint16_t	    numchars;
+    uint16_t	    size;
+    int     	    max_x_size;
+    uint8_t         bitmap;
+    color_t         color;
+    vfont_t         context;
 } Font;
+
+typedef struct {
+    uint8_t   tft_active_mode;   // current display mode
+    uint8_t   orientation;       // current screen orientation
+    uint16_t  font_rotate;       // current font font_rotate angle (0~395)
+    uint8_t   font_transparent;  // if not 0 draw fonts transparent
+    uint8_t   font_forceFixed;   // if not zero force drawing proportional fonts with fixed width
+    uint8_t   font_buffered_char;
+    uint8_t   font_line_space;   // additional spacing between text lines; added to font height
+    uint8_t   text_wrap;         // if not 0 wrap long text to the new line, else clip
+    color_t   _fg;               // current foreground color for fonts
+    color_t   _bg;               // current background for non transparent fonts
+    dispWin_t dispWin;           // display clip window
+    float     _angleOffset;      // angle offset for arc, polygon and line by angle functions
+    uint8_t   image_debug;       // print debug messages during image decode if set to 1
+
+    Font cfont;                  // Current font structure
+
+    int  TFT_X;                  // X position of the next character after TFT_print() function
+    int  TFT_Y;                  // Y position of the next character after TFT_print() function
+
+    uint32_t tp_calx;            // touch screen X calibration constant
+    uint32_t tp_caly;            // touch screen Y calibration constant
+
+    bool use_frame_buffer;
+    uint8_t gray_scale;          // Converts colors to grayscale if set to 1
+    // Display dimensions
+    int _width;
+    int _height;
+    // Display type
+    uint8_t tft_disp_type;
+    uint8_t tft_touch_type;
+
+    uint8_t TFT_RGB_BGR;
+    uint8_t gamma_curve;
+
+    void *_tft_frame_buffer __attribute__((aligned(8)));
+    uint16_t *tft_frame_buffer __attribute__((aligned(8)));
+} display_settings_t;
 
 
 //==========================================================================================
 // ==== Global variables ===================================================================
 //==========================================================================================
 
-extern uint8_t   orientation;		// current screen orientation
-extern uint16_t  font_rotate;   	// current font font_rotate angle (0~395)
-extern uint8_t   font_transparent;	// if not 0 draw fonts transparent
-extern uint8_t   font_forceFixed;   // if not zero force drawing proportional fonts with fixed width
-extern uint8_t   font_buffered_char;
-extern uint8_t   font_line_space;	// additional spacing between text lines; added to font height
-extern uint8_t   text_wrap;         // if not 0 wrap long text to the new line, else clip
-extern color_t   _fg;            	// current foreground color for fonts
-extern color_t   _bg;            	// current background for non transparent fonts
-extern dispWin_t dispWin;			// display clip window
-extern float	  _angleOffset;		// angle offset for arc, polygon and line by angle functions
-extern uint8_t	  image_debug;		// print debug messages during image decode if set to 1
+extern display_settings_t *active_dstate;
+extern display_settings_t epd_display_settings;
+extern display_settings_t tft_display_settings;
 
-extern Font cfont;					// Current font structure
-
-extern int	TFT_X;					// X position of the next character after TFT_print() function
-extern int	TFT_Y;					// Y position of the next character after TFT_print() function
-
-extern uint32_t tp_calx;			// touch screen X calibration constant
-extern uint32_t tp_caly;			// touch screen Y calibration constant
+extern uint8_t char_map_table1[128];
+extern uint8_t char_map_table2[128];
 
 // =========================================================================================
 
@@ -120,7 +153,8 @@ extern uint32_t tp_caly;			// touch screen Y calibration constant
 #define cTFT_PURPLE      0x780F      /* 128,   0, 128 */
 #define cTFT_OLIVE       0x7BE0      /* 128, 128,   0 */
 #define cTFT_LIGHTGREY   0xC618      /* 192, 192, 192 */
-#define cTFT_DARKGREY    0x7BEF      /* 128, 128, 128 */
+#define cTFT_GREY        0x8410      /* 128, 128, 128 */
+#define cTFT_DARKGREY    0x4208      /*  64,  64,  64 */
 #define cTFT_BLUE        0x001F      /*   0,   0, 255 */
 #define cTFT_GREEN       0x07E0      /*   0, 255,   0 */
 #define cTFT_CYAN        0x07FF      /*   0, 255, 255 */
@@ -131,7 +165,6 @@ extern uint32_t tp_caly;			// touch screen Y calibration constant
 #define cTFT_ORANGE      0xFD20      /* 255, 165,   0 */
 #define cTFT_GREENYELLOW 0xAFE5      /* 173, 255,  47 */
 #define cTFT_PINK        0xF81F
-
 
 extern const color_t TFT_BLACK;
 extern const color_t TFT_NAVY;
@@ -153,6 +186,22 @@ extern const color_t TFT_ORANGE;
 extern const color_t TFT_GREENYELLOW;
 extern const color_t TFT_PINK;
 
+#if MICROPY_USE_EPD
+
+#define EPD_BLACK       0x01
+#define EPD_CBLACK      0x11
+#define EPD_CWHITE      0x10
+#define EPD_WHITE       0
+#define EPD_GRAY1       1
+#define EPD_GRAY2       2
+#define EPD_GRAY3       3
+#define EPD_GRAY4       4
+#define EPD_GRAY5       5
+#define EPD_GRAY6       6
+#define EPD_GRAY7       7
+
+#endif
+
 /*
 #define iTFT_BLACK       0
 #define iTFT_NAVY        128
@@ -173,22 +222,6 @@ extern const color_t TFT_PINK;
 #define iTFT_ORANGE      16557056
 #define iTFT_GREENYELLOW 11336748
 #define iTFT_PINK        16564426
-#define iEPD_BLACK       10
-#define iEPD_WHITE       0
-#define iEPD_GRAY1       1
-#define iEPD_GRAY2       2
-#define iEPD_GRAY3       3
-#define iEPD_GRAY4       4
-#define iEPD_GRAY5       5
-#define iEPD_GRAY6       6
-#define iEPD_GRAY7       7
-#define iEPD_GRAY8       8
-#define iEPD_GRAY9       9
-#define iEPD_GRAY10      10
-#define iEPD_GRAY11      11
-#define iEPD_GRAY12      12
-#define iEPD_GRAY13      13
-#define iEPD_GRAY14      14
 */
 
 // === Color invert constants ===
@@ -220,8 +253,14 @@ extern const color_t TFT_PINK;
 #define USER_FONT_4     13
 #define USER_FONT       14  // font will be read from file
 
+#define VFONT_FUTURAL   20
+
+#define IMAGE_TYPE_MIN  0
 #define IMAGE_TYPE_JPG	1
 #define IMAGE_TYPE_BMP	2
+#define IMAGE_TYPE_RAW  3
+#define IMAGE_TYPE_PNG  4
+#define IMAGE_TYPE_MAX  5
 
 
 // ===== PUBLIC FUNCTIONS =========================================================================
@@ -565,18 +604,19 @@ int TFT_getfontheight();
 void TFT_print(char *st, int x, int y);
 
 /*
- * Set atributes for 7 segment vector font
+ * Set the attributes for 7-segment vector font
  * == 7 segment font must be the current font to this function to have effect ==
  *
  * Params:
- *	   	   l:	6~40; distance between bars in pixels
- *	   	   w:	1~12, max l/2;  bar width in pixels
- *   outline:	draw font outline if set to 1
- *	   color:	font outline color, only used if outline=1
+ *	   width:	character width
+ *	  height:	character height
+ * bar_width:	width of the character bars
+ *     space:   space in pixel between characters
+ *	   color:	font fill color, if 0, only the outline is displayed
  *
  */
-//-------------------------------------------------------------------------
-void set_7seg_font_atrib(uint8_t l, uint8_t w, int outline, color_t color);
+//---------------------------------------------------------------------------------------
+void set_7seg_font_atrib(int width, int height, int bar_width, int space, color_t color);
 
 /*
  * Sets the clipping area coordinates.
@@ -659,6 +699,12 @@ int TFT_compare_colors(color_t c1, color_t c2);
 //--------------------------------
 int TFT_getStringWidth(char* str);
 
+/*
+ * returns the string width and height in pixels.
+ * Useful for positions strings on the screen.
+ */
+//---------------------------------------------------------
+void TFT_getStringSize(char *str, int *width, int *height);
 
 /*
  * Fills the rectangle occupied by string with current background color
@@ -701,11 +747,13 @@ color_t HSBtoRGB(float _hue, float _sat, float _brightness);
  *
  */
 //--------------------------------------------------------------------------------------
-void TFT_jpg_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *buf, int size);
+bool TFT_jpg_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *buf, int size);
 
 /*
  * Decodes and displays BMP image
  * Only uncompressed RGB 24-bit with no color space information BMP images can be displayed
+ *
+ * Returns true on success, false on error
  *
  * Params:
  *       x: image left position; constants CENTER & RIGHT can be used; negative value is accepted
@@ -719,6 +767,34 @@ void TFT_jpg_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *buf, in
  */
 //----------------------------------------------------------------------------------------
 int TFT_bmp_image(int x, int y, uint8_t scale, mp_obj_t fname, uint8_t *imgbuf, int size);
+
+/*
+ * Decodes and displays PNG image
+ *
+ * Returns true on success, false on error
+ *
+ * Params:
+ *       x: image left position; constants CENTER & RIGHT can be used; negative value is accepted
+ *       y: image top position;  constants CENTER & BOTTOM can be used; negative value is accepted
+ *   scale: image scale factor: 0~7; if scale>0, image is scaled by factor 1/(scale+1)
+ *   fname: file name from which the image will be read
+ *          if set to NULL, image will be read from memory buffer pointed to by 'imgbuf'
+ *  imgbuf: pointer to the memory buffer from which the image will be read; used if fname=NULL
+ *    size: size of the memory buffer from which the image will be read; used if fname=NULL & imgbuf!=NULL
+ *
+ */
+//-------------------------------------------------------------------------------------------
+int TFT_png_image(int x, int y, uint8_t scale, const char* fname, uint8_t *imgbuf, int size);
+
+
+int getFontInfo(uint8_t *type);
+int get_framebuffer(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf);
+int get_framebuffer_RGB888(int x1, int y1, int x2, int y2, uint32_t len, uint8_t *buf);
+uint16_t RGB888toRGB565(uint8_t *buff, bool bgr);
+void RGB565toRGB888(uint16_t color, uint8_t *buff, bool bgr);
+
+mp_obj_t mp_obj_new_frame_buffer(size_t n);
+void mp_obj_delete_frame_buffer(mp_obj_array_t *o);
 
 #endif // MICROPY_USE_DISPLAY
 

@@ -77,7 +77,7 @@ STATIC mp_obj_t machine_mem_subscr(mp_obj_t self_in, mp_obj_t index, mp_obj_t va
         uint8_t strval[MYCROPY_SYS_RAMBUF_SIZE+1] = {0};
         uintptr_t addr = MICROPY_MACHINE_MEM_GET_READ_ADDR(index, self->elem_size);
         uintptr_t ram_addr = addr + K210_SRAM_START_ADDRESS;
-        int max_len = K210_SRAM_SIZE - addr;
+        int max_len = K210_TOTAL_SRAM_SIZE - addr;
 
         if ((self->elem_size > 0) && (self->elem_size <= 8)) val_len = self->elem_size * 8;
         else if (self->elem_size > 8) {
@@ -92,8 +92,8 @@ STATIC mp_obj_t machine_mem_subscr(mp_obj_t self_in, mp_obj_t index, mp_obj_t va
         }
 
         // ==== Allow reading from all of RAM area ====
-        if (addr > (K210_SRAM_SIZE - val_len)) {
-            nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "reading %lu bytes from address %08x outside RAM area", val_len, addr));
+        if (addr > (K210_TOTAL_SRAM_SIZE - val_len)) {
+            nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "reading %lu bytes from address 0x%08x outside of RAM area", val_len, addr));
         }
         switch (self->elem_size) {
             case 0: return mp_obj_new_str((const char *)strval, val_len); break;
@@ -107,6 +107,7 @@ STATIC mp_obj_t machine_mem_subscr(mp_obj_t self_in, mp_obj_t index, mp_obj_t va
     } else {
         // store
         uintptr_t addr = MICROPY_MACHINE_MEM_GET_WRITE_ADDR(index, self->elem_size);
+        uintptr_t rambuf_addr = (MICROPY_SYS_RAMBUF_ADDR < K210_SRAM_START_ADDRESS) ? (MICROPY_SYS_RAMBUF_ADDR + 0x40000000UL) : MICROPY_SYS_RAMBUF_ADDR;
         addr += K210_SRAM_START_ADDRESS;
         uint64_t val = 0;
         size_t val_len = 0;
@@ -123,8 +124,8 @@ STATIC mp_obj_t machine_mem_subscr(mp_obj_t self_in, mp_obj_t index, mp_obj_t va
             val_len = strlen(strval) + 1;
         }
         // ==== Only allow writing to system RAM buffer ! ====
-        if ((sys_rambuf_ptr == 0) || (addr < sys_rambuf_ptr) || (addr > (int64_t)(sys_rambuf_ptr + MYCROPY_SYS_RAMBUF_SIZE - val_len))) {
-            nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "writing %lu bytes to address %08x outside of RAM buffer", val_len, addr));
+        if ((addr < rambuf_addr) || (addr > (int64_t)(rambuf_addr + MYCROPY_SYS_RAMBUF_SIZE - val_len))) {
+            nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "writing %lu bytes to address 0x%08x outside of RAM buffer", val_len, addr));
         }
         switch (self->elem_size) {
             case 0: strcpy((char *)addr, strval); break;

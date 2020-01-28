@@ -49,7 +49,7 @@ The default comm port is `/dev/ttyUSB0`, you can use a different com port by add
 
 Flash to ESP8285, 1MB, 512+512 map, in dout mode:
 ```
-./flash.sh -t 1MB -m DOUT
+./flash.sh -t 1MB -m dout
 ```
 Flash to ESP8266, 1MB, 512+512 map, in qio mode:
 ```
@@ -83,15 +83,30 @@ Flash to ESP8266, 512KB, single firmware, no OTA:
 ![Sipeed_DanDock](Sipeed_DanDock_wifi.jpg)
 
 
-1. Connect some _USBtoSerial_ adapter to the board, connetc adapter's Tx to the Rx pin on the image, adapter's Rx to the Tx pin on the image
-1. Connect the **ESP8285 boot** pin (the M1 module's corner pin near the WiFi antenna) to the ground before powering the the board, after power on, the pin can be released
-1. Power on the board (connect USB cable to the board's USB-C connector)
-1. Execute `./flash.sh -eo -t 1MB -m DOUT` to erase the existing firmware
-1. Power off the board (disconnect USB cable from the board's USB-C connector)
-1. Connect the **ESP8285 boot** pin to the ground before powering the the board, after power on, the pin can be released
-1. Power on the board (connect USB cable to the board's USB-C connector)
-1. Execute `./flash.sh -t 1MB -m DOUT` to flash the new firmware
-1. Power off the board
+Connect **_USBtoSerial_** adapter to the board:<br>
+* connect adapter's Tx to the Tx pin on the image
+* connect adapter's Rx to the Rx pin on the image
+* connect adapter's GND to the GND pin on the image
+* connect adapter's **+5V** to the +5V pin on the image (if the adapter has +5V out).<br>If the adapter does not have +5V out, you will need to power the board via board's USB-C connector.
+<br>
+
+**_First, erase the ESP8285 Flash:_**<br>
+* Connect the **ESP8285 boot** pin (the M1 module's corner pin near the WiFi antenna) to the ground before powering the the board, after power on, the pin can be released
+* Connect the adapter to the USB port, this will power the board
+* Execute **`./flash.sh -eo -t 1MB -m dout`** to erase the existing firmware
+* Disconnect the adapter from USB port, this will power off the board
+<br>
+
+**_Now, flash the initial WiFi firmware to the ESP8285:_**<br>
+* Connect the **ESP8285 boot** pin (the M1 module's corner pin near the WiFi antenna) to the ground before powering the the board, after power on, the pin can be released
+* Connect the adapter to the USB port, this will power the board
+* Execute **`./flash.sh -t 1MB -m dout`** to flash the new firmware
+* Disconnect the adapter from USB port, this will power off the board
+<br>
+
+**_Note:_** `flash.sh` assumes the USBtoSERIAL adapter is connected to the `/dev/ttyUSB0`, if not, you can add the option **`-P <port>`** to `flash.sh` command.
+<br><br>
+
 
 After booting to MicroPython, test the WiFi functionality:
 

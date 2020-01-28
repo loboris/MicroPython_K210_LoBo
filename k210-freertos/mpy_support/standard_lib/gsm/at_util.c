@@ -24,6 +24,9 @@
  * THE SOFTWARE.
  */
 
+#include "mpconfigport.h"
+
+#if MICROPY_PY_USE_NETTWORK
 
 #include "at_util.h"
 #include <time.h>
@@ -597,7 +600,7 @@ mp_obj_t mpy_atCmd(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    int res;
+    int res = 0;
     at_responses_t at_responses = { 0 };
     at_command_t at_command = { 0 };
     mp_obj_t response = mp_const_false;
@@ -645,8 +648,16 @@ mp_obj_t mpy_atCmd(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args
 
         // Execute command
         //------------------------------------------------------
-        if (strstr(tag, "WIFI")) res = wifi_at_Cmd(&at_command);
-        else res = gsm_at_Cmd(&at_command);
+        if (strstr(tag, "WIFI")) {
+            #if MICROPY_PY_USE_WIFI
+            res = wifi_at_Cmd(&at_command);
+            #endif
+        }
+        else {
+            #if MICROPY_PY_USE_GSM
+            res = gsm_at_Cmd(&at_command);
+            #endif
+        }
         //------------------------------------------------------
 
         mp_obj_t tuple[2];
@@ -729,8 +740,16 @@ mp_obj_t mpy_atCmd(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args
                 }
                 // Execute multiple at commands
                 //------------------------------------------------------------------
-                if (strstr(tag, "WIFI")) res = wifi_at_Commands(&at_commands, NULL);
-                else res = gsm_at_Commands(&at_commands, NULL);
+                if (strstr(tag, "WIFI")) {
+                    #if MICROPY_PY_USE_WIFI
+                    res = wifi_at_Commands(&at_commands, NULL);
+                    #endif
+                }
+                else {
+                    #if MICROPY_PY_USE_GSM
+                    res = gsm_at_Commands(&at_commands, NULL);
+                    #endif
+                };
                 //------------------------------------------------------------------
 
                 if (res > 0) {
@@ -765,3 +784,4 @@ mp_obj_t mpy_atCmd(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args
     return mp_const_none;
 }
 
+#endif // MICROPY_PY_USE_NETTWORK

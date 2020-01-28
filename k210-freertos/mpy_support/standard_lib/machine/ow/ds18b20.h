@@ -1,4 +1,6 @@
 /*
+ * This file is part of the MicroPython K210 project, https://github.com/loboris/MicroPython_K210_LoBo
+ *
  * MIT License
  *
  * Copyright (c) 2017 David Antliff

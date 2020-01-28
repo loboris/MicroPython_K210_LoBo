@@ -45,7 +45,7 @@
 // 83 MHz max speed results in SPI3 clocks:
 // 82.333 MHz at PLL0 = 988 MHz (115 us for 4096 bytes read)
 // 67.166 MHz at PLL0 = 806 MHz (142 us for 4096 bytes read)
-#define WQ25QXX_MAX_SPEED                   83000000
+#define WQ25QXX_MAX_SPEED                   40000000
 // SPI3 clock for sending/reading commands
 #define SPI_STAND_CLOCK_RATE                20000000
 
@@ -87,6 +87,8 @@
 #define BLOCK_64K_ERASE                     0xD8
 #define CHIP_ERASE                          0x60
 #define READ_ID                             0x90
+#define READ_JEDEC_ID                       0x9F
+#define READ_UNIQUE                         0x4B
 #define ENABLE_QPI                          0x38
 #define EXIT_QPI                            0xFF
 #define ENABLE_RESET                        0x66
@@ -113,9 +115,11 @@ enum w25qxx_status_t
 
 extern bool w25qxx_spi_check;
 extern bool w25qxx_debug;
+extern uint32_t w25qxx_max_speed;
 extern uint32_t w25qxx_flash_speed;
 extern uint32_t w25qxx_actual_speed;
 extern uint8_t work_trans_mode;
+extern uint8_t __attribute__((aligned(8))) swap_buf[w25qxx_FLASH_SECTOR_SIZE];
 
 void w25qxx_clear_counters();
 void w25qxx_get_counters(uint32_t *r, uint32_t *w, uint32_t *e, uint64_t *time);
@@ -125,6 +129,8 @@ enum w25qxx_status_t w25qxx_write_data(uint32_t addr, uint8_t* data_buf, uint32_
 enum w25qxx_status_t w25qxx_read_data(uint32_t addr, uint8_t* data_buf, uint32_t length);
 enum w25qxx_status_t w25qxx_sector_erase(uint32_t addr);
 enum w25qxx_status_t w25qxx_read_id(uint8_t *manuf_id, uint8_t *device_id);
+enum w25qxx_status_t w25qxx_read_jedec_id(uint8_t *jedec_id);
+enum w25qxx_status_t w25qxx_read_unique(uint8_t *unique_id);
 enum w25qxx_status_t w25qxx_enable_xip_mode(void);
 enum w25qxx_status_t w25qxx_disable_xip_mode(void);
 

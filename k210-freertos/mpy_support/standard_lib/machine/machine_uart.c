@@ -784,6 +784,10 @@ char *_uart_read(handle_t uart_num, int timeout, char *lnend, char *lnstart)
                 // Requested minimal length of bytes received
                 rdstr = _uart_read_data(uart_num, len, lnend, lnstart);
                 xSemaphoreGive(mpy_uarts[uart_num].uart_mutex);
+                if (rdstr == NULL) {
+                    mp_hal_wdt_reset();
+                    continue;
+                }
                 break;
 			}
 		}
@@ -946,6 +950,7 @@ STATIC void machine_uart_init_helper(machine_uart_obj_t *self, size_t n_args, co
 	}
 
 	// Initialize uart hardware
+    LOGD(TAG, "Hard Init");
     int res = uart_hard_init(self->uart_num, self->tx, self->rx, GPIO_FUNC_UART, true, false, self->buffer_size);
     if (res < 0) {
         mp_raise_ValueError("Error initializing UART hardware");
@@ -1004,6 +1009,7 @@ STATIC mp_obj_t machine_uart_make_new(const mp_obj_type_t *type, size_t n_args, 
     if (bufsize > 8192) bufsize = 8192;
     self->buffer_size = bufsize;
 
+    LOGD(TAG, "Init");
     machine_uart_init_helper(self, n_args - 1, args + 1, &kw_args);
 
     //Create a task to handle UART receiving from uart ISR

@@ -83,12 +83,11 @@
 #include <filesystem.h>
 #endif
 
-// === FreeRTOS heap ===
-size_t configTOTAL_HEAP_SIZE = FREE_RTOS_TOTAL_HEAP_SIZE;
-// This is used by 'heap_4.c'
-uint8_t __attribute__((aligned(8))) ucHeap[FREE_RTOS_TOTAL_HEAP_SIZE];
-
-static void *sys_rambuf;
+// === Global variables used by FreeRTOS initialization =============
+size_t FREERTOS_HEAP_SIZE = FREE_RTOS_TOTAL_HEAP_SIZE;
+size_t FREERTOS_HEAP_START = FREE_RTOS_HEAP_START_ADDR;
+//uint8_t __attribute__((aligned(8))) ucHeap[FREE_RTOS_TOTAL_HEAP_SIZE];
+// ===================================================================
 
 extern handle_t mp_rtc_rtc0;
 
@@ -99,22 +98,24 @@ static uint8_t *mp_heap2 = NULL;
 static uint8_t *mp_task_pystack2 = NULL;
 
 
-const char Banner[] = {"\n __  __              _____  __   __  _____   __     __ \n\
-|  \\/  |     /\\     |_   _| \\ \\ / / |  __ \\  \\ \\   / /\n\
-| \\  / |    /  \\      | |    \\ V /  | |__) |  \\ \\_/ / \n\
-| |\\/| |   / /\\ \\     | |     > <   |  ___/    \\   /  \n\
-| |  | |  / ____ \\   _| |_   / . \\  | |         | |   \n\
-|_|  |_| /_/    \\_\\ |_____| /_/ \\_\\ |_|         |_|\n\
-------------------------------------------------------\n"};
+const char Banner[] = {"\nRISC-V Kendryte --------------------------------------------- \n\
+ _    _   _____   _   ______    ___   ___   ______   _     _  \n\
+( )  / ) (___  ) ( ) (  __  )  (   \\ /   ) (  __  ) ( )   ( ) \n\
+| |_/ /   ___| | | | | |  | |  | |\\ \\ /| | | |__| |  \\ \\_/ /  \n\
+|  _ )   ( ____) | | | |  | |**| | \\_/ | | |  ____)   \\   /   \n\
+| | \\ \\  | |___  | | | |__| |  | |     | | | |         | |    \n\
+(_)  \\_) (_____) (_) (______)  (_)     (_) (_)         (_)    \n\
+------------------------------------------------------------- \n"};
 
-static const char *ver_info1 = "\nMaixPy-FreeRTOS by LoBo v"MICROPY_PY_LOBO_VERSION" (two MPY tasks)\n------------------------------------------------\n";
-static const char *ver_info2 = "\nMaixPy-FreeRTOS by LoBo v"MICROPY_PY_LOBO_VERSION"\n--------------------------------\n";
+static const char *ver_info1 = "MicroPython-FreeRTOS by LoBo v"MICROPY_PY_LOBO_VERSION" (two MPY tasks)\n-----------------------------------------------------\n\n";
+static const char *ver_info2 = "MicroPython-FreeRTOS by LoBo v"MICROPY_PY_LOBO_VERSION"\n-------------------------------------\n\n";
 
-static const char* TAG = "[MAIN]";
-static const char* TAG_MAIN = "[MAIXPY]";
+static const char* TAG = "[K210_MAIN]";
+static const char* TASKTAG = "[MPY_TASK]";
 static const char* DEFAULT_BOOT_PY = "# This file is executed on every boot\nimport sys\nsys.path().append('/flash/lib')\n";
 
-static bool task0_started = false;
+static uint8_t task0_state = 0;
+static uint8_t task1_state = 0;
 static bool flash_fs_ok = false;
 static bool exec_boot_py = true;
 static bool exec_main_py = true;
@@ -147,20 +148,27 @@ static void check_boot_py()
         // Open the file for writing
         mp_obj_t ffd = mp_vfs_open(2, args, (mp_map_t*)&mp_const_empty_map);
         if (!ffd) {
-            LOGW(TAG, "Error creating 'boot.py'");
+            LOGW(TASKTAG, "Error creating 'boot.py'");
             return;
         }
         mp_stream_posix_write((void *)ffd, DEFAULT_BOOT_PY, strlen(DEFAULT_BOOT_PY));
         mp_stream_close(ffd);
-        LOGD(TAG, "'boot.py' created");
+        LOGD(TASKTAG, "'boot.py' created");
     }
 }
 
 // ============================================
 // MicroPython instance #1 FreeRTOS task (REPL)
-// =========================================
+// ============================================
 static void mp_task_proc0(void *pvParameter)
 {
+    // === Wait until main tast allocates the MicroPython heap for this instance ===
+    while (task0_state == 0) {
+        vTaskDelay(2);
+    }
+    vTaskDelay(2);
+    task0_state = 2;
+
     // Create main MicroPython thread for MicroPython instance #1
     mp_thread_preinit((void *)(pxTaskGetStackStart(NULL)+MICROPY_TASK_STACK_RESERVED),
             (uint32_t)(pxTaskGetStackEnd(NULL) - pxTaskGetStackStart(NULL) - MICROPY_TASK_STACK_RESERVED),
@@ -184,12 +192,19 @@ static void mp_task_proc0(void *pvParameter)
 
         // Initialize file system on internal Flash
         flash_fs_ok = init_flash_filesystem();
-        if (!flash_fs_ok) LOGE(TAG, "FLASH File system initialization failed!");
+        if (!flash_fs_ok) LOGE(TASKTAG, "FLASH File system initialization failed!");
 
         readline_init0();
 
+        task0_state = 3;
+
         if (flash_fs_ok) {
-            // 'boot.py' should always exist
+            /*
+             * 'boot.py' and 'main.py' should not block (run never ending loop)
+             * If the user wants to run something continuously,
+             * a separate MicroPython thread should be launched instead
+             */
+            // 'boot.py' should always exist, if not, create the default one
             check_boot_py();
             if ((exec_boot_py) && (mp_vfs_import_stat("/flash/boot.py") == MP_IMPORT_STAT_FILE)) pyexec_file("/flash/boot.py");
 
@@ -201,7 +216,6 @@ static void mp_task_proc0(void *pvParameter)
 
         // Print MicroPython banners
         mp_printf(&mp_plat_print, "%s%s%s%s%s", term_color(BLUE), Banner, term_color(BROWN), (mpy_config.config.use_two_main_tasks) ? ver_info1 : ver_info2, term_color(DEFAULT));
-        task0_started = true;
 
         // ==== Main REPL loop =========================================
         for (;;) {
@@ -229,6 +243,7 @@ static void mp_task_proc0(void *pvParameter)
         mp_printf(&mp_plat_print, "MPY: soft reboot\n");
         mp_hal_delay_ms(10);
     }
+    task0_state = 4;
     vTaskDelete(NULL);
 }
 
@@ -237,6 +252,12 @@ static void mp_task_proc0(void *pvParameter)
 // =========================================
 static void mp_task_proc1(void *pvParameter)
 {
+    // === Wait until main tast allocates the MicroPython heap for this instance ===
+    while (task1_state == 0) {
+        vTaskDelay(2);
+    }
+    vTaskDelay(2);
+    task1_state = 2;
     // Create main MicroPython thread for MicroPython instance #2
     mp_thread_preinit((void *)(pxTaskGetStackStart(NULL)+MICROPY_TASK_STACK_RESERVED),
             (uint32_t)(pxTaskGetStackEnd(NULL) - pxTaskGetStackStart(NULL) - MICROPY_TASK_STACK_RESERVED),
@@ -259,8 +280,10 @@ static void mp_task_proc1(void *pvParameter)
         MP_STATE_MEM(gc_alloc_threshold) = (mpy_config.config.heap_size2 * 4 / 5) & 0xFFFFFFFFFFFFFFF8;
 
         thread_msg_t msg;
+        bool msg_processed = false;
 
         vTaskDelay(5);
+        task1_state = 3;
         if (flash_fs_ok) {
             // set mount point for flash file system
             mp_vfs_mount_t *vfs = m_new_obj_maybe(mp_vfs_mount_t);
@@ -280,29 +303,26 @@ static void mp_task_proc1(void *pvParameter)
 
             // Execute 'boot2.py' if it exists
             if ((exec_boot_py) && (mp_vfs_import_stat("/flash/boot2.py") == MP_IMPORT_STAT_FILE)) {
+                /*
+                * 'boot2.py' should not block (run never ending loop)
+                * If the user wants to run something continuously,
+                * a separate MicroPython thread should be launched instead
+                */
                 pyexec_file("/flash/boot2.py");
             }
         }
 
         vTaskDelay(5);
-        // ==== Main 2nd MicroPPython instance loop ========
+        // ==== Main 2nd MicroPython instance loop ========
         while (1) {
-            // === Wait for command from main (or other) MicroPython task ===
+            // === Wait for command/message from main (or other) MicroPython task ===
             MP_THREAD_GIL_EXIT();
-            if (xQueueReceive(thread_entry2.threadQueue, &msg, 1000 / portTICK_PERIOD_MS) == pdTRUE) {
+            if (xQueueReceive(thread_entry2.threadQueue, &msg, 100 / portTICK_PERIOD_MS) == pdTRUE) {
                 MP_THREAD_GIL_ENTER();
-                vTaskDelay(2 / portTICK_PERIOD_MS);
+                vTaskDelay(1 / portTICK_PERIOD_MS);
                 // Got a message
                 if ((msg.type == THREAD_MSG_TYPE_INTEGER) || (msg.type == THREAD_MSG_TYPE_STRING)) {
-                    if (ipc_callback_1) {
-                        mp_obj_t tuple[4];
-                        tuple[0] = mp_obj_new_int(msg.type);
-                        tuple[1] = mp_obj_new_int((uintptr_t)msg.sender_id);
-                        tuple[2] = mp_obj_new_int(msg.intdata);
-                        if (msg.type == THREAD_MSG_TYPE_STRING) tuple[3] = mp_obj_new_str((const char*)msg.strdata, msg.strlen);
-                        else tuple[3] = mp_const_none;
-                        mp_sched_schedule(ipc_callback_1, mp_obj_new_tuple(4, tuple));
-                    }
+                    msg_processed = false;
                     if (msg.type == THREAD_MSG_TYPE_INTEGER) {
                         // ** Integer type command **
                         if (msg.intdata == THREAD_IPC_TYPE_TERMINATE) break;
@@ -328,12 +348,33 @@ static void mp_task_proc1(void *pvParameter)
                                 xSemaphoreTake(inter_proc_mutex, portMAX_DELAY);
                                 task_ipc.busy = false;
                                 xSemaphoreGive(inter_proc_mutex);
+                                msg_processed = true;
                             }
-                            vPortFree(msg.strdata);
                         }
                     }
+                    if ((!msg_processed) && (mpy2_task_callback)) {
+                        // Task callback is set, schedule it
+                        mp_obj_t tuple[4];
+                        tuple[0] = mp_obj_new_int(msg.type);
+                        tuple[1] = mp_obj_new_int((uintptr_t)msg.sender_id);
+                        tuple[2] = mp_obj_new_int(msg.intdata);
+                        if ((msg.type == THREAD_MSG_TYPE_STRING) && (msg.strdata != NULL)) tuple[3] = mp_obj_new_str((const char*)msg.strdata, msg.strlen);
+                        else tuple[3] = mp_const_none;
+                        mp_sched_schedule(mpy2_task_callback, mp_obj_new_tuple(4, tuple));
+                    }
+                    if (msg.strdata) vPortFree(msg.strdata);
                 }
             }
+            xSemaphoreTake(inter_proc_mutex, portMAX_DELAY);
+            task_ipc.busy = true;
+            xSemaphoreGive(inter_proc_mutex);
+
+            mp_handle_pending();
+
+            xSemaphoreTake(inter_proc_mutex, portMAX_DELAY);
+            task_ipc.busy = false;
+            task_ipc.irq = false;
+            xSemaphoreGive(inter_proc_mutex);
         }
         // ================================================
 
@@ -342,21 +383,22 @@ static void mp_task_proc1(void *pvParameter)
         mp_printf(&mp_plat_print, "MPY2: soft reboot\n");
         mp_hal_delay_ms(10);
     }
+    task1_state = 4;
     vTaskDelete(NULL);
 }
+
 
 //========
 int main()
 {
-    // ==== Allocate ram buffer ====
-    sys_rambuf = malloc(MYCROPY_SYS_RAMBUF_SIZE);
-    if (sys_rambuf) sys_rambuf_ptr = (uintptr_t)sys_rambuf;
-
     // ==== Basic initialization ====
+    // Setup clocks (default clocks set in 'entry_user.c')
+    /*
     sysctl_pll_set_freq(SYSCTL_PLL0, PLL0_MAX_OUTPUT_FREQ);
     sysctl_pll_set_freq(SYSCTL_PLL1, PLL1_MAX_OUTPUT_FREQ);
-    sysctl_pll_set_freq(SYSCTL_PLL2, PLL2_MAX_OUTPUT_FREQ);
-    sysctl_clock_set_threshold(SYSCTL_THRESHOLD_AI, 0);
+    sysctl_pll_set_freq(SYSCTL_PLL2, PLL2_DEFAULT_OUTPUT_FREQ);
+    sysctl_clock_set_threshold(SYSCTL_THRESHOLD_AI, 1);
+    */
     // Set SPI3 clock to PLL0 / 2
     sysctl_clock_set_clock_select(SYSCTL_CLOCK_SELECT_SPI3, 0);
     sysctl_clock_set_threshold(SYSCTL_THRESHOLD_SPI3, 0);
@@ -372,16 +414,21 @@ int main()
             (sysctl->reset_status.pin_reset_sts << 3);
     sysctl->reset_status.reset_sts_clr = 1;
 
-    // ==== Set dvp and lcd spi pins to 1.8V ====
+    #ifdef CONFIG_MICROPY_BANK67_3V
+    // ==== Set DVP and LCD spi pins to 3.3V ====
+    sysctl_set_power_mode(SYSCTL_POWER_BANK6,SYSCTL_POWER_V33);
+    sysctl_set_power_mode(SYSCTL_POWER_BANK7,SYSCTL_POWER_V33);
+    #else
+    // ==== Set DVP and LCD spi pins to 1.8V ====
 	sysctl_set_power_mode(SYSCTL_POWER_BANK6,SYSCTL_POWER_V18);
 	sysctl_set_power_mode(SYSCTL_POWER_BANK7,SYSCTL_POWER_V18);
+    #endif
 
     user_log_level = LOG_WARN;
     user_log_color = 0;
-    printf("\r\n");
 
     #if !MICROPY_PY_THREAD
-	LOGE(TAG_MAIN, "Threads must be enabled!");
+	LOGE(TAG, "Threads must be enabled!");
     vTaskDelete(NULL);
     return 1;
     #endif
@@ -391,28 +438,29 @@ int main()
     configASSERT(flash_spi);
 
     w25qxx_spi_check = false;
-    uint32_t res = w25qxx_init(flash_spi, SPI_FF_QUAD, WQ25QXX_MAX_SPEED);
+    w25qxx_max_speed = (CONFIG_MICROPY_WQ25XXX_MAX_SPEED * 1000000);
+    uint32_t res = w25qxx_init(flash_spi, SPI_FF_QUAD, w25qxx_max_speed);
     configASSERT(res);
     vTaskDelay(2);
 
     // === Read MicroPython configuration from flash ===
     bool cfg_loaded = false;
+    #if MICROPY_DEBUG_BUILD
+    mpy_config_set_default();
+    #else
     if (!mpy_read_config()) {
         vTaskDelay(2);
         mpy_config_set_default();
     }
     else cfg_loaded = true;
+    #endif
     configASSERT(mpy_config_crc(false));
 
     user_log_level = mpy_config.config.log_level;
     user_log_color = mpy_config.config.log_color;
     vTaskDelay(2);
-    if (cfg_loaded) LOGM(TAG_MAIN, "Configuration loaded from flash");
-
-    LOGQ(TAG_MAIN, "PLL0=%u, PLL1=%u, PLL2=%u, SPI3clk=%u",
-            sysctl_clock_get_freq(SYSCTL_CLOCK_PLL0), sysctl_clock_get_freq(SYSCTL_CLOCK_PLL1),
-            sysctl_clock_get_freq(SYSCTL_CLOCK_PLL2), sysctl_clock_get_freq(SYSCTL_CLOCK_SPI3));
-    if (sys_rambuf) LOGQ(TAG_MAIN, "RAM buffer of %d bytes allocated at %p", MYCROPY_SYS_RAMBUF_SIZE, sys_rambuf);
+    if (cfg_loaded) LOGM(TAG, "Configuration loaded from flash");
+    else LOGM(TAG, "Default flash configuration set");
 
     // ==== Initialize MicroPython HAL ====
 	mp_hal_init();
@@ -426,10 +474,10 @@ int main()
         .tm_sec = 0,
         .tm_min = 0,
         .tm_hour = 12,
-        .tm_mday = 3,
-        .tm_mon = 7 - 1,
+        .tm_mday = 4,
+        .tm_mon = 9 - 1,
         .tm_year = 2019 - 1900,
-        .tm_wday = 3,
+        .tm_wday = 4,
         .tm_yday = -1,
         .tm_isdst = -1,
     };
@@ -510,31 +558,8 @@ int main()
         }
     }
 
-    // ======================================
-    // ==== Allocate MicroPython heap(s) ====
-    // ======================================
-    mp_heap = pvPortMalloc(mpy_config.config.heap_size1 + 16);
-    configASSERT(mp_heap);
-    if (mpy_config.config.pystack_enabled) {
-        mp_task_pystack = pvPortMalloc(mpy_config.config.pystack_size);
-        configASSERT(mp_task_pystack);
-    }
-
-    if (mpy_config.config.use_two_main_tasks) {
-        mp_heap2 = pvPortMalloc(mpy_config.config.heap_size2 + 16);
-        configASSERT(mp_heap2);
-        if (mpy_config.config.pystack_enabled) {
-            mp_task_pystack2 = pvPortMalloc(mpy_config.config.pystack_size);
-            configASSERT(mp_task_pystack2);
-        }
-        LOGM(TAG_MAIN, "Heaps: FreeRTOS=%lu KB (%lu KB free), MPy_1=%u KB, MPy_2=%u KB, other=%lu KB",
-                FREE_RTOS_TOTAL_HEAP_SIZE/1024, xPortGetFreeHeapSize()/1024, mpy_config.config.heap_size1/1024, mpy_config.config.heap_size2/1024, _check_remaining_heap()/1024);
-    }
-    else {
-        LOGM(TAG_MAIN, "Heaps: FreeRTOS=%lu KB (%lu KB free), MPy=%u KB, other=%lu KB",
-                FREE_RTOS_TOTAL_HEAP_SIZE/1024, xPortGetFreeHeapSize()/1024, mpy_config.config.heap_size1/1024, _check_remaining_heap()/1024);
-    }
-
+    task0_state = 0;
+    task1_state = 0;
     // ======================================================
     // ==== Run MicroPython instance(s) as FreeRTOS task ====
     // ======================================================
@@ -549,11 +574,6 @@ int main()
     configASSERT((res == pdPASS));
 
     if (mpy_config.config.use_two_main_tasks) {
-        // === wait for the 1st task to start and start the 2nd MicroPython task ===
-        while (!task0_started) {
-            vTaskDelay(10);
-        }
-        vTaskDelay(50);
         res = xTaskCreateAtProcessor(
                 MAIN_TASK_PROC ^ 1,                     // MPy instance #2 processor
                 mp_task_proc1,                          // function entry
@@ -563,6 +583,38 @@ int main()
                 MICROPY_TASK_PRIORITY,                  // task priority
                 &MainTaskHandle2);                      // task handle
         configASSERT((res == pdPASS));
+    }
+
+    // ======================================
+    // ==== Allocate MicroPython heap(s) ====
+    // ======================================
+    mp_heap = pvPortMalloc(mpy_config.config.heap_size1 + 16);
+    configASSERT(mp_heap);
+    if (mpy_config.config.pystack_enabled) {
+        mp_task_pystack = pvPortMalloc(mpy_config.config.pystack_size);
+        configASSERT(mp_task_pystack);
+    }
+
+    task0_state = 1;
+    // wait for the 1st task to start
+    while (task0_state < 3) {
+        vTaskDelay(5);
+        configASSERT(task0_state < 4);
+    }
+
+    if (mpy_config.config.use_two_main_tasks) {
+        mp_heap2 = pvPortMalloc(mpy_config.config.heap_size2 + 16);
+        configASSERT(mp_heap2);
+        if (mpy_config.config.pystack_enabled) {
+            mp_task_pystack2 = pvPortMalloc(mpy_config.config.pystack_size);
+            configASSERT(mp_task_pystack2);
+        }
+        task1_state = 1;
+        // wait for the 2nd task to start
+        while (task1_state < 3) {
+            vTaskDelay(5);
+            configASSERT(task1_state < 4);
+        }
     }
 
     // The 'main' function runs as FreeRTOS task,

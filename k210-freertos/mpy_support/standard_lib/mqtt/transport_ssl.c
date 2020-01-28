@@ -13,7 +13,7 @@
 
 #include "platform_k210.h"
 
-#ifdef MICROPY_PY_USE_MQTT
+#if MICROPY_PY_USE_NETTWORK
 
 #include <string.h>
 #include <stdlib.h>
@@ -44,6 +44,7 @@ typedef struct {
 
 static int ssl_close(transport_handle_t t);
 
+#if MICROPY_PY_USE_WIFI
 //--------------------------------------------------------------------------------------
 static int ssl_connect(transport_handle_t t, const char *host, int port, int timeout_ms)
 {
@@ -82,7 +83,9 @@ static int ssl_connect(transport_handle_t t, const char *host, int port, int tim
     ssl->sock->link_id = ssl->sock->fd;
     if (transport_debug) LOGI(TAG, "Socket created: %d", ssl->sock->fd);
 
+    #if MICROPY_PY_USE_WIFI
     ret = wifi_connect(ssl->sock, host, port, 0);
+    #endif
     if (ret < 0) {
         if (transport_debug) LOGE(TAG, "error connecting %d", ret);
         goto exit;
@@ -122,7 +125,7 @@ static int ssl_poll_write(transport_handle_t t, int timeout_ms)
 //-------------------------------------------------------------------------------------
 static int ssl_write(transport_handle_t t, const char *buffer, int len, int timeout_ms)
 {
-    int ret;
+    int ret = -1;
     transport_ssl_t *ssl = transport_get_context_data(t);
 
     ret = wifi_send(ssl->sock, buffer, len);
@@ -143,7 +146,9 @@ static int ssl_read(transport_handle_t t, char *buffer, int len, int timeout_ms)
             return poll;
         }
     }
+    #if MICROPY_PY_USE_WIFI
     ret = wifi_read(ssl->sock, buffer, len);
+    #endif
     if (ret <= 0) {
         return -1;
     }
@@ -168,6 +173,7 @@ static int ssl_destroy(transport_handle_t t)
     vPortFree(ssl);
     return 0;
 }
+#endif
 
 //-------------------------------------------------------------------------------
 void transport_ssl_set_cert_data(transport_handle_t t, const char *data, int len)
@@ -206,6 +212,7 @@ void transport_ssl_set_client_key_data(transport_handle_t t, const char *data, i
 //-------------------------------------
 transport_handle_t transport_ssl_init()
 {
+    #if MICROPY_PY_USE_WIFI
     if (!(net_active_interfaces & ACTIVE_INTERFACE_WIFI)) {
         if (transport_debug) LOGW(TAG, "Only available for WiFi network interface");
         return NULL;
@@ -230,6 +237,10 @@ transport_handle_t transport_ssl_init()
     transport_set_context_data(t, ssl);
     transport_set_func(t, ssl_connect, ssl_read, ssl_write, ssl_close, ssl_poll_read, ssl_poll_write, ssl_destroy);
     return t;
+    #else
+    if (transport_debug) LOGW(TAG, "Only available for WiFi network interface");
+    return NULL;
+    #endif
 }
 
 #endif

@@ -57,7 +57,6 @@ typedef struct _k210_ram_var_crc_t {
 //-----------------------------------
 typedef struct _task_ipc_t {
     char        *ipc_response_buff;
-    uint32_t    ipc_cmd_buff_size;
     uint32_t    ipc_response_buff_size;
     uint32_t    ipc_response_buff_idx;
     bool        busy;
@@ -67,7 +66,7 @@ typedef struct _task_ipc_t {
 
 extern task_ipc_t task_ipc;
 extern SemaphoreHandle_t inter_proc_mutex;
-extern mp_obj_t ipc_callback_1;
+extern mp_obj_t mpy2_task_callback;
 extern mp_obj_t main_task_callback;
 extern uint64_t sys_us_counter_cpu;
 extern uint64_t sys_us_counter;

@@ -10,6 +10,7 @@ It is mostly unchanged, except for the following files:<br>
 * `py/runtime.c`, `py/builtin.h`, `py/gc.c`, `py/gc.h`, `py/mpstate.h`<br> small changes to enable support for two MicroPython instances running on two processors
 * `py/modsys.c`<br> small changes to enable support for two MicroPython instances running on two processors<br>**`sys.path`, `sys.argv` _and_ `sys.modules` _are now FUNCTIONS:_ `sys.path()`, `sys.argv()` _and_ `sys.modules()`**
 * `py/modmicropython.c`<br> added PyStack info in `mem_info` function
+* `py/compile.c`, `persistentcode.c`<br> small changes to address some errors when compiling without any native emmiter enabled
 * `py/machine_mem.c`, `py/machine_mem.h`<br> added support for 64-bit memory objects
 * `extmod/modframebuf.c`<br>added some functions (circle, fill_circle)
 * `extmod/modlwip.c`<br>renamed to `extmod/modlwip.c.orig` to prevent compiling as it is not used

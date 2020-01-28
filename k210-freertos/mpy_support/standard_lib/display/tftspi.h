@@ -59,6 +59,7 @@ typedef uint16_t color_t;
 
 #define EPD_TYPE_2_9        0
 #define EPD_TYPE_4_2        1
+#define EPD_TYPE_4_2_C      2
 
 #define DISP_COLOR_BITS_24	0x66
 #define DISP_COLOR_BITS_16	0x55
@@ -75,6 +76,7 @@ typedef uint16_t color_t;
 #define TP_CALY_STMPE610	11800144
 
 // === Screen orientation constants ===
+// Do not change !!
 #define PORTRAIT	0
 #define LANDSCAPE	1
 #define PORTRAIT_FLIP	2
@@ -88,45 +90,24 @@ typedef uint16_t color_t;
 #define DISP_TYPE_ST7735B	5
 #define DISP_TYPE_M5STACK	6
 #define DISP_TYPE_GENERIC	7
-#define DISP_TYPE_EPD_2_9   8
-#define DISP_TYPE_EPD_4_2   9
-#define DISP_TYPE_MAX		10
+// EPD types
+#define DISP_TYPE_EPD_2_9_GDEH  8
+#define DISP_TYPE_EPD_2_9_DEPG  9
+#define DISP_TYPE_EPD_4_2       10
+#define DISP_TYPE_EPD_4_2_C     11
+#define DISP_TYPE_MAX		    12
 
 #define DEFAULT_TFT_DISPLAY_WIDTH  240
 #define DEFAULT_TFT_DISPLAY_HEIGHT 320
 #define DEFAULT_DISP_TYPE   DISP_TYPE_ILI9341
 
 #define SPI_DFS8_SPEED      4000000
-#define SPI_DEFAULT_SPEED   16000000
-
-// ##############################################################
-// #### Global variables                                     ####
-// ##############################################################
-
-extern bool use_frame_buffer;
-
-// ==== Converts colors to grayscale if 1 =======================
-extern uint8_t gray_scale;
-
-// ==== Display dimensions in pixels ============================
-extern int _width;
-extern int _height;
-
-// ==== Display & touch type ====
-extern uint8_t tft_disp_type;
-extern uint8_t tft_touch_type;
-
-//extern uint8_t TFT_RGB_BGR;
-extern uint8_t gamma_curve;
-
-extern uint16_t *tft_frame_buffer;
-
-// ##############################################################
+#define SPI_DEFAULT_SPEED   10000000
 
 /* clang-format off */
 #define NO_OPERATION            0x00
 #define SOFTWARE_RESET          0x01
-#define READ_ID                 0x04
+#define TFT_READ_ID             0x04
 #define READ_STATUS             0x09
 #define READ_POWER_MODE         0x0A
 #define READ_MADCTL             0x0B
@@ -219,12 +200,12 @@ void disp_spi_transfer_cmd(int8_t cmd);
 void disp_spi_transfer_cmd_data(int8_t cmd, uint8_t *data, uint32_t len);
 void drawPixel(int16_t x, int16_t y, color_t color);
 void send_data(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf);
+void send_data_scale(int x1, int y1, int width, int height, color_t *buf, int scale);
 void TFT_pushColorRep(int x1, int y1, int x2, int y2, color_t data, uint32_t len);
 void send_frame_buffer();
 void TFT_display_setvars(display_config_t *dconfig);
 void tft_set_speed(uint32_t speed);
 uint32_t tft_get_speed();
-int get_framebuffer(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf);
 
 // Change the screen rotation.
 // Input: m new rotation value (0 to 3)

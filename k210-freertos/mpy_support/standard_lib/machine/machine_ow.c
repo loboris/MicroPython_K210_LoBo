@@ -1,9 +1,9 @@
 /*
- * This file is part of the MicroPython ESP32 project, https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo
+ * This file is part of the MicroPython K210 project, https://github.com/loboris/MicroPython_K210_LoBo
  *
  * The MIT License (MIT)
  *
- * Copyright (c) 2018 LoBo (https://github.com/loboris)
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -30,9 +30,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-//#include "esp_system.h"
 #include "syslog.h"
-//#include "libs/esp_rmt.h"
 #include "ow/owb.h"
 #include "ow/owb_k210.h"
 #include "ow/ds18b20.h"

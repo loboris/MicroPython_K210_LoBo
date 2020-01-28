@@ -25,6 +25,10 @@
  *
  */
 
+#include "mpconfigport.h"
+
+#if MICROPY_PY_USE_NETTWORK
+
 #include "at_util.h"
 #include <stdio.h>
 #include <stdint.h>
@@ -182,16 +186,20 @@ static int _socket_getaddrinfo2(const mp_obj_t host, const mp_obj_t portx, struc
         host_str = "0.0.0.0";
     }
 
-    int res;
+    int res = -1;
     MP_THREAD_GIL_EXIT();
     if (net_active_interfaces & ACTIVE_INTERFACE_WIFI) {
         *resp = NULL;
+        #if MICROPY_PY_USE_WIFI
         res = wifi_get_addrinfo(host_str, port_str, &hints, resp);
+        #endif
     }
 
     else if (net_active_interfaces & ACTIVE_INTERFACE_GSM) {
         *resp = NULL;
+        #if MICROPY_PY_USE_GSM
         res = gsm_get_addrinfo(host_str, port_str, &hints, resp);
+        #endif
     }
 
     else {
@@ -267,6 +275,7 @@ STATIC mp_obj_t socket_bind(size_t n_args, const mp_obj_t *args)
     socket_obj_t *self = MP_OBJ_TO_PTR(args[0]);
 
     if (net_active_interfaces & ACTIVE_INTERFACE_WIFI) {
+        #if MICROPY_PY_USE_WIFI
         int port = 0, tmo = 300;
         bool ssl = false;
         if (n_args > 2) {
@@ -306,6 +315,9 @@ STATIC mp_obj_t socket_bind(size_t n_args, const mp_obj_t *args)
         if (res < 0) {
             exception_from_errno(errno);
         }
+        #else
+        mp_raise_msg(&mp_type_ValueError, "No WiFi interface");
+        #endif
     }
 
     else if (net_active_interfaces & ACTIVE_INTERFACE_GSM) {
@@ -392,6 +404,7 @@ static mp_obj_t _socket_accept(const mp_obj_t arg0, bool raise)
     }
 
     if (net_active_interfaces & ACTIVE_INTERFACE_WIFI) {
+        #if MICROPY_PY_USE_WIFI
         int con_n = -1, con_fd;
         //if (wifi_debug) LOGQ(TAG, "Accept: server %d (tmo=%lu, max_con=%d)", self->fd, self->timeout, self->max_conn);
         self->accepting = true;
@@ -453,6 +466,9 @@ static mp_obj_t _socket_accept(const mp_obj_t arg0, bool raise)
                 }
             }
         }
+        #else
+        mp_raise_msg(&mp_type_NotImplementedError, "Not in WiFi mode");
+        #endif
     }
     else if (net_active_interfaces & ACTIVE_INTERFACE_GSM) {
         mp_raise_msg(&mp_type_NotImplementedError, "Not available in GSM IDLE mode");
@@ -488,8 +504,9 @@ static mp_obj_t _socket_accept(const mp_obj_t arg0, bool raise)
     }
     else {
         // ==== Connection accepted, prepare the result ====
-        socket_obj_t *sock;
         if (net_active_interfaces & ACTIVE_INTERFACE_WIFI) {
+            #if MICROPY_PY_USE_WIFI
+            socket_obj_t *sock;
             // Socket is already created by WiFi task
             sock = at_sockets[new_fd];
 
@@ -529,6 +546,10 @@ static mp_obj_t _socket_accept(const mp_obj_t arg0, bool raise)
                 }
             }
             sock->is_accepted = true;
+            #else
+            client->items[0] = mp_const_none;
+            client->items[1] = mp_const_none;
+            #endif
         }
         else {
             // for lwip interface create the new socket object
@@ -575,6 +596,7 @@ STATIC mp_obj_t socket_connect(size_t n_args, const mp_obj_t *args)
     }
 
     if (net_active_interfaces & ACTIVE_INTERFACE_WIFI) {
+        #if MICROPY_PY_USE_WIFI
         mp_uint_t len = 0;
         mp_obj_t *elem;
 
@@ -605,6 +627,7 @@ STATIC mp_obj_t socket_connect(size_t n_args, const mp_obj_t *args)
         }
         self->local_port = local_port;
         self->remote_port = port;
+        #endif
         return mp_const_none;
     }
     else if (net_active_interfaces & ACTIVE_INTERFACE_GSM) {
@@ -817,6 +840,7 @@ STATIC mp_uint_t _socket_read_data(mp_obj_t self_in, void *buf, size_t size,
     int wait_end = mp_hal_ticks_ms() + sock->timeout;
 
     if (net_active_interfaces & ACTIVE_INTERFACE_WIFI) {
+        #if MICROPY_PY_USE_WIFI
         if (sock->listening) {
             mp_raise_ValueError("Socket in listening mode");
         }
@@ -850,6 +874,10 @@ STATIC mp_uint_t _socket_read_data(mp_obj_t self_in, void *buf, size_t size,
         if ((wifi_debug) && (size >= 256)) LOGY(TAG, "Read: timeout (%lu)", sock->timeout);
         *errcode = (mp_hal_ticks_ms() <= wait_end) ? MP_EWOULDBLOCK : MP_ETIMEDOUT;
         return MP_STREAM_ERROR;
+        #else
+        *errcode = MP_ETIMEDOUT;
+        return MP_STREAM_ERROR;
+        #endif
     }
     else if (net_active_interfaces & ACTIVE_INTERFACE_GSM) {
         mp_raise_msg(&mp_type_NotImplementedError, "Not available in GSM IDLE mode");
@@ -888,6 +916,7 @@ STATIC mp_uint_t _socket_read_data(mp_obj_t self_in, void *buf, size_t size,
 //-----------------------------------------------------------------------
 STATIC mp_obj_t socket_wifi_readline(size_t n_args, const mp_obj_t *args)
 {
+    #if MICROPY_PY_USE_WIFI
     socket_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     if (net_active_interfaces & ACTIVE_INTERFACE_WIFI) {
         int wait_end = mp_hal_ticks_ms() + self->timeout;
@@ -931,6 +960,9 @@ STATIC mp_obj_t socket_wifi_readline(size_t n_args, const mp_obj_t *args)
     else {
         mp_raise_msg(&mp_type_NotImplementedError, "Only available in WiFi mode");
     }
+    #else
+    mp_raise_msg(&mp_type_NotImplementedError, "Only available in WiFi mode");
+    #endif
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(socket_wifi_readline_obj, 1, 2, socket_wifi_readline);
@@ -993,10 +1025,12 @@ int _socket_send(socket_obj_t *sock, const char *data, size_t datalen)
     }
 
     if (net_active_interfaces & ACTIVE_INTERFACE_WIFI) {
+        #if MICROPY_PY_USE_WIFI
         if (wifi_debug) LOGQ(TAG, "Send (%lu)", datalen);
         MP_THREAD_GIL_EXIT();
         sentlen = wifi_send(sock, data, datalen);
         MP_THREAD_GIL_ENTER();
+        #endif
     }
     else if (net_active_interfaces & ACTIVE_INTERFACE_GSM) {
         mp_raise_msg(&mp_type_NotImplementedError, "Not available in GSM IDLE mode");
@@ -1060,6 +1094,7 @@ STATIC mp_obj_t socket_sendto(mp_obj_t self_in, mp_obj_t data_in, mp_obj_t addr_
     mp_get_buffer_raise(data_in, &bufinfo, MP_BUFFER_READ);
 
     if (!(net_active_interfaces & ACTIVE_INTERFACE_LWIP)) {
+        #if MICROPY_PY_USE_WIFI
         //mp_raise_msg(&mp_type_NotImplementedError, "Only available in LWIP mode");
         mp_uint_t len = 0;
         mp_obj_t *elem;
@@ -1074,6 +1109,7 @@ STATIC mp_obj_t socket_sendto(mp_obj_t self_in, mp_obj_t data_in, mp_obj_t addr_
         ret = wifi_send_to(self, bufinfo.buf, bufinfo.len, host_str, port);
         MP_THREAD_GIL_ENTER();
         if (ret > 0) return mp_obj_new_int_from_uint(ret);
+        #endif
         return mp_obj_new_int_from_uint(-1);
     }
 
@@ -1140,12 +1176,17 @@ STATIC mp_uint_t socket_stream_write(mp_obj_t self_in, const void *buf, mp_uint_
     }
 
     if (net_active_interfaces & ACTIVE_INTERFACE_WIFI) {
+        #if MICROPY_PY_USE_WIFI
         MP_THREAD_GIL_EXIT();
         r = wifi_send(sock, buf, size);
         MP_THREAD_GIL_ENTER();
-
         if (r > 0) return r;
         *errcode = errno;
+        #else
+        *errcode = ENOTSOCK;
+        return MP_STREAM_ERROR;
+        #endif
+
     }
     else {
         int wait_end = mp_hal_ticks_ms() + sock->timeout;
@@ -1210,6 +1251,7 @@ STATIC mp_uint_t socket_stream_ioctl(mp_obj_t self_in, mp_uint_t request, uintpt
         if ((net_active_interfaces != ACTIVE_INTERFACE_NONE) && (socket->fd >= 0)) {
             int ret = 0;
             if (net_active_interfaces & ACTIVE_INTERFACE_WIFI) {
+                #if MICROPY_PY_USE_WIFI
                 if (wifi_debug) LOGY(TAG, "Close socket %d", socket->fd);
                 /*
                 // Do not close the socket connected to the listening socket
@@ -1220,6 +1262,9 @@ STATIC mp_uint_t socket_stream_ioctl(mp_obj_t self_in, mp_uint_t request, uintpt
                 }
                 */
                 ret = wifi_close(socket);
+                #else
+                ret = -1;
+                #endif
             }
             else if (net_active_interfaces & ACTIVE_INTERFACE_GSM) {
                 ret = 0;
@@ -1582,6 +1627,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_socket_info_obj, mod_socket_info);
 //----------------------------------------------------
 STATIC mp_obj_t mod_socket_closesocket(mp_obj_t fd_in)
 {
+    #if MICROPY_PY_USE_WIFI
     if (!(net_active_interfaces & ACTIVE_INTERFACE_WIFI)) {
         mp_raise_ValueError("Available only for WiFi interface");
     }
@@ -1621,6 +1667,10 @@ STATIC mp_obj_t mod_socket_closesocket(mp_obj_t fd_in)
         }
     }
     return (res == 0) ? mp_const_true : mp_const_false;
+    #else
+    mp_raise_ValueError("Available only for WiFi interface");
+    return mp_const_false;
+    #endif
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_socket_closesocket_obj, mod_socket_closesocket);
 
@@ -1654,3 +1704,5 @@ const mp_obj_module_t mp_module_usocket = {
     .base = { &mp_type_module },
     .globals = (mp_obj_dict_t*)&mp_module_socket_globals,
 };
+
+#endif

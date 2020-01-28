@@ -1,16 +1,17 @@
 #
-# Makefile for maixpy
-# ports/k210-freetos/Makefile
+# Makefile for MicroPython for K210 project
 #
+
 .PHONY: all clean compile do_mk update_all_platform_mk
 CUR_DIR_ADDR := $(shell pwd)/
+
 ###############################################################################
 # USER OPTION
-LIB_NAME ?= MaixPy
+LIB_NAME ?= MicroPython
 CROSS_COMPILE ?= 
 OUTPUT_DIR := build/
-MK_VALUE :="INC += "".""\n"
-OUTPUT_BIN := MaixPy.bin
+MK_VALUE := "INC += ."
+OUTPUT_BIN := MicroPython.bin
 CC := $(CROSS_COMPILE)gcc
 CXX ?= $(CROSS_COMPILE)c++
 AR ?= $(CROSS_COMPILE)AR
@@ -22,7 +23,14 @@ else
 	CRT_DIR_ADDR ?=$(dir $(CROSS_COMPILE))/../lib/gcc/riscv64-unknown-elf/8.2.0/
 endif
 CRT_DIR_ADDR ?=$(dir $(CROSS_COMPILE))/../lib/gcc/riscv64-unknown-elf/8.3.0/
-VERBOSE ?= "--silent"
+
+BUILD_VERBOSE ?= 0
+ifeq ($(BUILD_VERBOSE), 1)
+	VERBOSE :=
+else
+	VERBOSE := -s V=1
+endif
+
 MAKE_OPT ?=
 LOG_FILE := > build.log 2>&1
 ###############################################################################
@@ -43,16 +51,16 @@ sinclude $(PLATFORM).mk
 define sub_clean
 	if [ "$(1)" != " mpy_support/" ] ; \
 	then \
-	$(MAKE) $(VERBOSE) -C $(1) clean CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM); \
+	$(MAKE) -C $(1) clean -s V=1 CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM); \
 	else \
-	$(MAKE) $(VERBOSE) -C $(1) clean_all CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM); \
+	$(MAKE) -C $(1) clean_all -s V=1 CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM); \
 	fi;
 endef
 
 define sub_make
 	if [ "$(1)" != " mpy_support/" ] ; \
 	then \
-		$(MAKE) $(VERBOSE) -C $(1) all CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM); \
+		$(MAKE) -C $(1) $(VERBOSE) all CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM); \
 	fi;
 endef
 
@@ -66,7 +74,7 @@ endef
 define update_sub_mk
 	if [ "$(dir $(1))" != "./" ] ; \
 	then \
-		$(MAKE) $(VERBOSE) -C $(1) update_mk CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM); \
+		$(MAKE) -C $(1) update_mk -s V=1 CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM); \
 	fi;
 endef
 
@@ -76,7 +84,7 @@ SUBDIRS := $(GET_SUBDIRS2)
 
 AllDirs := $(shell ls -R | grep '^\./.*:$$' | awk '{gsub(":","");print}') .
 PLATFORM_MK := $(foreach n,$(AllDirs) , $(wildcard $(n)/$(PLATFORM).mk))
-PLATFORM_MK_X := $(shell echo "$(PLATFORM_MK)" | sed 's/  */ /g' | sed 's/ \{1,\}/ /g' | tr -s ' ')
+#PLATFORM_MK_X := $(shell echo "$(PLATFORM_MK)" | sed 's/  */ /g' | sed 's/ \{1,\}/ /g' | tr -s ' ')
 FILE_MAKEFILE := $(foreach n,$(SUBDIRS) , $(wildcard $(n)/Makefile))
 
 all: do_mk update_all_platform_mk sub_compile compile $(OUTPUT_BIN) print_bin_size
@@ -133,42 +141,51 @@ BIN_LDFLAGS := \
 		-Wl,--end-group \
 		$(liba-fatfs) \
 		$(liba-lwipcore) \
+		$(liba-mbedtls) \
 		$(liba-hal) \
 		-lm \
 		-lstdc++ \
 		-lm
 
+$(info )
+
 $(LIB_NAME): $(output-file) $(SRC_C_OUTPUT_OBJ) $(SRC_C_OUTPUT_OBJ)
+	$(info =====[ Main: linking all libraries)
 	@$(CC) $(CFLAGS) $(BIN_LDFLAGS) -o $@
 
 print_bin_size:
-	$(SIZE) $(LIB_NAME)
+	$(info )
+	@echo "------------------------------------------------"
+	@$(SIZE) $(LIB_NAME)
+	@echo "------------------------------------------------"
 
 $(OUTPUT_BIN):$(LIB_NAME)
-	$(OBJCOPY) --output-format=binary $(LIB_NAME) $@
+	$(info =====[ Main: creating MicroPython binary)
+	@$(OBJCOPY) --output-format=binary $(LIB_NAME) $@
 
 compile:$(SRC_C_OBJ) $(CXX_OBJ)
 
 sub_compile:
-	$(info =====[ Compiling $(SUBDIRS) ... ]=====)
+	$(info =====[ Main: Compiling subdirectiries)
 	$(foreach n,$(FILE_MAKEFILE),$(call sub_make, $(dir $(n))))
-	$(info =====[ compile $(SUBDIRS) . ]=====)
-	$(MAKE) $(MAKE_OPT) $(VERBOSE) -C mpy_support all CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM)
+	$(info =====[ Main: Compiling MicroPython)
+	$(MAKE) -C mpy_support $(VERBOSE) $(MAKE_OPT) all CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=$(PLATFORM)
 
 update_mk:
-	$(info =====[ update mk file ... ]=====)
+	$(info =====[ Main: update mk file)
 	$(foreach n,$(FILE_MAKEFILE),$(call update_sub_mk, $(dir $(n))))
-	$(shell echo $(MK_VALUE)$(foreach nn,$(foreach n,$(SUBDIRS) , $(wildcard $(n)/mk)),"-include "$(CUR_DIR_ADDR)$(nn)"\n") > mk)
+	$(shell printf '%s\n' $(MK_VALUE) > mk)
+	$(shell printf '%s\n' $(foreach nn,$(foreach n,$(SUBDIRS) , $(wildcard $(n)/mk)),"-include "$(CUR_DIR_ADDR)$(nn)) >> mk)
 
 update_all_platform_mk:
-	$(info =====[ PLATFORM_MK$(PLATFORM_MK_X) ]=====)
+	$(info =====[ Main: update all platform mk files)
 	if [ -f $(PLATFORM).mk ] ; \
 	then \
 	     $(foreach n,$(PLATFORM_MK),$(call update_sub_platform_mk, $(n))) \
 	fi;
 	
 clean:
-	$(info =====[ Cleaning $(SUBDIRS) ... ]=====)
+	$(info =====[ Main: clean all)
 	$(foreach n,$(FILE_MAKEFILE),$(call sub_clean, $(dir $(n))))
 	@rm -f mk
 	@rm -rf build

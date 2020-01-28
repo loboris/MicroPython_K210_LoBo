@@ -33,14 +33,14 @@ Execute:
 
 Example:
 ```
-./mklfs internalfs_image maixpy_lfs.img
+./mklfs internalfs_image MicroPython_lfs.img
 
 Creating LittleFS image
 =======================
 Image directory:
   'internalfs_image'
 Image name:
-  'maixpy_lfs.img'
+  'MicroPythony_lfs.img'
 Block size=512, Block count=20480, lookahead=32
 
 Creating and mounting LittleFS image...
@@ -93,7 +93,7 @@ Adding files from image directory:
 /boot.py
 
 Image size: 1506897 (1507328)
-Saving image to 'maixpy_lfs.img'
+Saving image to 'MicroPython_lfs.img'
 =======================
 
 ```
@@ -107,7 +107,7 @@ Default address is at 4MB (4194304).
 
 To flash it, execute:
 ```
-./kflash.py -p /dev/ttyUSB0 -b 2000000 --address 4194304 -t ../mklittlefs/maixpy_lfs.img
+./kflash.py -p /dev/ttyUSB0 -b 2000000 --address 4194304 -t ../mklittlefs/MicroPython_lfs.img
 ```
 
 Change */dev/ttyUSB0* to the port used to connect to the board if needed.

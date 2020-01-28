@@ -51,6 +51,8 @@
                                     									
                                     <listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/platform/sdk/kendryte-freertos-sdk/lib/freertos/include&quot;"/>
                                     									
+                                    <listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/platform/sdk/kendryte-freertos-sdk/lib/utils/include&quot;"/>
+                                    									
                                     <listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/platform/sdk/kendryte-freertos-sdk/lib/drivers/include&quot;"/>
                                     									
                                     <listOptionValue builtIn="false" value="&quot;${PWD}/k210-freertos/platform/sdk/kendryte-freertos-sdk/third_party/fatfs/source&quot;"/>
@@ -70,6 +72,8 @@
                                     <listOptionValue builtIn="false" value="&quot;${PWD}/kendryte-toolchain/riscv64-unknown-elf/include&quot;"/>
                                     									
                                     <listOptionValue builtIn="false" value="&quot;${PWD}/kendryte-toolchain/lib/gcc/riscv64-unknown-elf/8.2.0/include&quot;"/>
+                                    									
+                                    <listOptionValue builtIn="false" value="&quot;${PWD}/kendryte-toolchain/lib/gcc/riscv64-unknown-elf/8.3.0/include&quot;"/>
                                     								
                                 </option>
                                 								
@@ -122,6 +126,8 @@
                                     <listOptionValue builtIn="false" value="&quot;${PWD}/kendryte-toolchain/riscv64-unknown-elf/include&quot;"/>
                                     									
                                     <listOptionValue builtIn="false" value="&quot;${PWD}/kendryte-toolchain/lib/gcc/riscv64-unknown-elf/8.2.0/include&quot;"/>
+                                    									
+                                    <listOptionValue builtIn="false" value="&quot;${PWD}/kendryte-toolchain/lib/gcc/riscv64-unknown-elf/8.3.0/include&quot;"/>
                                     								
                                 </option>
                                 								
@@ -231,8 +237,6 @@
                 				
                 <buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
                 				
-                <buildArguments/>
-                				
                 <stopOnError>true</stopOnError>
                 				
                 <useDefaultCommand>false</useDefaultCommand>
@@ -244,6 +248,8 @@
             <target name="CLEAN" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
                 				
                 <buildCommand>${PWD}/k210-freertos/CLEAN.sh</buildCommand>
+                				
+                <buildArguments/>
                 				
                 <stopOnError>true</stopOnError>
                 				
@@ -271,7 +277,9 @@
                 				
                 <buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
                 				
-                <buildArguments>-j8</buildArguments>
+                <buildArguments>-j16</buildArguments>
+                				
+                <buildTarget/>
                 				
                 <stopOnError>true</stopOnError>
                 				
@@ -285,7 +293,9 @@
                 				
                 <buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
                 				
-                <buildArguments>-v -j8</buildArguments>
+                <buildArguments>-v -j16</buildArguments>
+                				
+                <buildTarget/>
                 				
                 <stopOnError>true</stopOnError>
                 				
@@ -301,7 +311,19 @@
                 				
                 <buildArguments>-d -j8</buildArguments>
                 				
-                <buildTarget/>
+                <stopOnError>true</stopOnError>
+                				
+                <useDefaultCommand>false</useDefaultCommand>
+                				
+                <runAllBuilders>true</runAllBuilders>
+                			
+            </target>
+            			
+            <target name="Menuconfig" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
+                				
+                <buildCommand>mate-terminal</buildCommand>
+                				
+                <buildArguments>--working-directory="${PWD}k210-freertos" -e "./BUILD.sh --menuconfig" &amp;</buildArguments>
                 				
                 <stopOnError>true</stopOnError>
                 				

@@ -4,6 +4,7 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2013-2016 Damien P. George
+ * Copyright (c) 2019 LoBo (https://github.com/loboris)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -627,6 +628,8 @@ STATIC void save_raw_code(mp_print_t *print, mp_raw_code_t *rc, qstr_window_t *q
         // Save bytecode
         save_bytecode(print, qstr_window, ip, ip_top);
     } else {
+        // LoBo
+        #if MICROPY_EMIT_NATIVE
         // Save native code
         mp_print_bytes(print, rc->fun_data, rc->fun_data_len);
 
@@ -654,6 +657,7 @@ STATIC void save_raw_code(mp_print_t *print, mp_raw_code_t *rc, qstr_window_t *q
                 mp_print_uint(print, rc->type_sig);
             }
         }
+        #endif
     }
 
     if (rc->kind == MP_CODE_BYTECODE || rc->kind == MP_CODE_NATIVE_PY) {

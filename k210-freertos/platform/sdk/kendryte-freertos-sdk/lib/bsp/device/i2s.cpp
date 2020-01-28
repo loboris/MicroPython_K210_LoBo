@@ -27,6 +27,8 @@
 
 using namespace sys;
 
+#define I2S_DMA_BLOCK_TIME          1000UL
+
 #define BUFFER_COUNT 2
 #define COMMON_ENTRY                                         \
     i2s_data *data = (i2s_data *)userdata;                   \
@@ -92,6 +94,7 @@ public:
 
         uint32_t threshold;
         i2s_word_select_cycles_t wsc;
+        // LoBo: initialize to avoid compiler warnings
         i2s_word_length_t wlen = RESOLUTION_16_BIT;
         size_t block_align = format.channels * 2;
         uint32_t dma_divide16 = 1;
@@ -198,6 +201,7 @@ public:
 
         uint32_t threshold;
         i2s_word_select_cycles_t wsc;
+        // LoBo: initialize to avoid compiler warnings
         i2s_word_length_t wlen = RESOLUTION_16_BIT;
         size_t block_align = format.channels * 2;
         uint32_t dma_divide16;
@@ -373,6 +377,9 @@ public:
 
     virtual void stop() override
     {
+        dma_stop(session_.transmit_dma);
+        configASSERT(pdTRUE == xSemaphoreTake(session_.completion_event, I2S_DMA_BLOCK_TIME));
+        dma_close(session_.transmit_dma);
         i2s_transmit_set_enable(session_.transmit, 0);
     }
 

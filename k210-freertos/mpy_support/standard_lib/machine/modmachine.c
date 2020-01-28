@@ -37,6 +37,7 @@
 #include "py/binary.h"
 #include "py/mpprint.h"
 #include "py/compile.h"
+#include "py/objstr.h"
 #include "hal.h"
 #include "modmachine.h"
 #include "mphalport.h"
@@ -57,9 +58,7 @@ uint32_t mp_used_gpiohs = 0;
 machine_pin_def_t mp_used_pins[FPIOA_NUM_IO] = {0};
 handle_t flash_spi = 0;
 
-uintptr_t sys_rambuf_ptr = 0;
-
-const char *gpiohs_funcs[16] = {
+const char *gpiohs_funcs[17] = {
         "Not used",
         "Flash",
         "SD Card",
@@ -75,10 +74,11 @@ const char *gpiohs_funcs[16] = {
         "GSM_UART",
         "WiFi_UART",
         "TIMER",
-        "I/O"
+        "I/O",
+        "DVP",
 };
 
-const char *gpiohs_funcs_in_use[16] = {
+const char *gpiohs_funcs_in_use[17] = {
         "pin not used",
         "pin used by Flash",
         "pin used by SD Card",
@@ -94,10 +94,11 @@ const char *gpiohs_funcs_in_use[16] = {
         "pin used by GSM_UART",
         "pin used by WiFi_UART",
         "pin used by Timer",
-        "pin used by 1Wire"
+        "pin used by 1Wire",
+        "pin used by DVP",
 };
 
-const char *gpiohs_usedas[21] = {
+const char *gpiohs_usedas[29] = {
         "--",
         "Tx",
         "Rx",
@@ -118,7 +119,15 @@ const char *gpiohs_usedas[21] = {
         "data1",
         "data2",
         "data3",
-        "1wire"
+        "1wire",
+        "dvp_rst",
+        "dvp_pwdn",
+        "dvp_xclk",
+        "dvp_vsync",
+        "dvp_href",
+        "dvp_pclk",
+        "dvp_sclk",
+        "dvp_sda",
 };
 
 const char *reset_reason[8] = {
@@ -218,8 +227,7 @@ void mpy_config_set_default()
     mpy_config.config.vm_divisor = MICROPY_PY_THREAD_GIL_VM_DIVISOR;
     mpy_config.config.log_color = MICROPY_PY_USE_LOG_COLORS;
 
-    bool res = mpy_config_crc(true);
-    LOGM("CONFIG", "Default flash configuration set (%d)", res);
+    if (!mpy_config_crc(true)) LOGW("CONFIG", "Error setting default flash configuration");
 }
 
 //----------------------------------------------
@@ -331,17 +339,17 @@ STATIC mp_obj_t machine_pinstat(void)
 {
     int i;
     char sgpio[8] = {'\0'};
-    mp_printf(&mp_plat_print, " Pin  GpioHS     Used by      as  Fpioa\n");
-    mp_printf(&mp_plat_print, "---------------------------------------\n");
+    mp_printf(&mp_plat_print, " Pin  GpioHS     Used by          as  Fpioa\n");
+    mp_printf(&mp_plat_print, "-------------------------------------------\n");
     for (i=0; i<FPIOA_NUM_IO; i++) {
         if (mp_used_pins[i].func != GPIO_FUNC_NONE) {
             if (mp_used_pins[i].gpio < 0) sprintf(sgpio, "%s", "-");
             else sprintf(sgpio, "%d", mp_used_pins[i].gpio);
-            mp_printf(&mp_plat_print, "%4d%8s%12s%8s%7d\n", i, sgpio, gpiohs_funcs[mp_used_pins[i].func],
+            mp_printf(&mp_plat_print, "%4d%8s%12s%12s%7d\n", i, sgpio, gpiohs_funcs[mp_used_pins[i].func],
                     gpiohs_usedas[mp_used_pins[i].usedas], mp_used_pins[i].fpioa_func);
         }
     }
-    mp_printf(&mp_plat_print, "---------------------------------------\n");
+    mp_printf(&mp_plat_print, "-------------------------------------------\n");
     return mp_const_none;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(machine_pinstat_obj, machine_pinstat);
@@ -366,7 +374,10 @@ STATIC mp_obj_t machine_freq(size_t n_args, const mp_obj_t *args)
             mp_raise_ValueError("Allowed CPU frequencies: 100, 200, 400 MHz");
         }
         freq *= 1000000;
-        if (pll0 > 0) sysctl_pll_set_freq(SYSCTL_PLL0, pll0);
+        if (pll0 > 0) {
+            sysctl_pll_set_freq(SYSCTL_PLL0, pll0);
+            //sysctl_pll_set_freq(SYSCTL_PLL1, pll0);
+        }
 
         mp_hal_set_cpu_frequency(freq);
     }
@@ -487,6 +498,9 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_machine_baudrate_obj, 0, 1, mod_m
 STATIC mp_obj_t machine_reset(void)
 {
     sysctl->soft_reset.soft_reset = 1; // This function does not return.
+    while (1) {
+        ;
+    }
 
     return mp_const_none;
 }
@@ -741,7 +755,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_wdt_reset_in_vm_hook_obj, mod_machi
 STATIC mp_obj_t mod_machine_get_rambuf()
 {
     mp_obj_t tuple[2];
-    tuple[0] = mp_obj_new_int(sys_rambuf_ptr - K210_SRAM_START_ADDRESS);
+    tuple[0] = mp_obj_new_int(MICROPY_SYS_RAMBUF_ADDR & 0x0fffffffUL);
     tuple[1] = mp_obj_new_int(MYCROPY_SYS_RAMBUF_SIZE);
     return mp_obj_new_tuple(2, tuple);
 }
@@ -765,32 +779,79 @@ STATIC mp_obj_t mod_machine_reset_reason()
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_machine_reset_reason_obj, mod_machine_reset_reason);
 
-//------------------------------------------------------
-STATIC mp_obj_t mod_machine_flash_read(mp_obj_t addr_in)
+//-------------------------------------------------------------------------
+STATIC mp_obj_t mod_machine_flash_read(size_t n_args, const mp_obj_t *args)
 {
-    uint32_t addr = mp_obj_get_int(addr_in);
+    uint32_t addr = mp_obj_get_int(args[0]);
+    bool to_buff = false;
+    bool swap = false;
+    if (n_args > 1) to_buff = mp_obj_is_true(args[1]);
+    if (n_args > 2) swap = mp_obj_is_true(args[2]);
     uint8_t buf[512] = {0};
     enum w25qxx_status_t res;
 
     res = w25qxx_read_data(addr, buf, 512);
     if (res == W25QXX_OK) {
+        if (swap) {
+            uint8_t buf4[4];
+            for (int k=0; k<512; k+=4) {
+                buf4[0] = buf[k+0];
+                buf4[1] = buf[k+1];
+                buf4[2] = buf[k+2];
+                buf4[3] = buf[k+3];
+                buf[k+0] = buf4[3];
+                buf[k+1] = buf4[2];
+                buf[k+2] = buf4[1];
+                buf[k+3] = buf4[0];
+            }
+        }
+        if (to_buff) {
+            return mp_obj_new_str_copy(&mp_type_bytes, buf, 512);
+        }
         for (int k=0; k<512; k++) {
             if ((k & 0x1f) == 0) mp_printf(&mp_plat_print, "\n[%08X] ", addr+k);
             mp_printf(&mp_plat_print, "%02X ", buf[k]);
         }
         mp_printf(&mp_plat_print, "\n");
     }
+    else {
+        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_OSError, "error reading from Flash"));
+    }
 
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_flash_read_obj, mod_machine_flash_read);
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_machine_flash_read_obj, 1, 3, mod_machine_flash_read);
+
+//------------------------------------------------------------------------
+STATIC mp_obj_t mod_machine_read_sram(size_t n_args, const mp_obj_t *args)
+{
+    size_t addr = mp_obj_get_int(args[0]);
+    size_t size = mp_obj_get_int(args[1]);
+    bool to_buff = false;
+    if (n_args > 1) to_buff = mp_obj_is_true(args[1]);
+    if (addr > (K210_TOTAL_SRAM_SIZE - size)) {
+        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "reading %lu bytes from address %08x outside of RAM area", size, addr));
+    }
+
+    const byte* buff = (uint8_t *)addr + K210_SRAM_START_ADDRESS;
+    if (to_buff) {
+        return mp_obj_new_str_copy(&mp_type_bytes, buff, size);
+    }
+    for (int k=0; k<512; k++) {
+        if ((k & 0x1f) == 0) mp_printf(&mp_plat_print, "\n[%08X] ", addr+k);
+        mp_printf(&mp_plat_print, "%02X ", buff[k]);
+    }
+    mp_printf(&mp_plat_print, "\n");
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_machine_read_sram_obj, 2, 3, mod_machine_read_sram);
 
 //----------------------------------------------------
 STATIC mp_obj_t mod_machine_membytes(mp_obj_t size_in)
 {
     uint16_t size = mp_obj_get_int(size_in);
     if ((size < 9) || (size > MYCROPY_SYS_RAMBUF_SIZE)) {
-        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "Out pf membytes size range (9 ~ %d)", MYCROPY_SYS_RAMBUF_SIZE));
+        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "membytes size range (9 ~ %d)", MYCROPY_SYS_RAMBUF_SIZE));
     }
     machine_mem_obj_t *self = m_new_obj(machine_mem_obj_t);
     self->base.type = &machine_mem_type;
@@ -799,6 +860,81 @@ STATIC mp_obj_t mod_machine_membytes(mp_obj_t size_in)
     return self;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_membytes_obj, mod_machine_membytes);
+
+//------------------------------------------------
+STATIC mp_obj_t mod_machine_addr_of (mp_obj_t obj)
+{
+    return mp_obj_new_int((size_t)obj);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_addr_of_obj, mod_machine_addr_of);
+
+//---------------------------------
+STATIC mp_obj_t mod_machine_state()
+{
+    mp_printf(&mp_plat_print, " PLL0:%10u, PLL1:%10u,  PLL2:%10u, SPI3clk:%10u\r\n",
+            sysctl_clock_get_freq(SYSCTL_CLOCK_PLL0), sysctl_clock_get_freq(SYSCTL_CLOCK_PLL1),
+            sysctl_clock_get_freq(SYSCTL_CLOCK_PLL2), sysctl_clock_get_freq(SYSCTL_CLOCK_SPI3));
+    mp_printf(&mp_plat_print, " APB0:%10u, APB1:%10u,  ACLK:%10u,    HCLK:%10u\r\n",
+            sysctl_clock_get_freq(SYSCTL_CLOCK_APB0), sysctl_clock_get_freq(SYSCTL_CLOCK_APB1),
+            sysctl_clock_get_freq(SYSCTL_CLOCK_ACLK), sysctl_clock_get_freq(SYSCTL_CLOCK_HCLK));
+    mp_printf(&mp_plat_print, "  CPU:%10u,  KPU:%10u\r\n", sysctl_clock_get_freq(SYSCTL_CLOCK_CPU), sysctl_clock_get_freq(SYSCTL_CLOCK_AI));
+    mp_printf(&mp_plat_print, "SRAM0:%10u (ACLK/%d)\r\nSRAM1:%10u (ACLK/%d)\r\n\r\n",
+            sysctl_clock_get_freq(SYSCTL_CLOCK_SRAM0), sysctl_clock_get_threshold(SYSCTL_CLOCK_SRAM0)+1,
+            sysctl_clock_get_freq(SYSCTL_CLOCK_SRAM1), sysctl_clock_get_threshold(SYSCTL_CLOCK_SRAM1)+1);
+    mp_printf(&mp_plat_print, "Current SPI Flash speed: %lu Hz\r\n", w25qxx_actual_speed);
+    mp_printf(&mp_plat_print, "RAM buffer of %d bytes at 0x%p\r\n", MYCROPY_SYS_RAMBUF_SIZE, (void *)MICROPY_SYS_RAMBUF_ADDR);
+    if (mpy_config.config.use_two_main_tasks) {
+        mp_printf(&mp_plat_print, "Heaps: FreeRTOS=%lu KB (%lu KB free), MPy_1=%u KB, MPy_2=%u KB, other=%lu KB\r\n",
+                FREE_RTOS_TOTAL_HEAP_SIZE/1024, xPortGetFreeHeapSize()/1024, mpy_config.config.heap_size1/1024, mpy_config.config.heap_size2/1024, _check_remaining_heap()/1024);
+    }
+    else {
+        mp_printf(&mp_plat_print, "Heaps: FreeRTOS=%lu KB (%lu KB free), MPy=%u KB, other=%lu KB\r\n",
+                FREE_RTOS_TOTAL_HEAP_SIZE/1024, xPortGetFreeHeapSize()/1024, mpy_config.config.heap_size1/1024, _check_remaining_heap()/1024);
+    }
+
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_machine_state_obj, mod_machine_state);
+
+
+typedef int otp_read_func(uint32_t offset, uint8_t *dest, uint32_t size);
+static otp_read_func *otp_read_inner = (otp_read_func*)0x8800453c; // fixed address in ROM
+
+//--------------------------------------
+STATIC mp_obj_t mod_machine_K210serial()
+{
+    uint32_t id;
+    int rv = otp_read_inner(0x3d9c, (uint8_t *)&id, sizeof(uint32_t));
+    if (rv == 0) return mp_obj_new_int(id);
+    return mp_const_false;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_machine_K210serial_obj, mod_machine_K210serial);
+
+//---------------------------------------
+STATIC mp_obj_t mod_machine_FlashSerial()
+{
+    uint64_t id;
+    w25qxx_read_unique((uint8_t *)&id);
+    return mp_obj_new_int(id);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_machine_FlashSerial_obj, mod_machine_FlashSerial);
+
+//---------------------------------------------------------------------
+STATIC mp_obj_t machine_flashSpeed(size_t n_args, const mp_obj_t *args)
+{
+    uint32_t flash_speed = w25qxx_actual_speed;
+    if (n_args > 0) {
+        flash_speed = (uint32_t)mp_obj_get_int(args[0]);
+        if (flash_speed < 100) flash_speed *= 1000000;
+        if ((flash_speed < 20000000) || (flash_speed > 90000000)) {
+            mp_raise_ValueError("Allowed flash speeds: 20~90 MHzz");
+        }
+        flash_speed = w25qxx_init(flash_spi, SPI_FF_QUAD, flash_speed);
+    }
+
+    return mp_obj_new_int(flash_speed);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_flashSpeed_obj, 0, 1, machine_flashSpeed);
 
 
 //===========================================================
@@ -814,6 +950,7 @@ STATIC const mp_map_elem_t machine_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_rambuf),          MP_ROM_PTR(&mod_machine_get_rambuf_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_freq),            MP_ROM_PTR(&machine_freq_obj) },
+    { MP_ROM_QSTR(MP_QSTR_state),           MP_ROM_PTR(&mod_machine_state_obj) },
     { MP_ROM_QSTR(MP_QSTR_random),          MP_ROM_PTR(&machine_random_obj) },
     { MP_ROM_QSTR(MP_QSTR_reset),           MP_ROM_PTR(&machine_reset_obj) },
     { MP_ROM_QSTR(MP_QSTR_reset_reason),    MP_ROM_PTR(&mod_machine_reset_reason_obj) },
@@ -831,6 +968,11 @@ STATIC const mp_map_elem_t machine_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_vm_hook),         MP_ROM_PTR(&mod_machine_vm_hook_obj) },
     { MP_ROM_QSTR(MP_QSTR_vm_hook_wdt),     MP_ROM_PTR(&mod_machine_wdt_reset_in_vm_hook_obj) },
     { MP_ROM_QSTR(MP_QSTR_flash_read),      MP_ROM_PTR(&mod_machine_flash_read_obj) },
+    { MP_ROM_QSTR(MP_QSTR_sram_read),       MP_ROM_PTR(&mod_machine_read_sram_obj) },
+    { MP_ROM_QSTR(MP_QSTR_addrof),          MP_ROM_PTR(&mod_machine_addr_of_obj) },
+    { MP_ROM_QSTR(MP_QSTR_k210_id),         MP_ROM_PTR(&mod_machine_K210serial_obj) },
+    { MP_ROM_QSTR(MP_QSTR_flash_serial),    MP_ROM_PTR(&mod_machine_FlashSerial_obj) },
+    { MP_ROM_QSTR(MP_QSTR_flash_speed),     MP_ROM_PTR(&machine_flashSpeed_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_Pin),             MP_ROM_PTR(&machine_pin_type) },
     { MP_ROM_QSTR(MP_QSTR_UART),            MP_ROM_PTR(&machine_uart_type) },
