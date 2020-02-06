@@ -1,17 +1,17 @@
 # MicroPython for Kendryte K210
 
 
-Three prebuilt firmwares are provided:
+Four prebuilt firmwares are provided:
 
 * `default` default configuration, no sqlite module, one MicroPython task; in this directory
 * `sqlite`  default configuration, sqlite module included, one MicroPython task; in `sqlite` directory
 * `twotasks`  no KPU (8 MB SRAM used), sqlite module included, two MicroPython task; in `twotasks` directory
-* `default` default configuration, no sqlite module, one MicroPython task, **OTA enabled**; in `ota` directory
+* `ota` default configuration, no sqlite module, one MicroPython task, **OTA enabled**; in `ota` directory
 
 To flash the pre-built firmware to your K210 board, run (in this directory):
 
 ```
-./kflash.py -p /dev/ttyUSB0 -b 2000000 -t MicroPython.bin
+./ktool.py -p /dev/ttyUSB0 -b 2000000 -t MicroPython.bin
 ```
 
 Change */dev/ttyUSB0* to the port used to connect to the board if needed.<br>
@@ -28,6 +28,10 @@ _Kboot bootloader_ is included in `ota/MicroPython.kfpkg`, when flashing for the
 
 After the _Kboot bootloader_ is flashed, you can later flash only the MicroPython binary using the command:
 
+```console
+./ktool.py -p /dev/ttyUSB0 -a 65536 -b 2000000 -t MicroPython.bin
 ```
-./kflash.py -p /dev/ttyUSB0 -a 65536 -b 2000000 -t MicroPython.bin
-```
+
+<hr>
+
+**`wifi`** directory contains the ESP8266/ESP8285 firmwares.
