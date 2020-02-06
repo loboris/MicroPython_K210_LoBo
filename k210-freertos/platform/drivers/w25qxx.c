@@ -63,6 +63,12 @@ static uint32_t er_count;
 static uint64_t op_time;
 // used only by 'w25qxx_write_data'
 uint8_t __attribute__((aligned(8))) swap_buf[w25qxx_FLASH_SECTOR_SIZE];
+bool w25qxx_swap_dat = true;
+
+// pointers for XIP reads
+uint8_t *w25qxx_flash_ptr = (uint8_t *)SPI3_BASE_ADDR;
+uint16_t *w25qxx_flash_ptr16 = (uint16_t *)SPI3_BASE_ADDR;
+uint32_t *w25qxx_flash_ptr32 = (uint32_t *)SPI3_BASE_ADDR;
 
 //--------------------------------------------------------------------------------------------------------------------
 static enum w25qxx_status_t w25qxx_receive_data(uint8_t* cmd_buff, uint8_t cmd_len, uint8_t* rx_buff, uint32_t rx_len)
@@ -189,44 +195,29 @@ static enum w25qxx_status_t w25qxx_enable_quad_mode(void)
     return W25QXX_OK;
 }
 
-//------------------------------------------------------------------------
-enum w25qxx_status_t w25qxx_read_id(uint8_t *manuf_id, uint8_t *device_id)
-{
-    uint8_t cmd[4] = {READ_ID, 0x00, 0x00, 0x00};
-    uint8_t data[2] = {0};
-
-    w25qxx_receive_data(cmd, 4, data, 2);
-    *manuf_id = data[0];
-    *device_id = data[1];
-    return W25QXX_OK;
-}
-
-//----------------------------------------------------------
-enum w25qxx_status_t w25qxx_read_jedec_id(uint8_t *jedec_id)
-{
-    uint8_t cmd[1] = {READ_JEDEC_ID};
-
-    w25qxx_receive_data(cmd, 1, jedec_id, 3);
-    return W25QXX_OK;
-}
-
-//---------------------------------------------------------
-enum w25qxx_status_t w25qxx_read_unique(uint8_t *unique_id)
-{
-    uint8_t cmd[5] = {READ_UNIQUE, 0x00, 0x00, 0x00, 0x00};
-
-    w25qxx_receive_data(cmd, 5, unique_id, 8);
-    return W25QXX_OK;
-}
-
-
 // ==== Flash read functions =====================================================================
 
 //------------------------------------------------------------------------------------------------------------------------------
 static enum w25qxx_status_t w25qxx_receive_data_enhanced(uint32_t* cmd_buff, uint8_t cmd_len, uint8_t* rx_buff, uint32_t rx_len)
 {
+    if ((rx_len % (FRAME_LENGTH_QUAD/8))) {
+        LOGE("w25qxx_receive", "Wrong Rx length (%u)", rx_len);
+        return W25QXX_ERROR;
+    }
     memcpy(rx_buff, cmd_buff, cmd_len);
     io_read(spi_adapter, (uint8_t *)rx_buff, rx_len);
+    if (w25qxx_swap_dat) {
+        // swap read data
+        uint8_t val;
+        for (uint32_t i=0; i<rx_len; i+=4) {
+            val = rx_buff[i];
+            rx_buff[i] = rx_buff[i+3];
+            rx_buff[i+3] = val;
+            val = rx_buff[i+1];
+            rx_buff[i+1] = rx_buff[i+2];
+            rx_buff[i+2] = val;
+        }
+    }
     return W25QXX_OK;
 }
 
@@ -285,7 +276,7 @@ static enum w25qxx_status_t _w25qxx_read_data(uint32_t addr, uint8_t* data_buf, 
     return W25QXX_OK;
 }
 
-//--------------------------------------------------------------------------------------
+//======================================================================================
 enum w25qxx_status_t w25qxx_read_data(uint32_t addr, uint8_t* data_buf, uint32_t length)
 {
     uint8_t *read_buf = NULL;
@@ -311,9 +302,13 @@ start:
 // ==== Flash write functions ====================================================================
 
 // Erase the flash sector at address 'addr'
-//-----------------------------------------------------
+//=====================================================
 enum w25qxx_status_t w25qxx_sector_erase(uint32_t addr)
 {
+    if (addr % w25qxx_FLASH_SECTOR_SIZE) {
+        LOGE("w25qxx_erase", "Erase address not aligned (%u)",addr);
+        return W25QXX_ERROR;
+    }
     uint8_t cmd[4] = {SECTOR_ERASE};
 
     cmd[1] = (uint8_t)(addr >> 16);
@@ -328,42 +323,50 @@ enum w25qxx_status_t w25qxx_sector_erase(uint32_t addr)
 
 // Program the flash page (256 bytes)
 //------------------------------------------------------------------------------------------------
-static enum w25qxx_status_t w25qxx_page_program(uint32_t addr, uint8_t* data_buf, uint32_t length)
+static enum w25qxx_status_t w25qxx_page_program(uint32_t addr, uint8_t* data_buf)
 {
-    uint8_t *read_buf = NULL;
+    uint8_t dbuff[w25qxx_FLASH_PAGE_SIZE];
     int retry = 0;
-    if (w25qxx_spi_check) read_buf = pvPortMalloc(length);
 
     uint32_t cmd[2];
 start:
     w25qxx_write_enable();
     if (work_trans_mode == SPI_FF_QUAD) {
+        if (w25qxx_swap_dat) {
+            // Swap buffer data
+            for (uint32_t i=0; i<w25qxx_FLASH_PAGE_SIZE; i+=4) {
+                dbuff[i+3] = data_buf[i];
+                dbuff[i+2] = data_buf[i+1];
+                dbuff[i+1] = data_buf[i+2];
+                dbuff[i] = data_buf[i+3];
+            }
+        }
+
         *(((uint8_t*)cmd) + 0) = QUAD_PAGE_PROGRAM;
         *(((uint8_t*)cmd) + 1) = (uint8_t)(addr >> 0);
         *(((uint8_t*)cmd) + 2) = (uint8_t)(addr >> 8);
         *(((uint8_t*)cmd) + 3) = (uint8_t)(addr >> 16);
-        w25qxx_send_data(spi_adapter_wr, (uint8_t*)cmd, 4, data_buf, length);
+        w25qxx_send_data(spi_adapter_wr, (uint8_t*)cmd, 4, dbuff, w25qxx_FLASH_PAGE_SIZE);
     }
     else {
         *(((uint8_t*)cmd) + 0) = PAGE_PROGRAM;
         *(((uint8_t*)cmd) + 1) = (uint8_t)(addr >> 16);
         *(((uint8_t*)cmd) + 2) = (uint8_t)(addr >> 8);
         *(((uint8_t*)cmd) + 3) = (uint8_t)(addr >> 0);
-        w25qxx_send_data(spi_stand, (uint8_t*)cmd, 4, data_buf, length);
+        w25qxx_send_data(spi_stand, (uint8_t*)cmd, 4, data_buf, w25qxx_FLASH_PAGE_SIZE);
     }
     wr_count++;
     enum w25qxx_status_t res = w25qxx_wait_busy();
     if (res != W25QXX_OK) return res;
 
     if (w25qxx_spi_check) {
-        _w25qxx_read_data(addr, read_buf, length);
-        if (memcmp(data_buf, read_buf, length) != 0) {
+        _w25qxx_read_data(addr, dbuff, w25qxx_FLASH_PAGE_SIZE);
+        if (memcmp(data_buf, dbuff, w25qxx_FLASH_PAGE_SIZE) != 0) {
             retry++;
             if (retry < 3) goto start;
             res = W25QXX_ERROR;
         }
     }
-    if (read_buf) vPortFree(read_buf);
     return res;
 }
 
@@ -374,7 +377,7 @@ static enum w25qxx_status_t w25qxx_sector_program(uint32_t addr, uint8_t* data_b
     uint8_t index;
 
     for (index = 0; index < w25qxx_FLASH_PAGE_NUM_PER_SECTOR; index++) {
-        enum w25qxx_status_t res = w25qxx_page_program(addr, data_buf, w25qxx_FLASH_PAGE_SIZE);
+        enum w25qxx_status_t res = w25qxx_page_program(addr, data_buf);
         if (res != W25QXX_OK) return res;
         addr += w25qxx_FLASH_PAGE_SIZE;
         data_buf += w25qxx_FLASH_PAGE_SIZE;
@@ -383,7 +386,7 @@ static enum w25qxx_status_t w25qxx_sector_program(uint32_t addr, uint8_t* data_b
 }
 
 // Write data buffer of arbitrary length to flash address 'addr'
-//---------------------------------------------------------------------------------------
+//=======================================================================================
 enum w25qxx_status_t w25qxx_write_data(uint32_t addr, uint8_t* data_buf, uint32_t length)
 {
     uint32_t sector_addr, sector_offset, sector_remain, write_len, index;
@@ -452,7 +455,7 @@ enum w25qxx_status_t w25qxx_write_data(uint32_t addr, uint8_t* data_buf, uint32_
     return W25QXX_OK;
 }
 
-//---------------------------------------------------------------------
+//=====================================================================
 uint32_t w25qxx_init(uintptr_t spi_in, uint8_t mode, double clock_rate)
 {
     configASSERT(mode < 3);
@@ -469,7 +472,7 @@ uint32_t w25qxx_init(uintptr_t spi_in, uint8_t mode, double clock_rate)
         clock_rate = 40000000;
     }
 
-    spi_stand = spi_get_device(spi_in, SPI_MODE_0, SPI_FF_STANDARD, CHIP_SELECT, FRAME_LENGTH);
+    spi_stand = spi_get_device(spi_in, SPI_MODE_0, SPI_FF_STANDARD, CHIP_SELECT, FRAME_LENGTH_SINGLE);
     w25qxx_actual_speed = (uint32_t)spi_dev_set_clock_rate(spi_stand, SPI_STAND_CLOCK_RATE);
 
     w25qxx_read_id(&manuf_id, &device_id);
@@ -504,7 +507,10 @@ uint32_t w25qxx_init(uintptr_t spi_in, uint8_t mode, double clock_rate)
     return w25qxx_actual_speed;
 }
 
-//-----------------------------------------------
+
+// ==== Flash special functions ==================================================================
+
+//===============================================
 enum w25qxx_status_t w25qxx_enable_xip_mode(void)
 {
     if (!spi_adapter) return W25QXX_ERROR;
@@ -512,13 +518,45 @@ enum w25qxx_status_t w25qxx_enable_xip_mode(void)
     return W25QXX_OK;
 }
 
-//------------------------------------------------
+//================================================
 enum w25qxx_status_t w25qxx_disable_xip_mode(void)
 {
     if (!spi_adapter) return W25QXX_ERROR;
     spi_dev_set_xip_mode(spi_adapter, false);
     return W25QXX_OK;
 }
+
+//========================================================================
+enum w25qxx_status_t w25qxx_read_id(uint8_t *manuf_id, uint8_t *device_id)
+{
+    uint8_t cmd[4] = {READ_ID, 0x00, 0x00, 0x00};
+    uint8_t data[2] = {0};
+
+    w25qxx_receive_data(cmd, 4, data, 2);
+    *manuf_id = data[0];
+    *device_id = data[1];
+    return W25QXX_OK;
+}
+
+//==========================================================
+enum w25qxx_status_t w25qxx_read_jedec_id(uint8_t *jedec_id)
+{
+    uint8_t cmd[1] = {READ_JEDEC_ID};
+
+    w25qxx_receive_data(cmd, 1, jedec_id, 3);
+    return W25QXX_OK;
+}
+
+//=========================================================
+enum w25qxx_status_t w25qxx_read_unique(uint8_t *unique_id)
+{
+    uint8_t cmd[5] = {READ_UNIQUE, 0x00, 0x00, 0x00, 0x00};
+
+    w25qxx_receive_data(cmd, 5, unique_id, 8);
+    return W25QXX_OK;
+}
+
+// ==== Driver counter functions =================================================================
 
 //--------------------------
 void w25qxx_clear_counters()
@@ -537,3 +575,4 @@ void w25qxx_get_counters(uint32_t *r, uint32_t *w, uint32_t *e, uint64_t *time)
     if (e) *e = er_count;
     if (time) *time = op_time;
 }
+

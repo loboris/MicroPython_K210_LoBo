@@ -13,18 +13,19 @@
  * limitations under the License.
  */
 #include <iomem.h>
-#include <printf.h>
+//#include <printf.h>
 #include <atomic.h>
 #include <sys/lock.h>
 #include "FreeRTOS.h"
 #include "task.h"
+#include "syslog.h"
 
-// LoBo: some fixes in data typed and unused variables
+// LoBo: some fixes in data types and unused variables
 
 typedef struct _iomem_malloc_t
 {
     void (*init)();
-    uint32_t (*unused)();
+    uint32_t (*unused)(); // LoBo: set as uint32_t
     uint8_t *membase;
     uint32_t memsize;
     uint32_t memtblsize;
@@ -37,13 +38,14 @@ static _lock_t iomem_lock;
 
 static void iomem_init();
 static uint32_t k_unused();
+
 extern char *_ioheap_line;
 extern char *_heap_line;
+// Lobo: commented
 //extern char _heap_start[];
 //extern char *_heap_cur;
 
-iomem_malloc_t malloc_cortol = 
-{
+iomem_malloc_t malloc_controll = {
     iomem_init,
     k_unused,
     NULL,
@@ -63,20 +65,20 @@ static void iomem_set(void *s, uint8_t c, uint32_t num)
 
 static void iomem_init()
 {
-    malloc_cortol.membase = (uint8_t *)((uintptr_t)_heap_line-0x40000000);
-    malloc_cortol.memsize = (uintptr_t)_ioheap_line - (uintptr_t)malloc_cortol.membase;
+    malloc_controll.membase = (uint8_t *)((uintptr_t)_heap_line-0x40000000);
+    malloc_controll.memsize = (uintptr_t)_ioheap_line - (uintptr_t)malloc_controll.membase;
 
-    malloc_cortol.memtblsize = malloc_cortol.memsize / IOMEM_BLOCK_SIZE;
-    malloc_cortol.memmap = (uint16_t *)malloc(malloc_cortol.memtblsize * 2);
+    malloc_controll.memtblsize = malloc_controll.memsize / IOMEM_BLOCK_SIZE;
+    malloc_controll.memmap = (uint16_t *)malloc(malloc_controll.memtblsize * 2);
     mb();
 
-    malloc_cortol.membase = (uint8_t *)((uintptr_t)_heap_line-0x40000000);
-    malloc_cortol.memsize = (uintptr_t)_ioheap_line - (uintptr_t)malloc_cortol.membase;
-    malloc_cortol.memtblsize = malloc_cortol.memsize / IOMEM_BLOCK_SIZE;
+    malloc_controll.membase = (uint8_t *)((uintptr_t)_heap_line-0x40000000);
+    malloc_controll.memsize = (uintptr_t)_ioheap_line - (uintptr_t)malloc_controll.membase;
+    malloc_controll.memtblsize = malloc_controll.memsize / IOMEM_BLOCK_SIZE;
 
-    iomem_set(malloc_cortol.memmap, 0, malloc_cortol.memtblsize * 2);
-    iomem_set(malloc_cortol.membase, 0, malloc_cortol.memsize);
-    malloc_cortol.memrdy = 1;
+    iomem_set(malloc_controll.memmap, 0, malloc_controll.memtblsize * 2);
+    iomem_set(malloc_controll.membase, 0, malloc_controll.memsize);
+    malloc_controll.memrdy = 1;
 }
 
 static uint32_t k_unused()
@@ -88,35 +90,36 @@ static uint32_t k_unused()
     return unused;
 }
 
+#if FIX_CACHE
 static uint32_t k_malloc(uint32_t size)
 {
     signed long offset = 0;
     uint32_t xmemb;
     uint32_t kmemb = 0;
     //uint32_t i;
-    if(!malloc_cortol.memrdy)
-        malloc_cortol.init();
+    if(!malloc_controll.memrdy)
+        malloc_controll.init();
     if(size==0)
         return 0XFFFFFFFF;
     xmemb=size / IOMEM_BLOCK_SIZE;
     if(size % IOMEM_BLOCK_SIZE)
         xmemb++;
 
-    for(offset=malloc_cortol.memtblsize-1; offset>=0; offset--)
+    for(offset=malloc_controll.memtblsize-1; offset>=0; offset--)
     {
-        if(!malloc_cortol.memmap[offset])
+        if(!malloc_controll.memmap[offset])
         {
             kmemb++;
         }
         else 
         {
-            offset = offset - malloc_cortol.memmap[offset] + 1;
+            offset = offset - malloc_controll.memmap[offset] + 1;
             kmemb=0;
         }
         if(kmemb==xmemb)
         {
-            malloc_cortol.memmap[offset] = xmemb;
-            malloc_cortol.memmap[offset+xmemb-1] = xmemb;
+            malloc_controll.memmap[offset] = xmemb;
+            malloc_controll.memmap[offset+xmemb-1] = xmemb;
             return (offset * IOMEM_BLOCK_SIZE);
         }
     }
@@ -126,20 +129,20 @@ static uint32_t k_malloc(uint32_t size)
 static uint8_t k_free(uint32_t offset)
 {
     //int i;
-    if(!malloc_cortol.memrdy)
+    if(!malloc_controll.memrdy)
     {
-        malloc_cortol.init();
+        malloc_controll.init();
         return 1;
     }  
-    if(offset < malloc_cortol.memsize)
+    if(offset < malloc_controll.memsize)
     {  
         int index=offset / IOMEM_BLOCK_SIZE;
-        int nmemb=malloc_cortol.memmap[index];
+        int nmemb=malloc_controll.memmap[index];
 
-        malloc_cortol.memmap[index] = 0;
-        malloc_cortol.memmap[index+nmemb-1] = 0;
+        malloc_controll.memmap[index] = 0;
+        malloc_controll.memmap[index+nmemb-1] = 0;
 
-        if((uintptr_t)_ioheap_line == (uintptr_t)malloc_cortol.membase + offset)
+        if((uintptr_t)_ioheap_line == (uintptr_t)malloc_controll.membase + offset)
         {
             _ioheap_line = (char *)((uintptr_t)_ioheap_line + nmemb * IOMEM_BLOCK_SIZE);
         }
@@ -149,18 +152,19 @@ static uint8_t k_free(uint32_t offset)
         return 2;
 }  
 
-static volatile uint32_t mstatus_t = 0;
+//static volatile uint32_t mstatus_t = 0;
+#endif
 
 void iomem_free(void *paddr)
 {
-    uint32_t offset;
     if(paddr == NULL)
         return;
 #if FIX_CACHE
-    _lock_acquire_recursive(malloc_cortol.lock);
-    offset=(uintptr_t)paddr - (uintptr_t)malloc_cortol.membase;
+    uint32_t offset;
+    _lock_acquire_recursive(malloc_controll.lock);
+    offset=(uintptr_t)paddr - (uintptr_t)malloc_controll.membase;
     k_free(offset);
-    _lock_release_recursive(malloc_cortol.lock);
+    _lock_release_recursive(malloc_controll.lock);
 #else
     free(paddr);
 #endif
@@ -168,11 +172,11 @@ void iomem_free(void *paddr)
 
 void iomem_free_isr(void *paddr)
 {
-    uint32_t offset;
     if(paddr == NULL)
         return;
 #if FIX_CACHE
-    offset=(uintptr_t)paddr - (uintptr_t)malloc_cortol.membase;
+    uint32_t offset;
+    offset=(uintptr_t)paddr - (uintptr_t)malloc_controll.membase;
     k_free(offset);
 #endif
 }
@@ -180,28 +184,28 @@ void iomem_free_isr(void *paddr)
 void *iomem_malloc(uint32_t size)
 {
 #if FIX_CACHE
-    _lock_acquire_recursive(malloc_cortol.lock);
+    _lock_acquire_recursive(malloc_controll.lock);
 
     uint32_t offset;
     offset=k_malloc(size);
     if(offset == 0XFFFFFFFF)
     {
-        printk("IOMEM malloc OUT of MEMORY!\r\n");
-        _lock_release_recursive(malloc_cortol.lock);
+        LOGW("[IOMEM]", "IOMEM malloc OUT of MEMORY!\r\n");
+        _lock_release_recursive(malloc_controll.lock);
          return NULL;
     }
     else 
     {
-        if((uintptr_t)_ioheap_line > (uintptr_t)malloc_cortol.membase + offset)
+        if((uintptr_t)_ioheap_line > (uintptr_t)malloc_controll.membase + offset)
         {
-            _ioheap_line = (char *)((uintptr_t)malloc_cortol.membase + offset);
+            _ioheap_line = (char *)((uintptr_t)malloc_controll.membase + offset);
             if((uintptr_t)_ioheap_line < (uintptr_t)_heap_line-0x40000000)
             {
-                printk("WARNING: iomem heap line < cache heap line!\r\n");
+                LOGW("[IOMEM]", "WARNING: iomem heap line (%p) < cache heap line (%p) !\r\n", _ioheap_line, _heap_line-0x40000000);
             }
         };
-        _lock_release_recursive(malloc_cortol.lock);
-        return (void*)((uintptr_t)malloc_cortol.membase + offset);
+        _lock_release_recursive(malloc_controll.lock);
+        return (void*)((uintptr_t)malloc_controll.membase + offset);
     }
 #else
     return malloc(size);
@@ -210,7 +214,7 @@ void *iomem_malloc(uint32_t size)
 
 uint32_t iomem_unused()
 {
-    return malloc_cortol.unused();
+    return malloc_controll.unused();
 }
 
 uint32_t is_memory_cache(uintptr_t address)

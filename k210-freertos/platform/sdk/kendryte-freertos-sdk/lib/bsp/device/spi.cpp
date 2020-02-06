@@ -37,7 +37,7 @@ using namespace sys;
 // transmission length (frames) bellow which DMA transfer is not used
 // used only by SPI master
 // during the non-DMA transfer interrupts are disabled !
-#define SPI_TRANSMISSION_THRESHOLD  0x400UL     // byte threshold above which a DMA transfer is used
+#define SPI_TRANSMISSION_THRESHOLD  0x100000UL //0x400UL     // byte threshold above which a DMA transfer is used
 #define SPI_DMA_BLOCK_TIME          1000UL      // DMA transfer block time in ms
 #define SPI_SLAVE_INFO              "K210 v1.2" // !must be exactly 9 bytes!
 
@@ -189,7 +189,7 @@ public:
         sysctl_reset(SYSCTL_RESET_SPI2);
         sysctl_clock_enable(SYSCTL_CLOCK_SPI2);
         sysctl_clock_set_threshold(SYSCTL_THRESHOLD_SPI2, 4);
-        LOGD(SLAVE_TAG, "SPI Clk: %u", sysctl_clock_get_freq(SYSCTL_CLOCK_SPI2));
+        LOGV(SLAVE_TAG, "SPI Clk: %u", sysctl_clock_get_freq(SYSCTL_CLOCK_SPI2));
 
         uint32_t data_width = data_bit_length / 8;
 
@@ -273,7 +273,7 @@ private:
         spi_handle.imr = 0x10;
         if (irq_en) spi_handle.ssienr = 0x01;
 
-        LOGD(SLAVE_TAG, "In IDLE mode");
+        LOGV(SLAVE_TAG, "In IDLE mode");
     }
 
     // Wait for DMA transfer initiated from command handler to finish
@@ -307,7 +307,7 @@ private:
         }
         tend = read_csr64(mcycle) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000);
         if ((dmac_intstatus & 0x02) == 0) f = false;
-        LOGD(SLAVE_TAG, "Transfer time: %lu us)", tend - tstart);
+        LOGV(SLAVE_TAG, "Transfer time: %lu us)", tend - tstart);
         return f;
     }
 
@@ -626,7 +626,7 @@ exit:
         // execute the callback function if set
         if (driver.slave_instance_.callback != NULL) driver.slave_instance_.callback((void *)&driver.slave_instance_.command);
 
-        LOGD(SLAVE_TAG, "Prepare time: %lu us", end_time_us - time_us);
+        LOGV(SLAVE_TAG, "Prepare time: %lu us", end_time_us - time_us);
         spi_slave_idle_mode(userdata, (driver.slave_instance_.command.err != SPI_CMD_ERR_FATAL));
         return;
     }
@@ -819,10 +819,16 @@ object_ptr<spi_device_driver> k_spi_driver::get_device(spi_mode_t mode, spi_fram
 // LoBo: added function
 bool k_spi_driver::set_xip_mode(k_spi_device_driver &device, bool enable)
 {
-    // ToDo: check if device is spi3
-    if (device.frame_format_ != SPI_FF_QUAD) {
+    // XiP mode can only be enabled on SPI3 in QUAD mode
+    if (&spi_ != (volatile spi_t *)SPI3_BASE_ADDR) {
+        LOGE(TAG, "XiP enable: not an SPI3 device");
         return false;
     }
+    if (device.frame_format_ != SPI_FF_QUAD) {
+        LOGE(TAG, "XiP enable: not in QUAD mode");
+        return false;
+    }
+
     if (enable) {
         spi_.xip_ctrl = (0x01 << 29) | (0x02 << 26) | (0x01 << 23) | (0x01 << 22) | (0x04 << 13) |
                    (0x01 << 12) | (0x02 << 9) | (0x06 << 4) | (0x01 << 2) | 0x02;
@@ -860,8 +866,9 @@ double k_spi_driver::set_clock_rate(k_spi_device_driver &device, double clock_ra
     double clk = (double)sysctl_clock_get_freq(clock_);
     uint32_t div = std::min(65534U, std::max((uint32_t)ceil(clk / clock_rate), 2U));
     if (div & 1) div++; // only even divisors allowed
+    if (device.baud_rate_ != div)
+        LOGV(TAG, "SPI_%d Bdr: clk=%u, div=%u, bdr=%u", clock_ - SYSCTL_CLOCK_SPI0, (uint32_t)clk, div, (uint32_t)(clk / div));
     device.baud_rate_ = div;
-    LOGD(TAG, "SPI_%d Bdr: clk=%u, div=%u, bdr=%u", clock_ - SYSCTL_CLOCK_SPI0, (uint32_t)clk, div, (uint32_t)(clk / div));
     return clk / div;
 }
 
@@ -926,7 +933,7 @@ static int _wait_DMA_transfer(SemaphoreHandle_t dma_event1, SemaphoreHandle_t dm
         }
     }
     tend = read_csr64(mcycle) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000);
-    LOGD(TAG, "Transfer time: %lu us)", tend - tstart);
+    LOGV(TAG, "Transfer time: %lu us)", tend - tstart);
     return ret;
 }
 

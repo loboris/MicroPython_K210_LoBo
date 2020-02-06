@@ -151,9 +151,6 @@ bool dvp_init(sensor_t *sensor)
         }
     }
 
-    // Set DVP clock
-    sensor->xclk = (uint32_t)dvp_xclk_set_clock_rate(sensor->dvp_handle, CAMERA_XCLK_FREQUENCY);
-    LOGD(TAG, "DVP clock: %u", sensor->xclk);
     // Disable DVP output for now
     dvp_set_output_enable(sensor->dvp_handle, DATA_FOR_AI, false);
     dvp_set_output_enable(sensor->dvp_handle, DATA_FOR_DISPLAY, false);
@@ -184,14 +181,19 @@ bool dvp_init(sensor_t *sensor)
                 }
                 break;
             case SENSORTYPE_AUTO:
+                LOGD(TAG, "Camera auto detect");
                 if (ov2640_init(sensor) != 0) {
                     if (ov5640_init(sensor) != 0) {
                         dvp_deinit(sensor);
                         return false;
                     }
+                    LOGD(TAG, "OV5640");
                     sensor->sensor_type = SENSORTYPE_OV5640;
                 }
-                else sensor->sensor_type = SENSORTYPE_OV2640;
+                else {
+                    LOGD(TAG, "OV2640");
+                    sensor->sensor_type = SENSORTYPE_OV2640;
+                }
                 break;
             default:
                 LOGE(TAG, "Unsupported camera type");
@@ -199,6 +201,13 @@ bool dvp_init(sensor_t *sensor)
                 return false;
         }
     }
+
+    // Set DVP clock
+    if (sensor->sensor_type == SENSORTYPE_OV5640)
+        sensor->xclk = (uint32_t)dvp_xclk_set_clock_rate(sensor->dvp_handle, CAMERA_XCLK_FREQUENCY);
+    else
+        sensor->xclk = (uint32_t)dvp_xclk_set_clock_rate(sensor->dvp_handle, CAMERA_XCLK_FREQUENCY1);
+    LOGD(TAG, "DVP clock: %u", sensor->xclk);
 
     // === Reset and initialize the camera ===
     sensor->reset();

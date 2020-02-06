@@ -114,7 +114,7 @@ static int tft_dc_gpionum = 0;
 static mp_fpioa_cfg_item_t disp_pin_func[DISP_NUM_FUNC];
 static uint32_t tft_spi_speed = SPI_DEFAULT_SPEED;
 
-//static const char TAG[] = "[TFTSPI]";
+static const char TAG[] = "[TFTSPI]";
 static uint8_t invertrot = 1;
 
 // ==== Functions =====================
@@ -250,16 +250,18 @@ static void tft_write_byte(uint8_t* data_buf, uint32_t length)
     io_write(spi_dfs8, (const uint8_t *)(data_buf), length);
 }
 
+// send to display from buffer of 16-bit color values
 //-------------------------------------------------------------
-static void tft_write_half(uint16_t* data_buf, uint32_t length)
+static void tft_write_rgb565(uint16_t* data_buf, uint32_t length)
 {
     set_dcx_data();
     io_write(spi_dfs16, (const uint8_t *)(data_buf), length * 2);
 }
 
 /*
-//-------------------------------------------------------------
-static void tft_write_word(uint32_t* data_buf, uint32_t length)
+// send to display from buffer of 32-bit values
+//--------------------------------------------------------------
+static void tft_write_32bit(uint32_t* data_buf, uint32_t length)
 {
     set_dcx_data();
     io_write(spi_dfs32, (const uint8_t *)data_buf, length * 4);
@@ -354,7 +356,7 @@ void drawPixel(int16_t x, int16_t y, color_t color)
 
 	disp_spi_transfer_addrwin(x, x, y, y);
 
-    tft_write_half(&color, 1);
+    tft_write_rgb565(&color, 1);
 }
 
 // Write 'len' color data to TFT 'window' (x1,y2),(x2,y2)
@@ -405,18 +407,20 @@ void send_data(int x1, int y1, int x2, int y2, uint32_t len, color_t *buf)
     disp_spi_transfer_addrwin(x1, x2, y1, y2);
 
     // Send color buffer
-    tft_write_half(buf, len);
+    tft_write_rgb565(buf, len);
 }
 
 // Write color data to TFT framebuffer from given buffer
 //==================================================================================
 void send_data_scale(int x1, int y1, int width, int height, color_t *buf, int scale)
 {
-    if (!active_dstate->use_frame_buffer) return;
+    //if (!active_dstate->use_frame_buffer) return;
 
     if ((x1==0) && (y1==0) && (width == active_dstate->_width) && (height == active_dstate->_height) && (scale <= 1)) {
-        memcpy(active_dstate->tft_frame_buffer, buf, width*height*2);
-        return;
+        if (active_dstate->use_frame_buffer) {
+            memcpy(active_dstate->tft_frame_buffer, buf, width*height*2);
+            return;
+        }
     }
 
     int x, y;   // input buffer coordinates
@@ -436,7 +440,11 @@ void send_data_scale(int x1, int y1, int width, int height, color_t *buf, int sc
             tx = (x/xyscale) + x1; // display column
             if (tx < 0) continue;
             if (tx >= active_dstate->_width) break;
-            active_dstate->tft_frame_buffer[(ty * active_dstate->_width) + tx] = buf[(y * width) + x];
+            if (active_dstate->use_frame_buffer) active_dstate->tft_frame_buffer[(ty * active_dstate->_width) + tx] = buf[(y * width) + x];
+            else if (active_dstate->tft_active_mode == TFT_MODE_TFT) {
+                drawPixel(x, y, buf[(y * width) + x]);
+                mp_hal_wdt_reset();
+            }
         }
     }
 }
@@ -446,17 +454,11 @@ void send_data_scale(int x1, int y1, int width, int height, color_t *buf, int sc
 void send_frame_buffer()
 {
     if ((active_dstate->use_frame_buffer) && active_dstate->tft_frame_buffer) {
-        /*
+        LOGV(TAG, "Send frame buffer at %p", active_dstate->tft_frame_buffer);
         // ** Send address window **
         disp_spi_transfer_addrwin(0, active_dstate->_width-1, 0, active_dstate->_height-1);
         // Send color buffer
-        tft_write_half(active_dstate->tft_frame_buffer, 0xFC00);
-        */
-        // ** Send address window **
-        disp_spi_transfer_addrwin(0, active_dstate->_width-1, 0, active_dstate->_height/2-1);
-        tft_write_half(active_dstate->tft_frame_buffer, active_dstate->_width*active_dstate->_height/2);
-        disp_spi_transfer_addrwin(0, active_dstate->_width-1, active_dstate->_height/2, active_dstate->_height-1);
-        tft_write_half(active_dstate->tft_frame_buffer+(active_dstate->_width*active_dstate->_height/2), active_dstate->_width*active_dstate->_height/2);
+        tft_write_rgb565(active_dstate->tft_frame_buffer, active_dstate->_width*active_dstate->_height);
     }
 }
 

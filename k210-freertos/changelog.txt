@@ -1,4 +1,22 @@
+===================
+Date:   Feb 06 2020
+===================
+
+Micro Python core updated to the latest release 1.12
+Added initial support for OTA update
+Updated 'uhashlib' module with better HW SHA256 support
+Improved 'machine.flash_read' function
+Fixed bugs in 'camera' module
+Improved 'tft' module
+Added initial support for OTA updates in 'requests' module
+Improved SPI Flash driver
+Disabled 'FIX_CACHE' option in FreeRTOS
+Improved FreeRTOS SPI driver
+
+
+===================
 Date:   Jan 28 2020
+===================
 
 Large amount of changes and additions
 

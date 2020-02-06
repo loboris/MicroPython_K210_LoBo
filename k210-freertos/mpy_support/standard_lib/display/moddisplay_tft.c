@@ -200,7 +200,7 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
         self->buff_obj0 = mp_obj_new_frame_buffer((active_dstate->_width * active_dstate->_height * 2) + 8);
         if (self->buff_obj0 == mp_const_none) active_dstate->use_frame_buffer = false;
         else if (args[ARG_useFB].u_int > 1) {
-            self->buff_obj0 = mp_obj_new_frame_buffer((active_dstate->_width * active_dstate->_height * 2) + 8);
+            self->buff_obj1 = mp_obj_new_frame_buffer((active_dstate->_width * active_dstate->_height * 2) + 8);
         }
         mp_obj_array_t *fbuf = (mp_obj_array_t *)self->buff_obj0;
         active_dstate->_tft_frame_buffer = fbuf->items;

@@ -239,7 +239,8 @@ mp_obj_t exec_code_from_str(const char *strdata)
         mp_lexer_t *lex = mp_lexer_new_from_str_len(MP_QSTR__lt_stdin_gt_, strdata, strlen(strdata), 0);
         qstr source_name = lex->source_name;
         mp_parse_tree_t parse_tree = mp_parse(lex, MP_PARSE_FILE_INPUT);
-        mp_obj_t module_fun = mp_compile(&parse_tree, source_name, MP_EMIT_OPT_NONE, true);
+        // mp_obj_t module_fun = mp_compile(&parse_tree, source_name, MP_EMIT_OPT_NONE, true); //MPy 1.11
+        mp_obj_t module_fun = mp_compile(&parse_tree, source_name, true);
         mp_call_function_0(module_fun);
         nlr_pop();
     } else {
@@ -779,48 +780,75 @@ STATIC mp_obj_t mod_machine_reset_reason()
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_machine_reset_reason_obj, mod_machine_reset_reason);
 
-//-------------------------------------------------------------------------
-STATIC mp_obj_t mod_machine_flash_read(size_t n_args, const mp_obj_t *args)
+//-----------------------------------------------------------------------------------------------
+STATIC mp_obj_t mod_machine_flash_read(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
-    uint32_t addr = mp_obj_get_int(args[0]);
-    bool to_buff = false;
-    bool swap = false;
-    if (n_args > 1) to_buff = mp_obj_is_true(args[1]);
-    if (n_args > 2) swap = mp_obj_is_true(args[2]);
-    uint8_t buf[512] = {0};
+    enum { ARG_address, ARG_size, ARG_tobuff, ARG_onlytime, ARG_noswap, ARG_noxip };
+    const mp_arg_t allowed_args[] = {
+       { MP_QSTR_address,    MP_ARG_REQUIRED | MP_ARG_INT, { .u_int = 0 } },
+       { MP_QSTR_size,       MP_ARG_INT, { .u_int = 512 } },
+       { MP_QSTR_tobuff,     MP_ARG_BOOL, { .u_bool = false } },
+       { MP_QSTR_onlytime,   MP_ARG_BOOL, { .u_bool = false } },
+       { MP_QSTR_noswap,      MP_ARG_BOOL, { .u_bool = false } },
+       { MP_QSTR_noxip,      MP_ARG_BOOL, { .u_bool = false } },
+    };
+
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    uint32_t size = ((args[ARG_size].u_int >= 32) && (args[ARG_size].u_int <= 4096)) ? args[ARG_size].u_int : 512;
+    size &= 0xFFFFFFFC;
+    uint32_t addr = ((args[ARG_address].u_int >= 0) && (args[ARG_address].u_int <= (MICRO_PY_FLASH_SIZE-size))) ? args[ARG_address].u_int : 0;
+    bool to_buff = args[ARG_tobuff].u_bool;
+    uint64_t start_time=0, end_time=0;
+
+    uint8_t buf[size];
     enum w25qxx_status_t res;
 
-    res = w25qxx_read_data(addr, buf, 512);
-    if (res == W25QXX_OK) {
-        if (swap) {
-            uint8_t buf4[4];
-            for (int k=0; k<512; k+=4) {
-                buf4[0] = buf[k+0];
-                buf4[1] = buf[k+1];
-                buf4[2] = buf[k+2];
-                buf4[3] = buf[k+3];
-                buf[k+0] = buf4[3];
-                buf[k+1] = buf4[2];
-                buf[k+2] = buf4[1];
-                buf[k+3] = buf4[0];
-            }
-        }
-        if (to_buff) {
-            return mp_obj_new_str_copy(&mp_type_bytes, buf, 512);
-        }
-        for (int k=0; k<512; k++) {
-            if ((k & 0x1f) == 0) mp_printf(&mp_plat_print, "\n[%08X] ", addr+k);
-            mp_printf(&mp_plat_print, "%02X ", buf[k]);
-        }
-        mp_printf(&mp_plat_print, "\n");
+    start_time = mp_hal_ticks_us();
+    if (args[ARG_noxip].u_bool) {
+        if (args[ARG_noswap].u_bool) w25qxx_swap_dat = false;
+        res = w25qxx_read_data(addr, buf, size);
+        end_time = mp_hal_ticks_us();
+        if (args[ARG_noswap].u_bool) w25qxx_swap_dat = true;
     }
     else {
+        res = w25qxx_enable_xip_mode();
+    }
+
+    if (res == W25QXX_OK) {
+        if (!args[ARG_noxip].u_bool) {
+            for (int n=0; n<size; n++) {
+                buf[n] = w25qxx_flash_ptr[addr + n];
+            }
+            end_time = mp_hal_ticks_us();
+        }
+        if (args[ARG_onlytime].u_bool) {
+            mp_printf(&mp_plat_print, "Read time: %luus, %0.3fus/byte\n", end_time-start_time, (double)(end_time-start_time) / (double)size);
+        }
+        else {
+            if (to_buff) {
+                return mp_obj_new_str_copy(&mp_type_bytes, buf, 512);
+            }
+            else {
+                for (int k=0; k<size; k++) {
+                    if ((k & 0x1f) == 0) mp_printf(&mp_plat_print, "\n[%08X] ", addr+k);
+                    mp_printf(&mp_plat_print, "%02X ", buf[k]);
+                }
+                mp_printf(&mp_plat_print, "\n");
+                mp_printf(&mp_plat_print, "Read time: %luus, %0.3fus/byte\n", end_time-start_time, (double)(end_time-start_time) / (double)size);
+            }
+        }
+        if (!args[ARG_noxip].u_bool) w25qxx_disable_xip_mode();
+    }
+    else {
+        if (!args[ARG_noxip].u_bool) w25qxx_disable_xip_mode();
         nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_OSError, "error reading from Flash"));
     }
 
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_machine_flash_read_obj, 1, 3, mod_machine_flash_read);
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(mod_machine_flash_read_obj, 1, mod_machine_flash_read);
 
 //------------------------------------------------------------------------
 STATIC mp_obj_t mod_machine_read_sram(size_t n_args, const mp_obj_t *args)
@@ -828,7 +856,7 @@ STATIC mp_obj_t mod_machine_read_sram(size_t n_args, const mp_obj_t *args)
     size_t addr = mp_obj_get_int(args[0]);
     size_t size = mp_obj_get_int(args[1]);
     bool to_buff = false;
-    if (n_args > 1) to_buff = mp_obj_is_true(args[1]);
+    if (n_args > 2) to_buff = mp_obj_is_true(args[2]);
     if (addr > (K210_TOTAL_SRAM_SIZE - size)) {
         nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "reading %lu bytes from address %08x outside of RAM area", size, addr));
     }
@@ -837,7 +865,7 @@ STATIC mp_obj_t mod_machine_read_sram(size_t n_args, const mp_obj_t *args)
     if (to_buff) {
         return mp_obj_new_str_copy(&mp_type_bytes, buff, size);
     }
-    for (int k=0; k<512; k++) {
+    for (int k=0; k<size; k++) {
         if ((k & 0x1f) == 0) mp_printf(&mp_plat_print, "\n[%08X] ", addr+k);
         mp_printf(&mp_plat_print, "%02X ", buff[k]);
     }
@@ -883,6 +911,19 @@ STATIC mp_obj_t mod_machine_state()
             sysctl_clock_get_freq(SYSCTL_CLOCK_SRAM1), sysctl_clock_get_threshold(SYSCTL_CLOCK_SRAM1)+1);
     mp_printf(&mp_plat_print, "Current SPI Flash speed: %lu Hz\r\n", w25qxx_actual_speed);
     mp_printf(&mp_plat_print, "RAM buffer of %d bytes at 0x%p\r\n", MYCROPY_SYS_RAMBUF_SIZE, (void *)MICROPY_SYS_RAMBUF_ADDR);
+    #if MICROPY_PY_USE_OTA
+    uint32_t *ld_mbootid = (uint32_t *)(MICROPY_SYS_RAMBUF_ADDR);
+    uint32_t *ld_address = (uint32_t *)(MICROPY_SYS_RAMBUF_ADDR+4);
+    uint32_t *ld_size = (uint32_t *)(MICROPY_SYS_RAMBUF_ADDR+8);
+    mp_printf(&mp_plat_print, "OTA used: ");
+    if (*ld_mbootid == MICROPY_MBOOT_MAGIC_ID)
+        mp_printf(&mp_plat_print, "loaded firmware from 0x%08X, size=%u\r\n", *ld_address, *ld_size);
+    else
+        mp_printf(&mp_plat_print, "Mboot not used or firmware loaded to SRAM\r\n");
+
+    #else
+    mp_printf(&mp_plat_print, "OTA not used\r\n");
+    #endif
     if (mpy_config.config.use_two_main_tasks) {
         mp_printf(&mp_plat_print, "Heaps: FreeRTOS=%lu KB (%lu KB free), MPy_1=%u KB, MPy_2=%u KB, other=%lu KB\r\n",
                 FREE_RTOS_TOTAL_HEAP_SIZE/1024, xPortGetFreeHeapSize()/1024, mpy_config.config.heap_size1/1024, mpy_config.config.heap_size2/1024, _check_remaining_heap()/1024);
@@ -927,7 +968,7 @@ STATIC mp_obj_t machine_flashSpeed(size_t n_args, const mp_obj_t *args)
         flash_speed = (uint32_t)mp_obj_get_int(args[0]);
         if (flash_speed < 100) flash_speed *= 1000000;
         if ((flash_speed < 20000000) || (flash_speed > 90000000)) {
-            mp_raise_ValueError("Allowed flash speeds: 20~90 MHzz");
+            mp_raise_ValueError("Allowed flash speeds: 20~90 MHz");
         }
         flash_speed = w25qxx_init(flash_spi, SPI_FF_QUAD, flash_speed);
     }

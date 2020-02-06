@@ -241,11 +241,17 @@ public:
 
             if (!mem_type_src)
             {
+                if (src >= (void *)0x80600000) {
+                    LOGW("[DMAC]", "SRC at %p used", alloc_mem);
+                }
                 dma.sar = (uint64_t)src;
                 dma.dar = (uint64_t)alloc_mem;
             }
             else if (!mem_type_dest)
             {
+                if (src >= (void *)0x80600000) {
+                    LOGW("[DMAC]", "DEST at %p used", alloc_mem);
+                }
                 if (old_elm_size == 1)
                 {
                     size_t i;

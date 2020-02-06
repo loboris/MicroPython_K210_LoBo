@@ -233,9 +233,13 @@
         		
         <buildTargets>
             			
-            <target name="BUILD" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
+            <target name="BUILD_Slow" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
                 				
                 <buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
+                				
+                <buildArguments/>
+                				
+                <buildTarget/>
                 				
                 <stopOnError>true</stopOnError>
                 				
@@ -249,8 +253,6 @@
                 				
                 <buildCommand>${PWD}/k210-freertos/CLEAN.sh</buildCommand>
                 				
-                <buildArguments/>
-                				
                 <stopOnError>true</stopOnError>
                 				
                 <useDefaultCommand>false</useDefaultCommand>
@@ -259,11 +261,13 @@
                 			
             </target>
             			
-            <target name="BUILD (verbose)" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
+            <target name="BUILD_Slow (verbose)" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
                 				
                 <buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
                 				
                 <buildArguments>-v</buildArguments>
+                				
+                <buildTarget/>
                 				
                 <stopOnError>true</stopOnError>
                 				
@@ -279,8 +283,6 @@
                 				
                 <buildArguments>-j16</buildArguments>
                 				
-                <buildTarget/>
-                				
                 <stopOnError>true</stopOnError>
                 				
                 <useDefaultCommand>false</useDefaultCommand>
@@ -294,8 +296,6 @@
                 <buildCommand>${PWD}/k210-freertos/BUILD.sh</buildCommand>
                 				
                 <buildArguments>-v -j16</buildArguments>
-                				
-                <buildTarget/>
                 				
                 <stopOnError>true</stopOnError>
                 				

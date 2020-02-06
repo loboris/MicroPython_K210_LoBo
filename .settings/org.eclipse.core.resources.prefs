@@ -1,4 +1,6 @@
 eclipse.preferences.version=1
+encoding//firmware/kflash.py=utf-8
 encoding//k210-freertos/MPyTerm.py=utf-8
 encoding//k210-freertos/kflash.py=utf-8
+encoding//k210-freertos/ktool.py=utf-8
 encoding//micropython/docs/conf.py=utf-8

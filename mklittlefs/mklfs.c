@@ -308,7 +308,7 @@ int save_image(void)
     for (size=LITTLEFS_IMAGE_SIZE-1; size>0; size--) {
         if (lfs_image[size] != 0xFF) break;
     }
-    int img_size = ((size / 4096) * 4096) + 4096;
+    int img_size = ((size / 65536) * 65536) + 65536;
     printf("Image size: %d (%d)\r\n", size, img_size);
 
     printf("Saving image to '%s'\r\n", image_name);
@@ -355,6 +355,12 @@ int lfs_img_mount(void)
         return err;
     }
     printf("  Image file formated.\r\n");
+
+    err = lfs_unmount(&lfs);
+    if (err) {
+        printf("Error unmounting image (%d)\r\n", err);
+        return err;
+    }
 
     err = lfs_mount(&lfs, &config);
     if (err) {

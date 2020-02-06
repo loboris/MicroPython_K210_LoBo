@@ -205,7 +205,6 @@ static inline bool mp_obj_is_qstr(mp_const_obj_t o)
 static inline bool mp_obj_is_obj(mp_const_obj_t o)
     { return ((((mp_int_t)(o)) & 3) == 0); }
 
-
 #elif MICROPY_OBJ_REPR == MICROPY_OBJ_REPR_D
 
 static inline bool mp_obj_is_small_int(mp_const_obj_t o)
@@ -744,7 +743,6 @@ mp_float_t mp_obj_get_float(mp_obj_t self_in);
 bool mp_obj_get_float_maybe(mp_obj_t arg, mp_float_t *value);
 void mp_obj_get_complex(mp_obj_t self_in, mp_float_t *real, mp_float_t *imag);
 #endif
-//qstr mp_obj_get_qstr(mp_obj_t arg);
 void mp_obj_get_array(mp_obj_t o, size_t *len, mp_obj_t **items); // *items may point inside a GC block
 void mp_obj_get_array_fixed_n(mp_obj_t o, size_t len, mp_obj_t **items); // *items may point inside a GC block
 size_t mp_get_index(const mp_obj_type_t *type, size_t len, mp_obj_t index, bool is_slice);

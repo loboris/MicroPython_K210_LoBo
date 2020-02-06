@@ -37,6 +37,7 @@
 
 #include "http_client.h"
 #include "transport.h"
+#include "w25qxx.h"
 
 #include "py/obj.h"
 #include "py/runtime.h"
@@ -55,6 +56,8 @@ static const char *TAG_EVENT = "[REQUESTS EVENT]";
 static char *rqheader = NULL;
 static char *rqbody = NULL;
 static mp_obj_t rqbody_file = mp_const_none;
+static uint32_t flash_address = 0;
+static uint32_t flash_length = 0;
 static int rqheader_ptr = 0;
 static int rqbody_len = DEFAULT_RQBODY_LEN;
 static int rqbody_ptr = 0;
@@ -131,6 +134,19 @@ static int _http_event_handler(esp_http_client_event_t *evt)
                     else {
                         if (transport_debug) LOGI(TAG_EVENT, "Write data to body file: rqptr=%d + %d", rqbody_ptr, nwrite);
                         rqbody_ptr += evt->data_len;
+                    }
+                }
+                else if (flash_address > 0) {
+                    if ((rqbody_ptr+evt->data_len) <= flash_length) {
+                        enum w25qxx_status_t res = w25qxx_write_data(flash_address+rqbody_ptr, evt->data, evt->data_len);
+                        if (res != W25QXX_OK) {
+                            rqbody_ok = false;
+                            if (transport_debug) LOGE(TAG_EVENT, "Download: Error writing to Flash");
+                        }
+                        else {
+                            if (transport_debug) LOGI(TAG_EVENT, "Write data to Flash: rqptr=%d + %d", flash_address+rqbody_ptr, evt->data_len);
+                            rqbody_ptr += evt->data_len;
+                        }
                     }
                 }
                 else {
@@ -631,6 +647,10 @@ static mp_obj_t request(int method, bool multipart, mp_obj_t post_data_in, char 
         sprintf(rqbody, "Saved to file '%s', size=%d", tofile, rqbody_ptr);
         tuple[2] = mp_obj_new_str(rqbody, strlen(rqbody));
     }
+    else if (flash_address > 0) {
+        sprintf(rqbody, "Saved to Flash at '%08X', size=%d, expected=%u", flash_address, rqbody_ptr, flash_length);
+        tuple[2] = mp_obj_new_str(rqbody, strlen(rqbody));
+    }
     else if ((rqbody) && (rqbody_ptr)) tuple[2] = mp_obj_new_bytes((const byte*)rqbody, rqbody_ptr);
     else tuple[2] = mp_const_none;
 
@@ -693,11 +713,12 @@ void get_certificate(mp_obj_t cert, char *cert_pem_buf)
 STATIC mp_obj_t requests_GET(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
     //network_checkConnection();
-    enum { ARG_url, ARG_file, ARG_bufsize };
+    enum { ARG_url, ARG_file, ARG_bufsize, ARG_flashsize };
     const mp_arg_t allowed_args[] = {
         { MP_QSTR_url,   MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = mp_const_none } },
         { MP_QSTR_file,                    MP_ARG_OBJ, { .u_obj = mp_const_none } },
         { MP_QSTR_bufsize,                 MP_ARG_INT, { .u_int = 1536 } },
+        { MP_QSTR_flashsize,               MP_ARG_INT, { .u_int = 0 } },
     };
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
@@ -705,13 +726,31 @@ STATIC mp_obj_t requests_GET(size_t n_args, const mp_obj_t *pos_args, mp_map_t *
 
     char *url = NULL;
     char *fname = NULL;
+    flash_address = 0;
+    flash_length = 0;
 
     url = (char *)mp_obj_str_get_str(args[ARG_url].u_obj);
 
-    if (mp_obj_is_str(args[ARG_file].u_obj)) {
+    #if MICROPY_PY_USE_OTA
+    if (mp_obj_is_int(args[ARG_file].u_obj)) {
+        // GET to Flash, used for OTA download
+        flash_address = mp_obj_get_int(args[ARG_file].u_obj);
+        flash_length = mp_obj_get_int(args[ARG_flashsize].u_obj);
+        // Check address and size
+    }
+    else if (mp_obj_is_str(args[ARG_file].u_obj)) {
         // GET to file
         fname = (char *)mp_obj_str_get_str(args[ARG_file].u_obj);
     }
+    #else
+    if (mp_obj_is_int(args[ARG_file].u_obj)) {
+        mp_raise_ValueError("Save to Flash not supported if OTA not enabled");
+    }
+    else if (mp_obj_is_str(args[ARG_file].u_obj)) {
+        // GET to file
+        fname = (char *)mp_obj_str_get_str(args[ARG_file].u_obj);
+    }
+    #endif
 
     mp_obj_t res = request(HTTP_METHOD_GET, false, NULL, url, fname, args[ARG_bufsize].u_int);
 
@@ -735,6 +774,8 @@ STATIC mp_obj_t requests_HEAD(size_t n_args, const mp_obj_t *pos_args, mp_map_t 
 
     url = (char *)mp_obj_str_get_str(args[ARG_url].u_obj);
 
+    flash_address = 0;
+    flash_length = 0;
     mp_obj_t res = request(HTTP_METHOD_HEAD, false, NULL, url, NULL, 1536);
 
     return res;
@@ -769,6 +810,8 @@ STATIC mp_obj_t requests_POST(size_t n_args, const mp_obj_t *pos_args, mp_map_t 
         fname = (char *)mp_obj_str_get_str(args[ARG_file].u_obj);
     }
 
+    flash_address = 0;
+    flash_length = 0;
     mp_obj_t res = request(HTTP_METHOD_POST, args[ARG_multipart].u_bool, args[ARG_params].u_obj, url, fname, args[ARG_bufsize].u_int);
 
     return res;
@@ -792,6 +835,8 @@ STATIC mp_obj_t requests_PUT(size_t n_args, const mp_obj_t *pos_args, mp_map_t *
 
     url = (char *)mp_obj_str_get_str(args[ARG_url].u_obj);
 
+    flash_address = 0;
+    flash_length = 0;
     mp_obj_t res = request(HTTP_METHOD_PUT, false, args[ARG_data].u_obj, url, NULL, 1536);
 
     return res;
@@ -815,6 +860,8 @@ STATIC mp_obj_t requests_PATCH(size_t n_args, const mp_obj_t *pos_args, mp_map_t
 
     url = (char *)mp_obj_str_get_str(args[ARG_url].u_obj);
 
+    flash_address = 0;
+    flash_length = 0;
     mp_obj_t res = request(HTTP_METHOD_PATCH, false, args[ARG_data].u_obj, url, NULL, 1536);
 
     return res;
@@ -838,6 +885,8 @@ STATIC mp_obj_t requests_DELETE(size_t n_args, const mp_obj_t *pos_args, mp_map_
 
     url = (char *)mp_obj_str_get_str(args[ARG_url].u_obj);
 
+    flash_address = 0;
+    flash_length = 0;
     mp_obj_t res = request(HTTP_METHOD_DELETE, false, args[ARG_data].u_obj, url, NULL, 1536);
 
     return res;

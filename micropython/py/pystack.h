@@ -70,7 +70,6 @@ static inline size_t mp_pystack_limit(void) {
     return MP_STATE_THREAD(pystack_end) - MP_STATE_THREAD(pystack_start);
 }
 
-
 static inline void *mp_local_alloc(size_t n_bytes) {
     if (MP_STATE_THREAD(pystack_enabled)) return mp_pystack_alloc(n_bytes);
     return alloca(n_bytes);

@@ -33,7 +33,8 @@
 #define DVP_JPEG_BUF_AISRAM_SIZE    0x200000
 #define DVP_JPEG_BUF_SIZE           (512*1024)
 
-#define CAMERA_XCLK_FREQUENCY       (26000000)
+#define CAMERA_XCLK_FREQUENCY       (16000000)
+#define CAMERA_XCLK_FREQUENCY1      (26000000)
 
 enum _data_for
 {

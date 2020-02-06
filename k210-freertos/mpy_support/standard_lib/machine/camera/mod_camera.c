@@ -41,8 +41,9 @@
 #include "dvp_camera.h"
 #include "../display/moddisplay.h"
 
-#define USE_DEBUG_PIN   1
-#define DEBUG_PIN_NUM   18
+// Only for debug
+#define USE_DEBUG_PIN   0
+#define DEBUG_PIN_NUM   13
 
 #define DEST_BUFFER     0
 #define DEST_TFT        1
@@ -461,9 +462,10 @@ STATIC void mod_camera_print(const mp_print_t *print, mp_obj_t self_in, mp_print
 {
     mod_camera_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (camera_is_init) {
-        mp_printf(print, "Camera(%s) %dx%d, buffer: %s%u, status: %s",
+        mp_printf(print, "Camera(%s) %dx%d, xclk: %u MHz, buffer: %s%u, status: %s",
                 (self->sensor.sensor_type == SENSORTYPE_OV2640) ? "OV2640" : "OV5640",
                 dvp_cam_resolution[self->sensor.framesize][0], dvp_cam_resolution[self->sensor.framesize][1],
+                self->sensor.xclk,
                 (self->preview_task) ? "2*" : "", self->sensor.gram_size+8,
                 (self->preview_task) ? "Preview" : "Capture");
     }
@@ -774,6 +776,7 @@ STATIC mp_obj_t mod_camera_capture(mp_uint_t n_args, const mp_obj_t *pos_args, m
     LOGD(TAG, "Frame (%ux%u) captured (%lu ms), processing", width, height, mp_hal_ticks_ms()-tstart);
 
     if (mp_obj_is_str(args[ARG_dest].u_obj)) {
+        LOGD(TAG, "Capture to file");
         dest = DEST_FILE;
         // === capture to file ===
         mp_obj_t fargs[2];
@@ -789,10 +792,12 @@ STATIC mp_obj_t mod_camera_capture(mp_uint_t n_args, const mp_obj_t *pos_args, m
     }
     else if (args[ARG_dest].u_obj != mp_const_none) {
         int dst = mp_obj_get_int(args[ARG_dest].u_obj);
+        LOGD(TAG, "Capture to %d", dst);
         if (dst == DEST_BUFFER) dest = DEST_BUFFER;
     }
 
     if (dest == DEST_TFT) {
+        LOGD(TAG, "Capture to display");
         if (active_dstate->tft_frame_buffer == NULL) {
             _restore_mode_size(self, orig_size, buf_size);
             mp_raise_msg(&mp_type_OSError, "TFT frame buffer not initialized");
@@ -802,6 +807,7 @@ STATIC mp_obj_t mod_camera_capture(mp_uint_t n_args, const mp_obj_t *pos_args, m
 
     if (self->sensor.pixformat == PIXFORMAT_JPEG) {
         // === Process JPEG data ===
+        LOGD(TAG, "Process JPEG");
         // jpeg data are written to frame buffer as 32-bit values with swapped endianness!
         mp_obj_array_t *gram0;
         gram0 = (mp_obj_array_t *)self->buff_obj0;
@@ -864,23 +870,27 @@ STATIC mp_obj_t mod_camera_capture(mp_uint_t n_args, const mp_obj_t *pos_args, m
     }
     else {
         // === Process RGB565 data ===
+        LOGD(TAG, "Process RGB565");
         // Captured data have swapped even and odd pixels, fix it
         // (Data are written to buffer as 32-bit values)
         swap_pixels((uint16_t *)frame_buffer, width*height);
 
         if (dest == DEST_BUFFER) {
+            LOGD(TAG, "Save to buffer");
             *(uint16_t *)(frame_buffer-8) = width;
             *(uint16_t *)(frame_buffer-6) = height;
             memcpy(frame_buffer-4, "rawB", 4);
             result = mp_obj_new_str_copy(&mp_type_bytes, (const byte*)(frame_buffer-8), (width*height*2)+8);
         }
         else if (dest == DEST_TFT) {
+            LOGD(TAG, "Show on display");
             send_data_scale(0, 0, width, height, (color_t *)frame_buffer, 0);
 
             tft_setup((uint8_t)(args[ARG_time].u_int & 3));
             send_frame_buffer();
         }
         else if ((dest == DEST_FILE) && (ffd != mp_const_none)) {
+            LOGD(TAG, "Save to file");
             *(uint16_t *)(frame_buffer-8) = width;
             *(uint16_t *)(frame_buffer-6) = height;
             memcpy(frame_buffer-4, "rawB", 4);
@@ -894,6 +904,7 @@ STATIC mp_obj_t mod_camera_capture(mp_uint_t n_args, const mp_obj_t *pos_args, m
         else if (ffd != mp_const_none) mp_stream_close(ffd);
     }
 
+    LOGD(TAG, "Processed");
     _restore_mode_size(self, orig_size, buf_size);
     return result;
 }

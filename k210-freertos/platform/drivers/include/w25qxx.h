@@ -51,9 +51,12 @@
 
 #define CHIP_SELECT                         1
 #define WAIT_CYCLE                          8
-#define FRAME_LENGTH                        8
+// Setting the FRAME_LENGTH(_XXXX) to 32 causes every 32-bit value
+// to have bytes SWAPPED (0x11223344 -> 0x44332211)
+#define FRAME_LENGTH_SINGLE                 8
 #define FRAME_LENGTH_DUAL                   32
 #define FRAME_LENGTH_QUAD                   32
+
 #define INSTRUCTION_LENGTH                  8
 #define ADDRESS_LENGTH                      24
 
@@ -120,6 +123,10 @@ extern uint32_t w25qxx_flash_speed;
 extern uint32_t w25qxx_actual_speed;
 extern uint8_t work_trans_mode;
 extern uint8_t __attribute__((aligned(8))) swap_buf[w25qxx_FLASH_SECTOR_SIZE];
+extern uint8_t *w25qxx_flash_ptr;
+extern uint16_t *w25qxx_flash_ptr16;
+extern uint32_t *w25qxx_flash_ptr32;
+extern bool w25qxx_swap_dat;
 
 void w25qxx_clear_counters();
 void w25qxx_get_counters(uint32_t *r, uint32_t *w, uint32_t *e, uint64_t *time);

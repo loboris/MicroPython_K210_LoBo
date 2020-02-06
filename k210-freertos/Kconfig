@@ -25,9 +25,9 @@ mainmenu "MicroPython for Kendryte K210"
                       3 MB - enough to build all MicroPython modules including sqlite3
                     3.5 MB - should be enough to build any firmware
                     
-                    If the insufficient size is selected, linker or runtime error will be reported
+                    If the insufficient size is selected, linker or runtime error will be reported.
                       
-                    The rest of the K210 SRAM is used for FreeRTOS and MicroPython heaps
+                    The rest of the K210 SRAM is used for FreeRTOS and MicroPython heaps.
 
                 config FIRMWARE_SIZE_2_MB
                     bool "2 MB"
@@ -47,6 +47,25 @@ mainmenu "MicroPython for Kendryte K210"
                 KPU, when used, reserves 2 MB of K210's SRAM which cannot be used by the CPU.
                 Is KPU is not used, 2 MB of SRAM is free to use and is used for FreeRTOS and MicroPython heaps.
                 At the moment, KPU is not used by MicroPython, so this option can be disabled.
+
+        config MICROPY_USE_OTA
+            bool "Use OTA"
+            default n
+            help
+                If selected, the OTA feature is included in the firmware.
+                MicroPathon firmware can be upadte from various sources, for example from SDCard or internal file system
+                or from remote server over Internet (if Wifi or GSM is available to the system).
+                If selected, the OTA module will also be enabled.
+
+        config MICRO_PY_MBOOT_PIN
+            int "Kboot pin"
+            range -1 47
+            default -1
+            depends on MICROPY_USE_OTA
+            help
+                Pin used to enter interactive mode and request the user to select which application to load
+                Any valid and not used K210 gpio can be used except gpio #16 (0 ~ 15 & 17 ~ 47)
+                KBoot pin can also be set from MicroPython 'ota' module.
 
         config MICRO_PY_FREE_RTOS_RESERVED
             int "Default FreeRTOS heap size (KB)"
@@ -126,9 +145,10 @@ mainmenu "MicroPython for Kendryte K210"
                 Default SPI Flash chip clock.
                 On most board Flash chip will work without issues with the maximum clock of 83 MHZ.
                 On some boards it will not work and the maximum clock must be reduced.
+                This sets Flash clock on boot, but it can be changed on runtime from MicroPython
 
         config MICROPY_BANK67_3V
-            bool "Pwr Bank 6&7 at 3.3V"
+            bool "Pwr Bank 6&7 at 3.3V (WARNING, see help)"
             default n
             help
                 Set voltage for power bank 6 & 7 to 3.3V.
@@ -190,6 +210,8 @@ mainmenu "MicroPython for Kendryte K210"
             default 4
             help
                 Start address of the Flash file system (in MB)
+                Set this addres higher than MicroPython firmware binary file size !
+                If OTA is used, set this addres high enough to have a space for TWO firmwares !
 
         config MICRO_PY_FLASHFS_SIZE
             int "Flash file system size (MB)"
@@ -197,6 +219,7 @@ mainmenu "MicroPython for Kendryte K210"
             default 10
             help
                 Size of the Flash file system (in MB)
+                Take care that MICRO_PY_FLASHFS_START_ADDRESS+MICRO_PY_FLASHFS_SIZE is smaller or exual than the MICRO_PY_FLASH_SIZE
 
         config MICROPY_FILESYSTEM_TYPE
             int

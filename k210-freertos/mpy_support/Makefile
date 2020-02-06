@@ -10,7 +10,8 @@ CUR_DIR_ADDR := $(shell pwd)/
 LIB_NAME ?= mpy_support
 CROSS_COMPILE ?= 
 OUTPUT_DIR := build/
-FROZEN_MPY_DIR ?= modules
+#FROZEN_MPY_DIR ?= modules
+FROZEN_MANIFEST ?= manifest.py
 MK_VALUE :="INC += "$(CUR_DIR_ADDR)
 MK_VALUE +="INC += "$(CUR_DIR_ADDR)"standard_lib/include/"
 MK_VALUE +="INC += "$(CUR_DIR_ADDR)"../platform/sdk/kendryte-freertos-sdk/third_party/mbedtls/include/"

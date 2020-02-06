@@ -1225,6 +1225,8 @@ class KTool:
                 else:
                     KTool.log(INFO_MSG, 'Flashed {} B [{} chunks of {}B] ({:08X}~{:08X}) in {:.3f}s'.format(
                         firmware_length, total_chunk, chunk_size, address_offset, curr_address+chunk_size-1, time.time()-time_start), BASH_TIPS['DEFAULT'])
+                    if (sha256Prefix == True):
+                        KTool.log(INFO_MSG, 'SHA256: {}'.format(binascii.hexlify(sha256_hash)), BASH_TIPS['DEFAULT'])
 
 
             # ==============================

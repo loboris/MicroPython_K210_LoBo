@@ -391,6 +391,10 @@ static void mp_task_proc1(void *pvParameter)
 //========
 int main()
 {
+    uint32_t *ld_mbootid = (uint32_t *)(MICROPY_SYS_RAMBUF_ADDR);
+    uint32_t *ld_address = (uint32_t *)(MICROPY_SYS_RAMBUF_ADDR+4);
+    uint32_t *ld_size = (uint32_t *)(MICROPY_SYS_RAMBUF_ADDR+8);
+
     // ==== Basic initialization ====
     // Setup clocks (default clocks set in 'entry_user.c')
     /*
@@ -462,6 +466,21 @@ int main()
     if (cfg_loaded) LOGM(TAG, "Configuration loaded from flash");
     else LOGM(TAG, "Default flash configuration set");
 
+    #if MICROPY_PY_USE_OTA
+    if (*ld_mbootid == MICROPY_MBOOT_MAGIC_ID) {
+        if (*ld_address & 0x80000000) {
+            *ld_address &= 0x7fffffff;
+            LOGW(TAG, "OTA used: loaded default FW (addr=0x%08X, size=%u)", *ld_address, *ld_size);
+        }
+        else {
+            LOGM(TAG, "OTA used: loaded firmware from 0x%08X, size=%u", *ld_address, *ld_size);
+        }
+    }
+    else {
+        LOGM(TAG, "OTA used: cannot determine Mboot info");
+    }
+    #endif
+
     // ==== Initialize MicroPython HAL ====
 	mp_hal_init();
 
@@ -469,15 +488,16 @@ int main()
 	mp_rtc_rtc0 = io_open("/dev/rtc0");
     configASSERT(mp_rtc_rtc0);
 
+    // Set default datetime
     struct tm default_time =
     {
         .tm_sec = 0,
         .tm_min = 0,
         .tm_hour = 12,
-        .tm_mday = 4,
-        .tm_mon = 9 - 1,
-        .tm_year = 2019 - 1900,
-        .tm_wday = 4,
+        .tm_mday = 31,          // day of the month (1~31)
+        .tm_mon = 1 - 1,        // months since January (0~11)
+        .tm_year = 2020 - 1900, // years since 1900
+        .tm_wday = 5,           // days since Sunday (0~6)
         .tm_yday = -1,
         .tm_isdst = -1,
     };

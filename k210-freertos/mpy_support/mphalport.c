@@ -35,6 +35,7 @@
 #include "py/obj.h"
 #include "py/mpstate.h"
 #include "py/mphal.h"
+#include "py/stream.h"
 #include "extmod/misc.h"
 #include "lib/utils/pyexec.h"
 #include "mphalport.h"
@@ -73,6 +74,14 @@ uint64_t sys_us_counter_cpu = 0;
 uint64_t sys_us_counter = 0;
 uint32_t system_status = 0;
 
+
+uintptr_t mp_hal_stdio_poll(uintptr_t poll_flags) {
+    uintptr_t ret = 0;
+    if ((poll_flags & MP_STREAM_POLL_RD) && stdin_ringbuf.iget != stdin_ringbuf.iput) {
+        ret |= MP_STREAM_POLL_RD;
+    }
+    return ret;
+}
 
 // ===================================
 // === MicroPython ticks functions ===

@@ -42,7 +42,8 @@ extern uint32_t _ram_end;
 
 
 // Set this to 0 for normal build!
-#define  MICROPY_DEBUG_BUILD         (1)
+#define MICROPY_DEBUG_BUILD         (1)
+#define MICROPY_MBOOT_MAGIC_ID      0x5AA5D0C0
 
 // ===========================================
 // Options to control how MicroPython is built
@@ -52,13 +53,19 @@ extern uint32_t _ram_end;
 #define MICROPY_HW_MCU_NAME         CONFIG_MICROPY_HW_MCU_NAME
 
 #define MICROPY_PY_SYS_PLATFORM     "K210/FreeRTOS"
-#define MICROPY_PY_LOBO_VERSION     "1.11.12"
-#define MICROPY_PY_LOBO_VERSION_NUM (0x011112)
+#define MICROPY_PY_LOBO_VERSION     "1.12.01"
+#define MICROPY_PY_LOBO_VERSION_NUM (0x011201)
 
 #ifdef CONFIG_MICROPY_PY_USE_LOG_COLORS
 #define MICROPY_PY_USE_LOG_COLORS   (1)
 #else
 #define MICROPY_PY_USE_LOG_COLORS   (0)
+#endif
+
+#ifdef CONFIG_MICROPY_USE_OTA
+#define MICROPY_PY_USE_OTA          (1)
+#else
+#define MICROPY_PY_USE_OTA          (0)
 #endif
 
 /*
@@ -113,16 +120,16 @@ extern uint32_t _ram_end;
 #endif
 
 
-/* ==== K210 Memory usage =========================================================================================
+/* ==== K210 Memory usage ======================================================================================
  * K210 has 8 MB of SRAM
- * 2.5 MB or 3 MB is reserved for firmware, static and global variables and heap used by various internal functions
+ * 2MB ~ 3.5MB is reserved for firmware, static and global variables and heap used by various internal functions
  * If the KPU is used, last 2 MB are reserved for its use
- * The remaining (5.5 MB, 5 MB or 3 MB) is used for FreeRTOS heap
+ * The remaining (4.5MB ~ 6MB or 2.5MB ~ 4MB) is used for FreeRTOS heap
  *   - MicroPython heap is allocated from FreeRTOS heap
  *   - thread's (task's) stacks and all buffers are allocated from FreeRTOS heap
  *   - If two MicroPython instances are configured, the available heap space is divided between them,
  *     default values are: 5/8 for 1st MicroPython instance and 3/8 for the 2nd
- * ================================================================================================================
+ * =============================================================================================================
 */
 
 #define K210_SRAM_START_ADDRESS                 (0x80000000UL)
@@ -170,7 +177,7 @@ extern uint32_t _ram_end;
  * ======================================================================
  * When KPU memory is used to expand the FreeRTOS heap
  * some variables (on task stack or on FreeRTOS heap) may be placed
- * at SRAM address above 0x8060000 !
+ * at SRAM address above 0x80600000 !
  * Those wariabled CAN'T be used in DMA transfers involving peripherals !
  * ======================================================================
  */
@@ -751,6 +758,13 @@ extern const struct _mp_obj_module_t mp_test_module;
 #define BUILTIN_MODULE_TEST
 #endif
 
+#if MICROPY_PY_USE_OTA
+extern const struct _mp_obj_module_t ota_module;
+#define BUILTIN_MODULE_OTA { MP_OBJ_NEW_QSTR(MP_QSTR_ota), (mp_obj_t)&ota_module },
+#else
+#define BUILTIN_MODULE_OTA
+#endif
+
 #define MICROPY_PORT_BUILTIN_MODULES \
     { MP_OBJ_NEW_QSTR(MP_QSTR_os),          (mp_obj_t)&uos_module }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_time),        (mp_obj_t)&utime_module }, \
@@ -772,6 +786,7 @@ extern const struct _mp_obj_module_t mp_test_module;
     BUILTIN_MODULE_UTIMEQ_K210 \
     BUILTIN_MODULE_SQLITE \
     BUILTIN_MODULE_TEST \
+    BUILTIN_MODULE_OTA \
 
 /*
 #define MICROPY_PORT_BUILTIN_MODULE_WEAK_LINKS \
