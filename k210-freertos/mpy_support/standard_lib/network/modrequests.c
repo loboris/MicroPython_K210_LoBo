@@ -41,9 +41,10 @@
 
 #include "py/obj.h"
 #include "py/runtime.h"
-#include "modmachine.h"
 #include "extmod/vfs.h"
 #include "py/stream.h"
+#include "modmachine.h"
+#include "modota.h"
 
 #define MAX_HTTP_RECV_BUFFER    512
 #define FLOAT_FIELD_DEC_PLACES  8
@@ -57,14 +58,19 @@ static char *rqheader = NULL;
 static char *rqbody = NULL;
 static mp_obj_t rqbody_file = mp_const_none;
 static uint32_t flash_address = 0;
-static uint32_t flash_length = 0;
+static uint32_t expected_size = 0;
+static uint32_t flash_end = 0;
 static int rqheader_ptr = 0;
 static int rqbody_len = DEFAULT_RQBODY_LEN;
 static int rqbody_ptr = 0;
+static int rqbuffer_ptr = 0;
 static bool rqbody_ok = true;
 static bool rqheader_ok = true;
 static bool rq_base64 = false;
 static char *cert_pem = NULL;
+static bool rqprogress = false;
+static uint64_t rqtransfer_start = 0;
+static int rq_rangestart, rq_rangeend;
 
 #if MICROPY_PY_USE_WIFI == 0
 static bool wifi_task_semaphore_active;
@@ -84,6 +90,10 @@ static bool wifi_task_semaphore_active;
 static int _http_event_handler(esp_http_client_event_t *evt)
 {
     mp_hal_wdt_reset();
+    char tstr[32] = {'\0'};
+    uint32_t saved = 0;
+    char *cdata = (char *)evt->data;
+    int len = evt->data_len;
     /*
     bool mutex_taken = false;
     if ((net_active_interfaces & ACTIVE_INTERFACE_WIFI)) {
@@ -95,10 +105,16 @@ static int _http_event_handler(esp_http_client_event_t *evt)
     */
     switch(evt->event_id) {
         case HTTP_EVENT_ERROR:
-            if (transport_debug) LOGW(TAG_EVENT, "ERROR");
+            if (rqprogress) {
+                mp_printf(&mp_plat_print, "\r\n[%u ms] ERROR\r\n", mp_hal_ticks_ms() - rqtransfer_start);
+            }
+            else if (transport_debug) LOGW(TAG_EVENT, "ERROR");
             break;
         case HTTP_EVENT_ON_CONNECTED:
-            if (transport_debug) LOGI(TAG_EVENT, "OnConnected");
+            if (rqprogress) {
+                mp_printf(&mp_plat_print, "[%u ms] Connected\r\n", mp_hal_ticks_ms() - rqtransfer_start);
+            }
+            else if (transport_debug) LOGI(TAG_EVENT, "OnConnected");
             break;
         case HTTP_EVENT_HEADER_SENT:
             if (transport_debug) {
@@ -109,6 +125,16 @@ static int _http_event_handler(esp_http_client_event_t *evt)
             break;
         case HTTP_EVENT_ON_HEADER:
             if (transport_debug) LOGI(TAG_EVENT, "OnHeader: key=%s, value=%s", evt->header_key, evt->header_value);
+            if (strcmp(evt->header_key, "Content-Length") == 0) {
+                int64_t x = 0;
+                char *end;
+                errno = 0;
+                x = strtol(evt->header_value, &end, 10);
+                if ((errno == 0) && (*end == '\0') && (x < LONG_MAX) && (x > LONG_MIN)) {
+                    expected_size = x;
+                    if (transport_debug) LOGI(TAG_EVENT, "Content size: %ld", x);
+                }
+            }
             if ((rqheader != NULL) && (rqheader_ok)) {
                 int len = rqheader_ptr + strlen(evt->header_key) + strlen(evt->header_value) + 5;
                 if (len > DEFAULT_RQHEADER_LEN) rqheader_ok = false;
@@ -123,61 +149,165 @@ static int _http_event_handler(esp_http_client_event_t *evt)
             }
             break;
         case HTTP_EVENT_ON_DATA:
-            if (transport_debug) LOGI(TAG_EVENT, "OnData: len=%d", evt->data_len);
+            // Data received
+            saved = 0;
             if (rqbody_ok) {
                 if (rqbody_file != mp_const_none) {
-                    int nwrite = mp_stream_posix_write((void *)rqbody_file, evt->data, evt->data_len);
-                    if (nwrite <= 0) {
-                        rqbody_ok = false;
-                        if (transport_debug) LOGE(TAG_EVENT, "Download: Error writing to file %d", nwrite);
-                    }
-                    else {
-                        if (transport_debug) LOGI(TAG_EVENT, "Write data to body file: rqptr=%d + %d", rqbody_ptr, nwrite);
-                        rqbody_ptr += evt->data_len;
+                    // Receive to file
+                    // Copy received data to buffer
+                    if (rqprogress) sprintf(tstr, "to file");
+                    while (len > 0) {
+                        rqbody[rqbuffer_ptr++] = *cdata++;
+                        len--;
+                        if (rqbuffer_ptr >= rqbody_len) {
+                            // buffer full, write to file
+                            int nwrite = mp_stream_posix_write((void *)rqbody_file, rqbody, rqbuffer_ptr);
+                            rqbody_ptr += rqbuffer_ptr;
+                            if (nwrite != rqbuffer_ptr) {
+                                rqbody_ok = false;
+                                if (rqprogress) {
+                                    mp_printf(&mp_plat_print, "\r\n[%u ms] Error writing to file %d\r\n", mp_hal_ticks_ms() - rqtransfer_start, nwrite);
+                                }
+                                else if (transport_debug) LOGE(TAG_EVENT, "Error writing to file %d", nwrite);
+                                break;
+                            }
+                            saved = rqbuffer_ptr;
+                            rqbuffer_ptr = 0;
+                        }
                     }
                 }
                 else if (flash_address > 0) {
-                    if ((rqbody_ptr+evt->data_len) <= flash_length) {
-                        enum w25qxx_status_t res = w25qxx_write_data(flash_address+rqbody_ptr, evt->data, evt->data_len);
-                        if (res != W25QXX_OK) {
-                            rqbody_ok = false;
-                            if (transport_debug) LOGE(TAG_EVENT, "Download: Error writing to Flash");
+                    // Receive to Flash
+                    if (rqprogress) sprintf(tstr, "to Flash");
+                    if (flash_address < flash_end) {
+                        // Copy received data to buffer (4K)
+                        while (len > 0) {
+                            rqbody[rqbuffer_ptr++] = *cdata++;
+                            len--;
+                            if (rqbuffer_ptr >= rqbody_len) {
+                                // buffer full, write to flash
+                                enum w25qxx_status_t res = w25qxx_write_data(flash_address+rqbody_ptr, (uint8_t *)rqbody, rqbuffer_ptr);
+                                rqbody_ptr += rqbuffer_ptr;
+                                if (res != W25QXX_OK) {
+                                    rqbody_ok = false;
+                                    if (rqprogress) {
+                                        mp_printf(&mp_plat_print, "\r\n[%u ms] Error writing to Flash\r\n", mp_hal_ticks_ms() - rqtransfer_start);
+                                    }
+                                    else if (transport_debug) LOGE(TAG_EVENT, "Error writing to Flash");
+                                    break;
+                                }
+                                saved = rqbuffer_ptr;
+                                rqbuffer_ptr = 0;
+                            }
                         }
-                        else {
-                            if (transport_debug) LOGI(TAG_EVENT, "Write data to Flash: rqptr=%d + %d", flash_address+rqbody_ptr, evt->data_len);
-                            rqbody_ptr += evt->data_len;
-                        }
-                    }
-                }
-                else {
-                    if (transport_debug) LOGI(TAG_EVENT, "Write data to body buffer: rqptr=%d/%d", rqbody_ptr, rqbody_len);
-                    if (rqbody != NULL) {
-                        int len = evt->data_len + rqbody_ptr;
-                        if (len > rqbody_len) rqbody_ok = false;
-                        if (rqbody_ok) {
-                            memcpy(rqbody + rqbody_ptr, evt->data, evt->data_len);
-                            rqbody_ptr += evt->data_len;
-                            rqbody[rqbody_ptr] = '\0';
-                            if (transport_debug) LOGD(TAG_EVENT, "Write %d byte(s) to body buffer", evt->data_len);
-                        }
-                        else if (transport_debug) LOGW(TAG_EVENT, "Body buffer size to small");
                     }
                     else {
                         rqbody_ok = false;
-                        if (transport_debug) LOGW(TAG_EVENT, "No allocated body buffer");
+                        if (rqprogress) {
+                            mp_printf(&mp_plat_print, "\r\n[%u ms] Allowed Flash size exceeded\r\n", mp_hal_ticks_ms() - rqtransfer_start);
+                        }
+                        else if (transport_debug) LOGE(TAG_EVENT, "Allowed Flash size exceeded");
+                    }
+                }
+                else {
+                    // Receive to body buffer
+                    if (rqprogress) sprintf(tstr, "to buffer");
+                    if (rqbody != NULL) {
+                        len += rqbody_ptr;
+                        if (len <= rqbody_len) {
+                            memcpy(rqbody + rqbody_ptr, evt->data, evt->data_len);
+                            rqbody_ptr += evt->data_len;
+                            rqbody[rqbody_ptr] = '\0';
+                            saved = evt->data_len;
+                        }
+                        else {
+                            rqbody_ok = false;
+                            if (rqprogress) {
+                                mp_printf(&mp_plat_print, "\r\n[%u ms] Body buffer full\r\n", mp_hal_ticks_ms() - rqtransfer_start);
+                            }
+                            else if (transport_debug) LOGW(TAG_EVENT, "Body buffer full");
+                        }
+                    }
+                    else {
+                        rqbody_ok = false;
+                        if (rqprogress) {
+                            mp_printf(&mp_plat_print, "\r\n[%u ms] No allocated body buffer\r\n", mp_hal_ticks_ms() - rqtransfer_start);
+                        }
+                        else if (transport_debug) LOGW(TAG_EVENT, "No allocated body buffer");
                     }
                 }
             }
+            if (rqprogress) {
+                if (saved) {
+                    if (expected_size > 0) {
+                        double recv = ((double)rqbody_ptr / (double)expected_size) * 100.0;
+                        mp_printf(&mp_plat_print, "\r[%u ms] Download %s (%d): 0x%08X (%0.2f%%), %u", mp_hal_ticks_ms() - rqtransfer_start, tstr, rqbody_ok, rqbody_ptr, recv, saved);
+                    }
+                    else mp_printf(&mp_plat_print, "\r[%u ms] Download %s (%d): 0x%08X", mp_hal_ticks_ms() - rqtransfer_start, tstr, rqbody_ok, rqbody_ptr);
+                }
+            }
+            else if (transport_debug) LOGI(TAG_EVENT, "OnData (%d): len=%d", rqbody_ok, evt->data_len);
 
             break;
         case HTTP_EVENT_ON_FINISH:
-            if (transport_debug) LOGI(TAG_EVENT, "OnFinish");
+            saved = 0;
+            if (((rqbody_file != mp_const_none) || (flash_address > 0)) && (rqbuffer_ptr > 0)) {
+                // Write remaining data in buffer to file or Flash
+                if (rqbody_file != mp_const_none) {
+                    int nwrite = mp_stream_posix_write((void *)rqbody_file, rqbody, rqbuffer_ptr);
+                    rqbody_ptr += rqbuffer_ptr;
+                    if (nwrite != rqbuffer_ptr) {
+                        if (rqprogress) {
+                            mp_printf(&mp_plat_print, "\r\n[%u ms] Error writing to file %d\r\n", mp_hal_ticks_ms() - rqtransfer_start, nwrite);
+                        }
+                        else if (transport_debug) LOGE(TAG_EVENT, "Error writing to file %d", nwrite);
+                    }
+                    else saved = rqbuffer_ptr;
+                    rqbody_ok = false;
+                    rqbuffer_ptr = 0;
+                }
+                else {
+                    uint32_t tmp_ptr = rqbody_ptr + rqbuffer_ptr;
+                    while (rqbuffer_ptr < rqbody_len) {
+                        rqbody[rqbuffer_ptr++] = 0xFF;
+                    }
+                    enum w25qxx_status_t res = w25qxx_write_data(flash_address+rqbody_ptr, (uint8_t *)rqbody, rqbuffer_ptr);
+                    if (res != W25QXX_OK) {
+                        if (rqprogress) {
+                            mp_printf(&mp_plat_print, "\r\n[%u ms] Error writing to Flash\r\n", mp_hal_ticks_ms() - rqtransfer_start);
+                        }
+                        else if (transport_debug) LOGE(TAG_EVENT, "Error writing to Flash");
+                    }
+                    else {
+                        rqbody_ptr = tmp_ptr;
+                        saved = rqbuffer_ptr;
+                    }
+                    rqbuffer_ptr = 0;
+                    rqbody_ok = false;
+                }
+            }
+            if (rqprogress) {
+                if (saved) {
+                    if (expected_size > 0) {
+                        mp_printf(&mp_plat_print, "\r[%u ms] Download %s (1): 0x%08X (100.00%%), %u [Finished]\r\n", mp_hal_ticks_ms() - rqtransfer_start, tstr, rqbody_ptr, saved);
+                    }
+                    else mp_printf(&mp_plat_print, "\r[%u ms] Download %s (1): 0x%08X [Finished]\r\n", mp_hal_ticks_ms() - rqtransfer_start, tstr, rqbody_ptr);
+                }
+                else mp_printf(&mp_plat_print, "\r\nFinished\r\n");
+            }
+            else if (transport_debug) LOGI(TAG_EVENT, "Finished");
             break;
         case HTTP_EVENT_DISCONNECTED:
-            if (transport_debug) LOGI(TAG_EVENT, "Disconnected");
+            if (rqprogress) {
+                mp_printf(&mp_plat_print, "\r\n[%u ms] Disconnected\r\n", mp_hal_ticks_ms() - rqtransfer_start);
+            }
+            else if (transport_debug) LOGI(TAG_EVENT, "Disconnected");
             break;
         default:
-            if (transport_debug) LOGW(TAG_EVENT, "Unhandled: %d", evt->event_id);
+            if (rqprogress) {
+                mp_printf(&mp_plat_print, "\r\n[%u ms] Unhandled event (%d)\r\n", mp_hal_ticks_ms() - rqtransfer_start, evt->event_id);
+            }
+            else if (transport_debug) LOGW(TAG_EVENT, "Unhandled event (%d)", evt->event_id);
     }
     //if (mutex_taken) wifi_give_mutex();
     return 0;
@@ -469,7 +599,8 @@ static mp_obj_t request(int method, bool multipart, mp_obj_t post_data_in, char 
         // GET to file
         mp_obj_t fargs[2];
         fargs[0] = mp_obj_new_str(tofile, strlen(tofile));
-        fargs[1] = mp_obj_new_str("wb", 2);
+        if (rq_rangestart > 0) fargs[1] = mp_obj_new_str("ab", 2);
+        else fargs[1] = mp_obj_new_str("wb", 2);
         rqbody_file = mp_vfs_open(2, fargs, (mp_map_t*)&mp_const_empty_map);
         if (!rqbody_file) {
             mp_raise_msg(&mp_type_OSError, "Error opening file");
@@ -484,6 +615,7 @@ static mp_obj_t request(int method, bool multipart, mp_obj_t post_data_in, char 
     config.event_handler = _http_event_handler;
     config.buffer_size = buf_size;
     config.cert_pem = cert_pem;
+    config.timeout_ms = 5000;
 
     // Initialize the http_client and set the method
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -500,14 +632,21 @@ static mp_obj_t request(int method, bool multipart, mp_obj_t post_data_in, char 
     rqbody = NULL;
 
     // Allocate buffers
+    // for headers
     rqheader = pvPortMalloc(DEFAULT_RQHEADER_LEN);
     if (rqheader != NULL) memset(rqheader, 0, DEFAULT_RQHEADER_LEN);
     else {
         if (rqbody_file != mp_const_none) mp_stream_close(rqbody_file);
         mp_raise_msg(&mp_type_OSError, "Error allocating header buffer");
     }
+
+    // and body
     int rqbody_size = rqbody_len;
-    if (tofile != NULL) rqbody_size = 384;
+    if ((tofile != NULL) || (flash_address > 0)) {
+        // For receive to file and Flash use 4K buffer
+        rqbody_size = 4096;
+        rqbody_len = 4096;
+    }
     rqbody = pvPortMalloc(rqbody_size);
     if (rqbody != NULL) memset(rqbody, 0, rqbody_size);
     else {
@@ -516,10 +655,16 @@ static mp_obj_t request(int method, bool multipart, mp_obj_t post_data_in, char 
         mp_raise_msg(&mp_type_OSError, "Error allocating body buffer");
     }
     rqbody_ptr = 0;
+    rqbuffer_ptr = 0;
     rqbody_ok = true;
     rqheader_ok = true;
     wifi_task_semaphore_active = true;
 
+    if (flash_address > 0) {
+        // get buffer offset and align address to 4K
+        rqbuffer_ptr = flash_address & 0x0FFF;
+        flash_address &= 0xFFFFF000;
+    }
     // Execute requested method
     if (method == HTTP_METHOD_POST) {
         mp_obj_dict_t *dict;
@@ -614,6 +759,12 @@ static mp_obj_t request(int method, bool multipart, mp_obj_t post_data_in, char 
 
     if (!perform_handled) {
         // POST method is already handled, handle others methods here
+        if ((method == HTTP_METHOD_GET) && (rq_rangestart >= 0)) {
+            char temp_buf[128];
+            sprintf(temp_buf, "bytes=%u-", rq_rangestart);
+            if (rq_rangeend > rq_rangestart) sprintf(temp_buf+strlen(temp_buf), "%u", rq_rangeend);
+            esp_http_client_set_header(client, "Range", temp_buf);
+        }
         MP_THREAD_GIL_EXIT();
         err = esp_http_client_perform(client);
         esp_http_client_cleanup(client);
@@ -635,21 +786,25 @@ static mp_obj_t request(int method, bool multipart, mp_obj_t post_data_in, char 
 
     status = esp_http_client_get_status_code(client);
 
-    // Prepare the return value, 3-item tuple (status, header, body);
-    mp_obj_t tuple[3];
+    // Prepare the return value, 6-item tuple (status, header, body, expected_size, received_size, flag);
+    mp_obj_t tuple[6];
 
     tuple[0] = mp_obj_new_int(status);
+    tuple[3] = mp_obj_new_int(expected_size);
+    tuple[4] = mp_obj_new_int(rqbody_ptr);
+    tuple[5] = mp_obj_new_int(0);
 
     if ((rqheader) && (rqheader_ptr)) tuple[1] = mp_obj_new_str(rqheader, rqheader_ptr);
     else tuple[1] = mp_const_none;
 
     if (rqbody_file != mp_const_none) {
-        sprintf(rqbody, "Saved to file '%s', size=%d", tofile, rqbody_ptr);
+        sprintf(rqbody, "Saved to file '%s'", tofile);
         tuple[2] = mp_obj_new_str(rqbody, strlen(rqbody));
     }
     else if (flash_address > 0) {
-        sprintf(rqbody, "Saved to Flash at '%08X', size=%d, expected=%u", flash_address, rqbody_ptr, flash_length);
+        sprintf(rqbody, "Saved to Flash at '%08X'", flash_address);
         tuple[2] = mp_obj_new_str(rqbody, strlen(rqbody));
+        flash_end = flash_address + rqbody_ptr;
     }
     else if ((rqbody) && (rqbody_ptr)) tuple[2] = mp_obj_new_bytes((const byte*)rqbody, rqbody_ptr);
     else tuple[2] = mp_const_none;
@@ -663,7 +818,7 @@ static mp_obj_t request(int method, bool multipart, mp_obj_t post_data_in, char 
     rqbody = NULL;
     wifi_task_semaphore_active = false;
 
-    return mp_obj_new_tuple(3, tuple);
+    return mp_obj_new_tuple(6, tuple);
 }
 
 //-----------------------------------------------------
@@ -713,12 +868,16 @@ void get_certificate(mp_obj_t cert, char *cert_pem_buf)
 STATIC mp_obj_t requests_GET(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
     //network_checkConnection();
-    enum { ARG_url, ARG_file, ARG_bufsize, ARG_flashsize };
+    enum { ARG_url, ARG_dest, ARG_destidx, ARG_bufsize, ARG_size, ARG_rstart, ARG_rend, ARG_progress };
     const mp_arg_t allowed_args[] = {
-        { MP_QSTR_url,   MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-        { MP_QSTR_file,                    MP_ARG_OBJ, { .u_obj = mp_const_none } },
-        { MP_QSTR_bufsize,                 MP_ARG_INT, { .u_int = 1536 } },
-        { MP_QSTR_flashsize,               MP_ARG_INT, { .u_int = 0 } },
+        { MP_QSTR_url,   MP_ARG_REQUIRED | MP_ARG_OBJ,  { .u_obj = mp_const_none } },
+        { MP_QSTR_dest,                    MP_ARG_OBJ,  { .u_obj = mp_const_none } },
+        { MP_QSTR_dest_idx,                MP_ARG_INT,  { .u_int = -1 } },
+        { MP_QSTR_bufsize,                 MP_ARG_INT,  { .u_int = 1536 } },
+        { MP_QSTR_size,                    MP_ARG_INT,  { .u_int = 0 } },
+        { MP_QSTR_rangestart,              MP_ARG_INT,  { .u_int = -1 } },
+        { MP_QSTR_rangeend,                MP_ARG_INT,  { .u_int = -1 } },
+        { MP_QSTR_progress,                MP_ARG_BOOL, { .u_bool = false } },
     };
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
@@ -727,32 +886,173 @@ STATIC mp_obj_t requests_GET(size_t n_args, const mp_obj_t *pos_args, mp_map_t *
     char *url = NULL;
     char *fname = NULL;
     flash_address = 0;
-    flash_length = 0;
+    uint32_t flash_start = 0;
+    expected_size = args[ARG_size].u_int;
+    flash_end = 0;
+    rqprogress = args[ARG_progress].u_bool;
+    rqtransfer_start = mp_hal_ticks_ms();
+    rq_rangestart = args[ARG_rstart].u_int;
+    rq_rangeend = args[ARG_rend].u_int;
+    int bufsize = args[ARG_bufsize].u_int;
+    if ((bufsize < 512) || (bufsize > 8192)) bufsize = 1536;
+    int dest = args[ARG_destidx].u_int;
+    int flash_sector_offset = 0;
+    bool to_flash = false;
 
     url = (char *)mp_obj_str_get_str(args[ARG_url].u_obj);
+    char entry_name[BOOT_ENTRY_NAME_LEN] = {'\0'};
+    sprintf(entry_name, "MicroPython");
 
     #if MICROPY_PY_USE_OTA
-    if (mp_obj_is_int(args[ARG_file].u_obj)) {
+    uint32_t dest_address = 0;
+    uint32_t active_address, active_end_address, active_size;
+    ota_entry_t *active_entry = NULL;
+
+    if (mp_obj_is_int(args[ARG_dest].u_obj)) {
         // GET to Flash, used for OTA download
-        flash_address = mp_obj_get_int(args[ARG_file].u_obj);
-        flash_length = mp_obj_get_int(args[ARG_flashsize].u_obj);
-        // Check address and size
+        flash_address = mp_obj_get_int(args[ARG_dest].u_obj);
+        if ((flash_address & 0x0FFF) != 0) {
+            mp_raise_ValueError("Flash address must be aligned to 4K");
+        }
+
+        flash_start = flash_address;
+        dest_address = flash_start;
+        if (rq_rangestart <= 4096) {
+            // download from the start
+            rq_rangestart = 0;
+            rq_rangeend = 0;
+            if ((dest < 0) || (dest > (BOOT_CONFIG_ITEMS-1))) {
+                mp_raise_ValueError("Wrong OTA destination index");
+            }
+            // first download, reserve space for 5-byte header
+            flash_sector_offset = 5;
+            flash_address += 5;
+        }
+        else {
+            // resumed download
+            if ((rq_rangestart & 0x0FFF) != 0) {
+                mp_raise_ValueError("Flash resume address must be aligned to 4K");
+            }
+            // adjust the flash address
+            flash_address += rq_rangestart;
+            // check previously (partially) saved firmware
+            if (!check_app_sha256(flash_start)) {
+                mp_raise_msg(&mp_type_OSError, "Previous download not verified");
+            }
+        }
+
+        // Get current firmware information
+        ota_entry_t default_entry = {0};
+        default_entry.id_flags = (uint32_t)(MAGIC_ID + CFG_APP_FLAG_ACTIVE + CFG_APP_FLAG_SHA256);
+        default_entry.address = DEFAULT_APP_ADDRESS;
+        default_entry.size = get_fw_flash_size(DEFAULT_APP_ADDRESS);
+        sprintf(default_entry.name, "MicroPython");
+
+        int src = config_get_active();
+        if (src < 0) nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_OSError, "Cannot get current boot entry"));
+        if (src == dest) mp_raise_ValueError("Source and destination equal!");
+
+        if (src >= 0) active_entry = (ota_entry_t *)(config_sector + (src*BOOT_CONFIG_ITEM_SIZE));
+        else active_entry = &default_entry;
+        active_address = active_entry->address;
+        active_size = get_fw_flash_size(active_entry->address);
+        active_end_address = ((active_address + active_size) & 0xFFFFF000) + 0x1000;
+
+        flash_end = dest_address + expected_size + 37; // firmware size + 5-byte header + 32-byte sha256
+        if ((flash_end & 0x0FFF) > 0) {
+            flash_end &= 0xFFFFF000;
+            flash_end += 0x1000;
+        }
+
+        // Check if valid destination Flash area is selected
+        if ( ((dest_address >= MICRO_PY_FLASHFS_START_ADDRESS) || (flash_end >= MICRO_PY_FLASHFS_START_ADDRESS)) ||
+             ((dest_address < DEFAULT_APP_ADDRESS) || (flash_end < DEFAULT_APP_ADDRESS)) ||
+             ((dest_address >= active_address) && (dest_address <= active_end_address)) ||
+             ((flash_end >= active_address) && (flash_end <= active_end_address)) ) {
+            mp_raise_ValueError("Wrong Flash address and/or size!");
+        }
+        to_flash = true;
     }
-    else if (mp_obj_is_str(args[ARG_file].u_obj)) {
+    else if (mp_obj_is_str(args[ARG_dest].u_obj)) {
         // GET to file
-        fname = (char *)mp_obj_str_get_str(args[ARG_file].u_obj);
+        fname = (char *)mp_obj_str_get_str(args[ARG_dest].u_obj);
     }
     #else
-    if (mp_obj_is_int(args[ARG_file].u_obj)) {
+    if (mp_obj_is_int(args[ARG_dest].u_obj)) {
         mp_raise_ValueError("Save to Flash not supported if OTA not enabled");
     }
-    else if (mp_obj_is_str(args[ARG_file].u_obj)) {
+    else if (mp_obj_is_str(args[ARG_dest].u_obj)) {
         // GET to file
-        fname = (char *)mp_obj_str_get_str(args[ARG_file].u_obj);
+        fname = (char *)mp_obj_str_get_str(args[ARG_dest].u_obj);
     }
     #endif
 
-    mp_obj_t res = request(HTTP_METHOD_GET, false, NULL, url, fname, args[ARG_bufsize].u_int);
+    mp_obj_t res = request(HTTP_METHOD_GET, false, NULL, url, fname, bufsize);
+
+    if (rqprogress) mp_printf(&mp_plat_print, "\r\nFinished in %u ms\r\n", mp_hal_ticks_ms() - rqtransfer_start);
+
+    if ((to_flash) && (flash_end >= (flash_address + flash_sector_offset))) {
+        // OTA update, set application header and sha256
+        // get returned tuple items
+        mp_obj_t *t_items;
+        size_t t_len;
+        mp_obj_tuple_get(res, &t_len, &t_items);
+
+        // Check if download completed
+        bool complete = ((expected_size+flash_sector_offset) == rqbody_ptr);
+        if (!complete) {
+            // Download aborted, not all data received
+            if ((rqprogress) || (transport_debug)) LOGW(TAG, "Expected size different than received.");
+            t_items[5] = mp_obj_new_int(-1);
+        }
+
+        bool curr_spi_check = w25qxx_spi_check;
+        w25qxx_spi_check = true;
+
+        // Write the application size to Flash
+        if (uint32toflash(flash_start+1, flash_end-flash_start-flash_sector_offset)) {
+            // Calculate and write the application sha256 to Flash
+            if (calc_set_app_sha256(flash_start)) {
+                if (complete) {
+                    // Set the destination entry data
+                    if (backup_boot_sector()) {
+                        ota_entry_t *dest_entry = (ota_entry_t *)(config_sector + (dest*BOOT_CONFIG_ITEM_SIZE));
+                        dest_entry->id_flags = (uint32_t)(MAGIC_ID + CFG_APP_FLAG_SHA256);
+                        dest_entry->address = flash_start;
+                        dest_entry->size = flash_end-flash_start-5;
+                        dest_entry->crc32 = 0;
+                        memcpy(dest_entry->name, entry_name, BOOT_ENTRY_NAME_LEN);
+                        if ((rqprogress) || (transport_debug)) {
+                            LOGI(TAG, "Adding boot entry #%d: %08X, %08X, %u", dest, dest_entry->id_flags, dest_entry->address, dest_entry->size);
+                        }
+
+                        // Save modified boot sector
+                        if (!write_boot_sector()) {
+                            w25qxx_spi_check = curr_spi_check;
+                            mp_raise_msg(&mp_type_OSError, "Error saving config sector.");
+                        }
+                        if ((rqprogress) || (transport_debug)) LOGI(TAG, "Boot entry #%d saved.", dest);
+                    }
+                    else {
+                        w25qxx_spi_check = curr_spi_check;
+                        mp_raise_msg(&mp_type_OSError, "Backup boot sector error");
+                    }
+                }
+            }
+            else {
+                w25qxx_spi_check = curr_spi_check;
+                mp_raise_msg(&mp_type_OSError, "Save sha256 error");
+            }
+        }
+        else {
+            w25qxx_spi_check = curr_spi_check;
+            mp_raise_msg(&mp_type_OSError, "Save size error");
+        }
+        w25qxx_spi_check = curr_spi_check;
+    }
+    else if (to_flash) {
+        mp_raise_msg(&mp_type_OSError, "Download to Flash failed");
+    }
 
     return res;
 }
@@ -775,7 +1075,10 @@ STATIC mp_obj_t requests_HEAD(size_t n_args, const mp_obj_t *pos_args, mp_map_t 
     url = (char *)mp_obj_str_get_str(args[ARG_url].u_obj);
 
     flash_address = 0;
-    flash_length = 0;
+    expected_size = 0;
+    flash_end = 0;
+    rqprogress = false;
+
     mp_obj_t res = request(HTTP_METHOD_HEAD, false, NULL, url, NULL, 1536);
 
     return res;
@@ -811,7 +1114,10 @@ STATIC mp_obj_t requests_POST(size_t n_args, const mp_obj_t *pos_args, mp_map_t 
     }
 
     flash_address = 0;
-    flash_length = 0;
+    expected_size = 0;
+    flash_end = 0;
+    rqprogress = false;
+
     mp_obj_t res = request(HTTP_METHOD_POST, args[ARG_multipart].u_bool, args[ARG_params].u_obj, url, fname, args[ARG_bufsize].u_int);
 
     return res;
@@ -836,7 +1142,10 @@ STATIC mp_obj_t requests_PUT(size_t n_args, const mp_obj_t *pos_args, mp_map_t *
     url = (char *)mp_obj_str_get_str(args[ARG_url].u_obj);
 
     flash_address = 0;
-    flash_length = 0;
+    expected_size = 0;
+    flash_end = 0;
+    rqprogress = false;
+
     mp_obj_t res = request(HTTP_METHOD_PUT, false, args[ARG_data].u_obj, url, NULL, 1536);
 
     return res;
@@ -861,7 +1170,10 @@ STATIC mp_obj_t requests_PATCH(size_t n_args, const mp_obj_t *pos_args, mp_map_t
     url = (char *)mp_obj_str_get_str(args[ARG_url].u_obj);
 
     flash_address = 0;
-    flash_length = 0;
+    expected_size = 0;
+    flash_end = 0;
+    rqprogress = false;
+
     mp_obj_t res = request(HTTP_METHOD_PATCH, false, args[ARG_data].u_obj, url, NULL, 1536);
 
     return res;
@@ -886,7 +1198,10 @@ STATIC mp_obj_t requests_DELETE(size_t n_args, const mp_obj_t *pos_args, mp_map_
     url = (char *)mp_obj_str_get_str(args[ARG_url].u_obj);
 
     flash_address = 0;
-    flash_length = 0;
+    expected_size = 0;
+    flash_end = 0;
+    rqprogress = false;
+
     mp_obj_t res = request(HTTP_METHOD_DELETE, false, args[ARG_data].u_obj, url, NULL, 1536);
 
     return res;

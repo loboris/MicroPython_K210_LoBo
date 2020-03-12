@@ -70,12 +70,16 @@ bool use_vm_hook = USE_MICROPY_VM_HOOK_LOOP;
 bool wdt_reset_in_vm_hook = false;
 task_ipc_t task_ipc = { 0 };
 SemaphoreHandle_t inter_proc_mutex = NULL;
-uint64_t sys_us_counter_cpu = 0;
-uint64_t sys_us_counter = 0;
 uint32_t system_status = 0;
 
+static uint64_t system_useconds = 0;
+static uint64_t init_useconds = 0;
+static uint64_t init_mcycles = 0;
+static uint64_t system_cpu_frequency = (CPU_MAX_FREQ / 1000000);
 
-uintptr_t mp_hal_stdio_poll(uintptr_t poll_flags) {
+//-----------------------------------------------
+uintptr_t mp_hal_stdio_poll(uintptr_t poll_flags)
+{
     uintptr_t ret = 0;
     if ((poll_flags & MP_STREAM_POLL_RD) && stdin_ringbuf.iget != stdin_ringbuf.iput) {
         ret |= MP_STREAM_POLL_RD;
@@ -96,31 +100,33 @@ mp_uint_t mp_hal_ticks_cpu(void)
 //-----------------------------
 mp_uint_t mp_hal_ticks_us(void)
 {
-    return ((read_csr64(mcycle) - sys_us_counter_cpu) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000)) + sys_us_counter;
+    system_useconds = (((read_csr64(mcycle)-init_mcycles) / system_cpu_frequency) + init_useconds);
+    return system_useconds;
 }
 
-// Used for FreeRTOS syslog
+// Used by FreeRTOS syslog
 //--------------------------
 mp_uint_t sys_ticks_us(void)
 {
-    return ((read_csr64(mcycle) - sys_us_counter_cpu) / (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000)) + sys_us_counter;
+    system_useconds = (((read_csr64(mcycle)-init_mcycles) / system_cpu_frequency) + init_useconds);
+    return system_useconds;
 }
 
 //-----------------------------
 mp_uint_t mp_hal_ticks_ms(void)
 {
-    return mp_hal_ticks_us() / 1000;
+    system_useconds = (((read_csr64(mcycle)-init_mcycles) / system_cpu_frequency) + init_useconds);
+    return (system_useconds / 1000);
 }
 
 //------------------------------------------
 void mp_hal_set_cpu_frequency(uint32_t freq)
 {
-    uint64_t count_us = mp_hal_ticks_us();
-    sys_us_counter_cpu = read_csr64(mcycle);
-    sys_us_counter = count_us;
-
     system_set_cpu_frequency(freq);
-    mp_hal_usdelay(1000);
+    system_cpu_frequency = CYCLES_PER_US;
+    init_mcycles = read_csr64(mcycle);
+    init_useconds = system_useconds;
+    mp_hal_usdelay(100);
     if (flash_spi > 0) {
         w25qxx_init(flash_spi, SPI_FF_QUAD, w25qxx_max_speed);
     }
@@ -357,10 +363,9 @@ void mp_hal_wdt1_reset()
 //====================
 void mp_hal_init(void)
 {
-    sys_us_counter = 0;
-
     // Set the CPU clock
     mp_hal_set_cpu_frequency(mpy_config.config.cpu_clock);
+    system_cpu_frequency = CYCLES_PER_US;
 
     // Set the REPL uart baudrate and configure uarths
     uarths_baudrate = uarths_init(mpy_config.config.repl_bdr);
@@ -621,43 +626,6 @@ void mp_hal_send_byte(char c)
 }
 
 //-------------------------------------------------------
-uint16_t mp_hal_crc16(const uint8_t *buf, uint32_t count)
-{
-    uint16_t crc = 0xFFFF;
-    int i;
-    const uint8_t *pbuf = buf;
-
-    while (count--) {
-        crc = crc ^ *pbuf++ << 8;
-        for (i=0; i<8; i++) {
-            if (crc & 0x8000) crc = crc << 1 ^ 0x1021;
-            else crc = crc << 1;
-        }
-    }
-    return crc;
-}
-
-//-------------------------------------------------------
-uint32_t mp_hal_crc32(const uint8_t *buf, uint32_t count)
-{
-   int32_t i, j;
-   uint32_t crc, mask;
-   const uint8_t *pbuf = buf;
-
-   i = 0;
-   crc = 0xFFFFFFFF;
-   while (count--) {
-      crc = crc ^ (uint32_t)*pbuf++;
-      for (j = 7; j >= 0; j--) {
-         mask = -(crc & 1);
-         crc = (crc >> 1) ^ (0xEDB88320 & mask);
-      }
-      i = i + 1;
-   }
-   return ~crc;
-}
-
-//-------------------------------------------------------
 int32_t mp_hal_receive_byte(uint8_t *c, uint32_t timeout)
 {
     int cc = -1;
@@ -729,7 +697,7 @@ int mp_hal_get_file_block(uint8_t *buff, int size)
 
             crc_rec = (uint16_t)(buff[size] << 8);
             crc_rec |= (uint16_t)(buff[size+1] & 0xFF);
-            crc = mp_hal_crc16(buff, size);
+            crc = hal_crc16(buff, size, 0);
             // check crc
             if (crc == crc_rec) {
                 res = 0;
@@ -806,7 +774,7 @@ int mp_hal_send_file_block(uint8_t *buff, int size, bool docrc, int fsize)
 
     if (docrc) {
         // prepare crc
-        crc = mp_hal_crc16(buff, size);
+        crc = hal_crc16(buff, size, 0);
         buff[size] = (uint8_t)(crc >> 8);
         buff[size+1] = (uint8_t)(crc & 0xFF);
     }
@@ -822,7 +790,7 @@ int mp_hal_send_file_block(uint8_t *buff, int size, bool docrc, int fsize)
         fs_buf[3] = (fsize >> 8) & 0xff;
         fs_buf[4] = (fsize >> 16) & 0xff;
         fs_buf[5] = (fsize >> 24) & 0xff;
-        crc = mp_hal_crc16(fs_buf, 6);
+        crc = hal_crc16(fs_buf, 6, 0);
         fs_buf[6] = (uint8_t)(crc >> 8);
         fs_buf[7] = (uint8_t)(crc & 0xFF);
 
@@ -901,7 +869,9 @@ void mp_hal_usdelay(uint16_t us)
 {
     uint64_t start_us = mp_hal_ticks_us();
     uint64_t end_us = start_us + us;
-    while (mp_hal_ticks_us() < end_us) {}
+    while (mp_hal_ticks_us() < end_us) {
+        ;
+    }
 }
 
 /*
@@ -922,7 +892,9 @@ mp_uint_t _mp_hal_delay_us(mp_uint_t us)
     mp_uint_t end_us = start_us + us;
     if (us <= (portTICK_PERIOD_MS*2000)) {
         // For delays up to 2000 us we use blocking delay
-        while (mp_hal_ticks_us() < end_us) {}
+        while (mp_hal_ticks_us() < end_us) {
+            ;
+        }
         return us;
     }
     // Dont accept interrupt character while sleeping
@@ -981,11 +953,3 @@ void mp_hal_delay_ms(mp_uint_t ms)
 {
     _mp_hal_delay_us(ms * 1000);
 }
-
-//--------------------------------------
-mp_uint_t _mp_hal_delay_ms(mp_uint_t ms)
-{
-    return _mp_hal_delay_us(ms * 1000);
-}
-
-

@@ -80,72 +80,15 @@
 #include "modmachine.h"
 #include "mphalport.h"
 
-#define SLAVE_BUFFER_MIN_SIZE   256
-#define SLAVE_BUFFER_MAX_SIZE   (1024*1024)
-#define SPI_MASTER_0            0
-#define SPI_MASTER_1            1
-#define SPI_MASTER_WS2812_0     2
-#define SPI_MASTER_WS2812_1     3
-#define SPI_SLAVE               4
+#define SLAVE_BUFFER_MIN_SIZE       256
+#define SLAVE_BUFFER_MAX_SIZE       (1024*1024)
 
-#define SLAVE_TASK_REINIT       1001
-#define SLAVE_TASK_CALLBACK     1006
+#define SLAVE_TASK_REINIT           1001
+#define SLAVE_TASK_CALLBACK         1006
 
-typedef union _ws2812b_rgb {
-    struct
-    {
-        uint32_t blue  : 8;
-        uint32_t red   : 8;
-        uint32_t green : 8;
-        uint32_t white : 8;
-    };
-    uint32_t rgb;
-} ws2812b_rgb;
+#define SPI_SLAVE_MUTEX_WAIT_TIME   20
 
-typedef struct _ws2812b_buffer_t
-{
-    size_t      num_pix;
-    ws2812b_rgb *rgb_buffer;
-} ws2812b_buffer_t;
-
-typedef struct _machine_hw_spi_obj_t {
-    mp_obj_base_t base;
-    int8_t      spi_num;            // SPI device used (0-1 spi master, 2-3 ws2812, 4 spi slave)
-    int8_t      sck;
-    int8_t      mosi;
-    int8_t      miso;
-    int8_t      cs;
-    int8_t      mode;
-    int8_t      firstbit;
-    int8_t      nbits;
-    bool        duplex;
-    bool        reused_spi;
-    uint32_t    baudrate;
-    uint32_t    freq;
-    handle_t    handle;             // handle to SPI driver
-    handle_t    spi_device;
-    uint8_t     *slave_buffer;
-    uint32_t    buffer_size;
-    uint32_t    slave_ro_size;
-    bool        slave_buffer_allocated;
-    mp_obj_t    slave_cb;           // slave callback function
-    ws2812b_buffer_t ws2812_buffer;
-    uint16_t    ws2812_lo;
-    uint16_t    ws2812_hi;
-    uint32_t    ws2812_rst;
-    uint16_t    ws_lo;
-    uint16_t    ws_hi;
-    uint32_t    ws_rst;
-    uint32_t    ws_needed_buf_size;
-    bool        ws2812_white;
-    enum {
-        MACHINE_HW_SPI_STATE_NONE,
-        MACHINE_HW_SPI_STATE_INIT,
-        MACHINE_HW_SPI_STATE_DEINIT
-    } state;
-} machine_hw_spi_obj_t;
-
-static const char *slave_err[10] = {
+static const char *slave_err[12] = {
     "Ok",
     "Wrong command",
     "Cmd CSUM error",
@@ -155,25 +98,27 @@ static const char *slave_err[10] = {
     "Timeout",
     "Error",
     "Fatal Error, SLAVE reset",
+    "Not 4-byte aligned",
+    "Memory error",
     "Unknown",
 };
 
-static const char *slave_commands[9] = {
+static const char *slave_commands[10] = {
     "No command",
-    "Test",
-    "Read info",
-    "Status",
-    "Write data",
-    "Write data with csum",
     "Read data",
-    "Read data with csum",
+    "Write data",
+    "Read info",
+    "Write status",
+    "Write status&confirm",
+    "Read BUF state",
+    "ISR Read buffer",
+    "ISR Read confirmation",
     "Unknown",
 };
 
 static const char *TAG = "[SPI]";
 static machine_hw_spi_obj_t *slave_obj = NULL;
-static TaskHandle_t slave_task = NULL;
-static QueueHandle_t slave_task_queue = NULL;
+
 
 static bool neopixel_show(machine_hw_spi_obj_t *self, bool test);
 
@@ -231,8 +176,8 @@ STATIC void machine_hw_spi_print(const mp_print_t *print, mp_obj_t self_in, mp_p
             self->mosi, self->miso, self->sck, self->cs);
     mp_printf(print, "\r\n          (pin value of -1 means the pin is not used)");
 
-    if (self->spi_num == SPI_SLAVE) mp_printf(print, "\r\n    buffer_size=%u (%u read_only), callback: %s",
-            self->buffer_size, self->slave_ro_size, (self->slave_cb == mp_const_none) ? "False" : "True");
+    if (self->spi_num == SPI_SLAVE) mp_printf(print, "\r\n    buffer_size=%u (%u read_only), handshake=%d, callback: %s",
+            self->buffer_size, self->slave_ro_size, self->handshake, (self->slave_cb == mp_const_none) ? "False" : "True");
 
     if ((self->spi_num == SPI_MASTER_WS2812_0) || (self->spi_num == SPI_MASTER_WS2812_1)) {
         mp_printf(print, "\r\n    ws2812: pixels=%u, buffer size=%u (needs=%u)", self->ws2812_buffer.num_pix, self->buffer_size, self->ws_needed_buf_size);
@@ -247,7 +192,7 @@ STATIC void machine_hw_spi_print(const mp_print_t *print, mp_obj_t self_in, mp_p
 static bool spi_hard_deinit(machine_hw_spi_obj_t *self)
 {
     // Deconfigure used pins
-    mp_fpioa_cfg_item_t spi_pin_func[4];
+    mp_fpioa_cfg_item_t spi_pin_func[5];
     if (self->spi_num == SPI_SLAVE) {
         // === SPI slave
         int n_func = 3;
@@ -257,6 +202,11 @@ static bool spi_hard_deinit(machine_hw_spi_obj_t *self)
         if (self->miso >= 0) {
             n_func = 4;
             spi_pin_func[3] = (mp_fpioa_cfg_item_t){-1, self->miso, GPIO_USEDAS_NONE, FUNC_RESV0};
+        }
+        if (self->handshake >= 0) {
+            gpiohs_set_free(self->handshake_gpio);
+            n_func = 5;
+            spi_pin_func[4] = (mp_fpioa_cfg_item_t){-1, self->handshake, GPIO_USEDAS_NONE, FUNC_RESV0};
         }
 
         fpioa_setup_pins(n_func, spi_pin_func);
@@ -300,8 +250,8 @@ static bool spi_hard_deinit(machine_hw_spi_obj_t *self)
     return true;
 }
 
-//------------------------------------------------------------------------------------------------------
-static int spi_master_hard_init(uint8_t mosi, int8_t miso, uint8_t sck, int8_t cs, gpio_pin_func_t func)
+//-----------------------------------------------------------------------------------------------
+int spi_master_hard_init(uint8_t mosi, int8_t miso, uint8_t sck, int8_t cs, gpio_pin_func_t func)
 {
     // mosi & sck are mandatory, miso & cs can be unused
     int spi_offset = 0, cs_offset = 0;
@@ -467,24 +417,9 @@ STATIC void checkSPIws2812(machine_hw_spi_obj_t *self)
     }
 }
 
-//------------------------------------------
-static int spi_slave_receive_hook(void *ctx)
-{
-    if (slave_task_queue) xQueueSend(slave_task_queue, ctx, 0);
-    return 0;
-}
-
 //--------------------------------------------
 static void spi_slave_task(void *pvParameters)
 {
-    if (slave_task_queue == NULL) {
-        slave_task_queue = xQueueCreate( 8, sizeof(spi_slave_command_t) );
-        if (slave_task_queue == NULL) {
-            LOGE("[SPI_SLAVE_TASK]", "Error creating message queue");
-            slave_task = NULL;
-            vTaskDelete(NULL);
-        }
-    }
     TaskHandle_t task_handle = (TaskHandle_t)pvParameters;
     spi_slave_command_t slv_cmd = {0};
     // if the task uses some MicroPython functions, we have to save
@@ -493,56 +428,85 @@ static void spi_slave_task(void *pvParameters)
     vTaskSetThreadLocalStoragePointer(NULL, THREAD_LSP_ARGS, pvTaskGetThreadLocalStoragePointer(task_handle, THREAD_LSP_ARGS));
 
     while (1) {
+        if (slave_obj->slave_queue == NULL) {
+            vTaskDelay(1000);
+            continue;
+        }
         // Check notification
-        if (xQueueReceive(slave_task_queue, &slv_cmd, 1000 / portTICK_RATE_MS) == pdTRUE) {
+        if (xQueueReceive(slave_obj->slave_queue, &slv_cmd, 1000 / portTICK_RATE_MS) == pdTRUE) {
+            if (slv_cmd.err == SPI_CMD_ERR_EXIT) {
+                // end task requested
+                break;
+            }
             if (slave_obj->state == MACHINE_HW_SPI_STATE_INIT) {
-                if (slv_cmd.err == SPI_CMD_ERR_FATAL) {
+                if ((slave_obj) && (slave_obj->slave_cb != mp_const_none)) {
+                    // schedule callback function
+                    mp_obj_t tuple[8];
+                    tuple[0] = mp_obj_new_int(slv_cmd.cmd);                                             // command
+                    tuple[1] = mp_obj_new_int(slv_cmd.opt);                                             // command options or Master data type
+                    tuple[2] = mp_obj_new_int(slv_cmd.err);                                             // error code
+                    tuple[3] = mp_obj_new_int(slv_cmd.addr);                                            // buffer address
+                    tuple[4] = mp_obj_new_int(slv_cmd.dummy_bytes);                                     // number of dummy bytes
+                    tuple[5] = mp_obj_new_int(slv_cmd.len);                                             // transfer length
+                    tuple[6] = mp_obj_new_int((slv_cmd.end_time - slv_cmd.start_time) / CYCLES_PER_US); // transfer time in us
+                    tuple[7] = mp_obj_new_bytes((const byte *)slv_cmd.user_data, 12);                   // master data
+
+                    mp_sched_schedule(slave_obj->slave_cb, mp_obj_new_tuple(8, tuple));
+                }
+                else {
                     if (slv_cmd.cmd > SPI_CMD_MAX) slv_cmd.cmd = SPI_CMD_MAX;
                     if (slv_cmd.err > SPI_CMD_ERR_MAX) slv_cmd.err = SPI_CMD_ERR_MAX;
-                    LOGW("[SPI_SLAVE_TASK]", "SPI Slave fatal error, reseting");
-                    // spi slave unusable, needs to be reinitialized
-                    // Deinit
-                    if (slave_obj->spi_num == SPI_SLAVE) spi_slave_deinit(slave_obj->handle);
-                    io_close(slave_obj->handle);
-                    slave_obj->handle = 0;
-                    spi_hard_deinit(slave_obj);
-                    slave_obj->state = MACHINE_HW_SPI_STATE_NONE;
 
-                    // Initialize again
-                    slave_obj->handle = io_open("/dev/spi_slave");
-                    if (slave_obj->handle == 0) {
-                        LOGE("[SPI_SLAVE_TASK]", "Error reseting spi slave");
+                    if ((slv_cmd.cmd == SPI_CMD_READ_TRANS) || (slv_cmd.cmd == SPI_CMD_STATUS_TRANS)) {
+                        LOGD("[SPI_SLAVE]", "ISR Read: %d (%s)", slv_cmd.cmd, slave_commands[slv_cmd.cmd]);
                     }
-                    else {
-                        if (spi_slave_hard_init(slave_obj->mosi, slave_obj->miso, slave_obj->sck, slave_obj->cs, GPIO_FUNC_SPI_SLAVE) != 0) {
-                            LOGE("[SPI_SLAVE_TASK]", "Error reseting spi slave");
+                    else if (((slv_cmd.cmd == SPI_CMD_WRSTAT) || (slv_cmd.cmd == SPI_CMD_WRSTAT_CONFIRM)) && (slv_cmd.err == SPI_CMD_ERR_OK)) {
+                        /* Command structure:
+                         * -------------------------------------------------------------
+                         *  0       user data command code
+                         *  1       user data command type (b0-b3) & dummy bytes (b4-b7)
+                         *  2 - 13  user data (12 bytes)
+                         * 14 - 15  16-bit crc
+                         * -------------------------------------------------------------
+                         */
+                        char sstat[40] = {'\0'};
+                        if (slv_cmd.opt == 1) {
+                            uint8_t key = slv_cmd.user_data[0];
+                            sprintf(sstat, "Keys:");
+                            if ((key & 1) == 0) strcat(sstat+5, " 1");
+                            key >>= 1;
+                            if ((key & 1) == 0) strcat(sstat+5, " 2");
+                            key >>= 1;
+                            if ((key & 1) == 0) strcat(sstat+5, " 3");
+                            key >>= 1;
+                            if ((key & 1) == 0) strcat(sstat+5, " 4");
+                        }
+                        else if (slv_cmd.opt == 2) {
+                            sprintf(sstat, "U1=%u mV, U2=%u mV", *((uint16_t *)slv_cmd.user_data), *((uint16_t *)(slv_cmd.user_data+2)));
                         }
                         else {
-                            spi_slave_config(slave_obj->handle, slave_obj->nbits, slave_obj->slave_buffer, slave_obj->buffer_size, slave_obj->slave_ro_size,
-                                    spi_slave_receive_hook, mp_hal_crc16, MICROPY_TASK_PRIORITY, slave_obj->mosi, slave_obj->miso);
-                            slave_obj->state = MACHINE_HW_SPI_STATE_INIT;
+                            for (int i=0; i<12; i++) {
+                                sprintf(sstat+(i*3), "%02X ", slv_cmd.user_data[i]);
+                            }
+                            sstat[24] = '\0';
                         }
-                    }
-                }
-                if (slave_obj->state == MACHINE_HW_SPI_STATE_INIT) {
-                    if ((slave_obj) && (slave_obj->slave_cb != mp_const_none)) {
-                        // schedule callback function
-                        mp_obj_t tuple[4];
-                        tuple[0] = mp_obj_new_int(slv_cmd.cmd);
-                        tuple[1] = mp_obj_new_int(slv_cmd.err);
-                        tuple[2] = mp_obj_new_int(slv_cmd.addr);
-                        tuple[3] = mp_obj_new_int(slv_cmd.len);
-
-                        mp_sched_schedule(slave_obj->slave_cb, mp_obj_new_tuple(4, tuple));
+                        LOGI("[SPI_SLAVE]", "Master status: %s", sstat);
                     }
                     else {
-                        if (slv_cmd.err == SPI_CMD_ERR_OK) {
-                            LOGD("[SPI_SLAVE]", "cmd=%u (%s), err=%u (%s), addr=%u, len=%u, time=%lu",
-                                    slv_cmd.cmd, slave_commands[slv_cmd.cmd], slv_cmd.err, slave_err[slv_cmd.err], slv_cmd.addr, slv_cmd.len, slv_cmd.time);
-                        }
-                        else {
-                            LOGD("[SPI_SLAVE]", "err=%u (%s), time=%lu", slv_cmd.err, slave_err[slv_cmd.err], slv_cmd.time);
-                        }
+                        /* Command structure:
+                         * ------------------
+                         *  0       command code & options
+                         *  1 -  3  20-bit address & dummy bytes
+                         *  4 -  5  16_bit length
+                         *  6 - 13  user data (8 bytes)
+                         * 14 - 15  16-bit crc
+                         * -------------------
+                         */
+                        LOGD("[SPI_SLAVE]", "cmd=%u (%s%s%s), err=%u (%s), addr=%u, dummy=%u, len=%u, crc16=0x%04X, time=%lu ns (%lu ns)",
+                                slv_cmd.cmd, slave_commands[slv_cmd.cmd], (slv_cmd.opt & 1) ? " crc" : "", (slv_cmd.opt & 2) ? " confirm" : "",
+                                slv_cmd.err, slave_err[slv_cmd.err], slv_cmd.addr, slv_cmd.dummy_bytes, slv_cmd.len, slv_cmd.crc16,
+                                ((slv_cmd.end_time - slv_cmd.start_time) * 1000) / CYCLES_PER_US,       // total transfer time
+                                ((slv_cmd.command_time - slv_cmd.start_time) * 1000) / CYCLES_PER_US ); // speed
                     }
                 }
             }
@@ -550,14 +514,18 @@ static void spi_slave_task(void *pvParameters)
     } // task's main loop
 
     // Terminate task
-    slave_task = NULL;
+    if (slave_obj->slave_queue) {
+        vQueueDelete(slave_obj->slave_queue);
+        slave_obj->slave_queue = NULL;
+    }
+    slave_obj->slave_task = NULL;
     vTaskDelete(NULL);
 }
 
 //---------------------------------------------------------------------------------------------------------------
 mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args)
 {
-    enum { ARG_id, ARG_baudrate, ARG_mode, ARG_polarity, ARG_phase, ARG_firstbit, ARG_sck, ARG_mosi, ARG_miso, ARG_cs,
+    enum { ARG_id, ARG_baudrate, ARG_mode, ARG_polarity, ARG_phase, ARG_firstbit, ARG_sck, ARG_mosi, ARG_miso, ARG_cs, ARG_handshake,
            ARG_duplex, ARG_bits, ARG_buffer, ARG_rolen, ARG_wsnum, ARG_wslo, ARG_wshi, ARG_wsrst, ARG_wswhite };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_id,                                                   MP_ARG_INT,  {.u_int = 1} },
@@ -570,6 +538,7 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
         { MP_QSTR_mosi,             MP_ARG_KW_ONLY  | MP_ARG_REQUIRED | MP_ARG_INT,  {.u_int = -1} },
         { MP_QSTR_miso,             MP_ARG_KW_ONLY                    | MP_ARG_INT,  {.u_int = -1} },
         { MP_QSTR_cs,               MP_ARG_KW_ONLY                    | MP_ARG_INT,  {.u_int = -1} },
+        { MP_QSTR_handshake,        MP_ARG_KW_ONLY                    | MP_ARG_INT,  {.u_int = -1} },
         { MP_QSTR_duplex,           MP_ARG_KW_ONLY                    | MP_ARG_BOOL, {.u_bool = true} },
         { MP_QSTR_bits,             MP_ARG_KW_ONLY                    | MP_ARG_INT,  {.u_int = 8} },
         { MP_QSTR_slave_buffer,     MP_ARG_KW_ONLY                    | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
@@ -587,10 +556,15 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
     machine_hw_spi_obj_t *self = m_new_obj(machine_hw_spi_obj_t);
     self->base.type = &machine_hw_spi_type;
     self->state = MACHINE_HW_SPI_STATE_NONE;
+    self->slave_queue = NULL;
+    self->slave_task = NULL;
 
     self->spi_num = args[ARG_id].u_int;
-    if ((self->spi_num < 0) || (self->spi_num > 4)) {
+    if ((self->spi_num < 0) || (self->spi_num >= SPI_INTERFACE_MAX)) {
         mp_raise_ValueError("Wrong SPI interface selected");
+    }
+    if ((self->spi_num == SPI_SLAVE) && (slave_obj != NULL)) {
+        mp_raise_ValueError("Only one SPI Slave instance can be created");
     }
 
     int mode = 0;
@@ -620,22 +594,23 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
     if ((args[ARG_bits].u_int < 4) || (args[ARG_bits].u_int > 32)) {
         mp_raise_ValueError("SPI bits out of range (4 ~ 32)");
     }
-    if ((self->spi_num == SPI_MASTER_WS2812_0) || (self->spi_num == SPI_MASTER_WS2812_1)) self->nbits = 32;
-    else self->nbits = args[ARG_bits].u_int;
+    else if (self->spi_num == SPI_SLAVE) self->nbits = 8;
+    else if (self->spi_num > SPI_MASTER_1) self->nbits = 32;
+    else self->nbits = args[ARG_bits].u_int & 0x3C;
 
     bool flag = true;
     if ((args[ARG_mosi].u_int < 0) || (args[ARG_mosi].u_int >= FPIOA_NUM_IO)) flag = false;
     else if (self->spi_num == SPI_SLAVE) {
         // in SLAVE mode cs, sck & mosi are required
         if ((args[ARG_sck].u_int < 0) || (args[ARG_sck].u_int >= FPIOA_NUM_IO)) flag = false;
-        else if ((args[ARG_cs].u_int < 0) || (args[ARG_cs].u_int >= FPIOA_NUM_IO)) flag = false;
-        else if ((args[ARG_miso].u_int < -1) || (args[ARG_miso].u_int >= FPIOA_NUM_IO)) flag = false;
+        if ((args[ARG_cs].u_int < 0) || (args[ARG_cs].u_int >= FPIOA_NUM_IO)) flag = false;
+        //if ((args[ARG_miso].u_int < -1) || (args[ARG_miso].u_int >= FPIOA_NUM_IO)) flag = false;
     }
     else if (self->spi_num <= SPI_MASTER_1) {
         // in MASTER mode sck & mosi are required
         if ((args[ARG_sck].u_int < 0) || (args[ARG_sck].u_int >= FPIOA_NUM_IO)) flag = false;
-        else if ((args[ARG_cs].u_int < -1) || (args[ARG_cs].u_int >= FPIOA_NUM_IO)) flag = false;
-        else if ((args[ARG_miso].u_int < -1) || (args[ARG_miso].u_int >= FPIOA_NUM_IO)) flag = false;
+        if ((args[ARG_cs].u_int < -1) || (args[ARG_cs].u_int >= FPIOA_NUM_IO)) flag = false;
+        if ((args[ARG_miso].u_int < -1) || (args[ARG_miso].u_int >= FPIOA_NUM_IO)) flag = false;
     }
     if (!flag) {
         mp_raise_ValueError("not all pins given or out of range");
@@ -671,7 +646,7 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
         self->reused_spi = false;
     }
     if (!flag) {
-        mp_raise_ValueError("Error configuring SPI slave device");
+        mp_raise_ValueError("Error configuring SPI device");
     }
 
     // === SPI peripheral initialization ===
@@ -688,10 +663,11 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
     self->duplex = args[ARG_duplex].u_bool;
     self->sck = args[ARG_sck].u_int;
     self->cs = args[ARG_cs].u_int;
+    self->handshake = args[ARG_handshake].u_int;
     self->slave_buffer = NULL;
     self->slave_cb = mp_const_none;
     if (args[ARG_rolen].u_int < 0) self->slave_ro_size = 0;
-    else self->slave_ro_size = args[ARG_rolen].u_int;
+    else self->slave_ro_size = args[ARG_rolen].u_int & 0xFFFFFFFC;
 
     self->ws2812_buffer.rgb_buffer = NULL;
     self->ws2812_hi = args[ARG_wshi].u_int;
@@ -735,26 +711,47 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
         }
     }
     else {
-        // SPI Slave
-        BaseType_t res = xTaskCreate(
-                spi_slave_task,                         // function entry
-                "spi_slave_task",                       // task name
-                configMINIMAL_STACK_SIZE,               // stack_deepth
-                (void *)xTaskGetCurrentTaskHandle(),    // function argument
-                MICROPY_TASK_PRIORITY+1,                // task priority
-                &slave_task);                           // task handle
-        if (res != pdPASS) slave_task = NULL;
-        vTaskDelay(2);
-        if (slave_task == NULL) {
-            mp_raise_ValueError("error creating spi slave task");
+        // ==== SPI Slave ====
+        if (!machine_init_gpiohs()) {
+            mp_raise_ValueError("Cannot initialize gpiohs");
         }
+        if (self->handshake >= 0) {
+            // Configure handshake pin
+            if (mp_used_pins[self->handshake].func != GPIO_FUNC_NONE) {
+                io_close(self->handle);
+                spi_hard_deinit(self);
+                mp_raise_ValueError(gpiohs_funcs_in_use[mp_used_pins[self->handshake].func]);
+            }
+            self->handshake_gpio = gpiohs_get_free();
+            if (self->handshake_gpio < 0) {
+                io_close(self->handle);
+                spi_hard_deinit(self);
+                mp_raise_ValueError("Error configuring handshake pin");
+            }
+            if (fpioa_set_function(self->handshake, FUNC_GPIOHS0 + self->handshake_gpio) < 0) {
+                gpiohs_set_free(self->handshake_gpio);
+                io_close(self->handle);
+                spi_hard_deinit(self);
+                mp_raise_ValueError("Error configuring handshake pin");
+            }
+            gpio_set_drive_mode(gpiohs_handle, self->handshake_gpio, GPIO_DM_OUTPUT);
+            gpio_set_pin_value(gpiohs_handle, self->handshake_gpio, GPIO_PV_HIGH);
+            mp_used_pins[self->handshake].func = GPIO_FUNC_PIN;
+            mp_used_pins[self->handshake].usedas = GPIO_USEDAS_HANDSHAKE;
+            mp_used_pins[self->handshake].gpio = self->handshake_gpio;
+            mp_used_pins[self->handshake].fpioa_func = FUNC_GPIOHS0 + self->handshake_gpio;
+        }
+        else self->handshake_gpio = -1;
 
         self->freq = 0;
         self->duplex = false;
 
         if ((mp_obj_is_int(args[ARG_buffer].u_obj)) || (args[ARG_buffer].u_obj == mp_const_none)) {
-            if (args[ARG_buffer].u_obj == mp_const_none) self->buffer_size = 1024;
-            else self->buffer_size = mp_obj_get_int(args[ARG_buffer].u_obj);
+            if (args[ARG_buffer].u_obj == mp_const_none) self->buffer_size = 1024 * (self->nbits/8);
+            else self->buffer_size = mp_obj_get_int(args[ARG_buffer].u_obj) * (self->nbits/8);
+            if (self->buffer_size % 4) {
+                mp_raise_ValueError("SPI slave buffer size must be multiple of 4");
+            }
             if ((self->buffer_size < SLAVE_BUFFER_MIN_SIZE) || (self->buffer_size > SLAVE_BUFFER_MAX_SIZE)) {
                 io_close(self->handle);
                 spi_hard_deinit(self);
@@ -772,22 +769,66 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
             // MPy buffer object is provided
             mp_buffer_info_t bufinfo;
             mp_get_buffer_raise(args[ARG_buffer].u_obj, &bufinfo, MP_BUFFER_RW);
-            if (bufinfo.len < SLAVE_BUFFER_MIN_SIZE) {
+            if (bufinfo.len % 4) {
+                mp_raise_ValueError("SPI slave buffer size must be multiple of 4");
+            }
+            if ((bufinfo.len < SLAVE_BUFFER_MIN_SIZE) || (bufinfo.len > SLAVE_BUFFER_MAX_SIZE)) {
                 io_close(self->handle);
                 spi_hard_deinit(self);
                 mp_raise_ValueError("SPI slave buffer size out of range");
             }
-            self->buffer_size = ((bufinfo.len * 8) / 8) - 8;
+            self->buffer_size = bufinfo.len - 8;
             self->slave_buffer = (uint8_t *)bufinfo.buf;
             self->slave_buffer_allocated = false;
         }
         if (self->slave_ro_size > (self->buffer_size / 2)) self->slave_ro_size = self->buffer_size / 2;
 
         memset(self->slave_buffer, 0, self->buffer_size);
-        spi_slave_config(self->handle, self->nbits, self->slave_buffer, self->buffer_size, self->slave_ro_size,
-                spi_slave_receive_hook, mp_hal_crc16, MICROPY_TASK_PRIORITY, self->mosi, self->miso);
+
+        if (self->slave_queue == NULL) {
+            self->slave_queue = xQueueCreate( 8, sizeof(spi_slave_command_t) );
+            if (self->slave_queue == NULL) {
+                io_close(self->handle);
+                spi_hard_deinit(self);
+                if ((self->slave_buffer_allocated) && (self->slave_buffer)) vPortFree(self->slave_buffer);
+                LOGE("[SPI_SLAVE_TASK]", "Error creating message queue");
+            }
+        }
 
         slave_obj = self;
+
+        BaseType_t res = xTaskCreate(
+                spi_slave_task,                         // function entry
+                "SpiSlave PyTask",                      // task name
+                configMINIMAL_STACK_SIZE,               // stack_deepth
+                (void *)xTaskGetCurrentTaskHandle(),    // function argument
+                MICROPY_TASK_PRIORITY+1,                // task priority
+                &self->slave_task);                     // task handle
+
+        if (res != pdPASS) self->slave_task = NULL;
+        vTaskDelay(2);
+        if (self->slave_task == NULL) {
+            io_close(self->handle);
+            spi_hard_deinit(self);
+            if ((self->slave_buffer_allocated) && (self->slave_buffer)) vPortFree(self->slave_buffer);
+            slave_obj = NULL;
+            mp_raise_ValueError("error creating spi slave task");
+        }
+
+        bool ret =spi_slave_config(self->handle, (void *)self->slave_buffer, self->buffer_size, self->slave_ro_size,
+                      self->slave_queue, MICROPY_TASK_PRIORITY, self->mosi, self->miso, self->handshake_gpio);
+        if (!ret) {
+            spi_slave_command_t slv_cmd = {0};
+            slv_cmd.err = SPI_CMD_ERR_EXIT;
+            xQueueSend(self->slave_queue, (void *)&slv_cmd, 0); // terminate task
+            io_close(self->handle);
+            spi_hard_deinit(self);
+            if ((self->slave_buffer_allocated) && (self->slave_buffer)) vPortFree(self->slave_buffer);
+            slave_obj = NULL;
+            mp_raise_ValueError("Error configuring spi slave driver");
+        }
+
+        LOGD(TAG, "Slave command length: %lu", sizeof(spi_slave_command_t));
     }
 
     self->state = MACHINE_HW_SPI_STATE_INIT;
@@ -865,7 +906,25 @@ STATIC mp_obj_t machine_hw_spi_deinit(mp_obj_t self_in)
         mp_raise_msg(&mp_type_OSError, "SPI not initialized");
     }
 
-    if (self->spi_num == SPI_SLAVE) spi_slave_deinit(self->handle);
+    if (self->spi_num == SPI_SLAVE) {
+        spi_slave_deinit(self->handle);
+        // wait for slave task to stop;
+        int tmo = 5000;
+        while (self->slave_task != NULL) {
+            vTaskDelay(5);
+            tmo -= 5;
+            if (tmo == 0) {
+                vTaskDelete(self->slave_task);
+                self->slave_task = NULL;
+                if (self->slave_queue) {
+                    vQueueDelete(self->slave_queue);
+                    self->slave_queue = NULL;
+                }
+                LOGW(TAG, "Slave task forced to stop");
+                break;
+            }
+        }
+    }
 
     io_close(self->handle);
     self->handle = 0;
@@ -900,7 +959,7 @@ STATIC mp_obj_t mp_machine_spi_read(size_t n_args, const mp_obj_t *args)
     }
     return mp_const_false;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_spi_read_obj, 2, 3, mp_machine_spi_read);
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_spi_read_obj, 2, 3, mp_machine_spi_read);
 
 //--------------------------------------------------------------------------
 STATIC mp_obj_t mp_machine_spi_readinto(size_t n_args, const mp_obj_t *args)
@@ -1065,38 +1124,66 @@ STATIC mp_obj_t mp_machine_spi_read_from_mem(mp_uint_t n_args, const mp_obj_t *p
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(mp_machine_spi_read_from_mem_obj, 0, mp_machine_spi_read_from_mem);
 
-//----------------------------------------------------------------------
-STATIC mp_obj_t _spi_slavecmd(uint8_t cmd, uint32_t addr, uint32_t size)
+//----------------------------------------------------------------------------------------------------
+STATIC mp_obj_t mp_machine_spi_slavecmd(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
-    char buf[8];
+    enum { ARG_cmd, ARG_addr, ARG_len, ARG_dummy, ARG_crc, ARG_confirm, ARG_data };
+
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_cmd,     MP_ARG_REQUIRED | MP_ARG_INT,  {.u_int = 0} },
+        { MP_QSTR_addr,    MP_ARG_REQUIRED | MP_ARG_INT,  {.u_int = 0} },
+        { MP_QSTR_len,     MP_ARG_REQUIRED | MP_ARG_INT,  {.u_int = 0} },
+        { MP_QSTR_dummy,                     MP_ARG_INT,  {.u_int = 0} },
+        { MP_QSTR_crc,                       MP_ARG_BOOL, {.u_bool = false} },
+        { MP_QSTR_confirm,                   MP_ARG_BOOL, {.u_bool = false} },
+        { MP_QSTR_data,                      MP_ARG_OBJ,  {.u_obj = mp_const_none} },
+    };
+
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args-1, pos_args+1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    machine_hw_spi_obj_t *self = pos_args[0];
+    checkSPImaster(self);
+
+    uint8_t cmd = (uint8_t)(args[ARG_cmd].u_int) & 0x07;
+    if (args[ARG_crc].u_bool) cmd |= 0x10;
+    if (args[ARG_confirm].u_bool) cmd |= 0x20;
+    uint32_t addr = (uint32_t)args[ARG_addr].u_int;
+    uint16_t len = (uint16_t)args[ARG_len].u_int;
+    bool has_data = false;
+    mp_buffer_info_t bufinfo;
+    if (mp_obj_is_type(args[ARG_data].u_obj, &mp_type_bytes)) {
+        mp_get_buffer_raise(args[ARG_data].u_obj, &bufinfo, MP_BUFFER_READ);
+        if ((bufinfo.len < 1) || (bufinfo.len > 7)) {
+            mp_raise_ValueError("Wrong data size");
+        }
+        has_data = true;
+    }
+
+    char buf[16] = {0};
     buf[0] = cmd;
     buf[1] = addr & 0xff;
     buf[2] = (addr >> 8) & 0xff;
     buf[3] = (addr >> 16) & 0xff;
-    buf[4] = size & 0xff;
-    buf[5] = (size >> 8) & 0xff;
-    buf[6] = (size >> 16) & 0xff;
-    buf[7] = 0;
-    for (int i=0; i<7; i++) {
-        buf[7] ^= buf[i];
+    buf[4] = len & 0xff;
+    buf[5] = (len >> 8) & 0xff;
+    buf[6] = (uint8_t)args[ARG_dummy].u_int;
+    if (has_data) {
+        memcpy(buf+7, bufinfo.buf, bufinfo.len);
     }
-    return mp_obj_new_str_of_type(&mp_type_bytes, (const byte*)buf, 8);
+    uint16_t crc = hal_crc16((const void*)buf, 14, 0);
+    buf[14] = crc & 0xff;
+    buf[15] = (crc >> 8) & 0xff;
+
+    return mp_obj_new_str_of_type(&mp_type_bytes, (const byte*)buf, 16);
 }
-//--------------------------------------------------------------------------
-STATIC mp_obj_t mp_machine_spi_slavecmd(size_t n_args, const mp_obj_t *args)
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(mp_machine_spi_slavecmd_obj, 4, mp_machine_spi_slavecmd);
+
+
+//----------------------------------------------------------------------------------
+static void _check_addr_len(machine_hw_spi_obj_t *self, uint32_t addr, uint32_t len)
 {
-    machine_hw_spi_obj_t *self = args[0];
-    checkSPImaster(self);
-
-    return _spi_slavecmd((uint8_t)mp_obj_get_int(args[1]), (uint32_t)mp_obj_get_int(args[2]), (uint32_t)mp_obj_get_int(args[3]));
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_spi_slavecmd_obj, 4, 4, mp_machine_spi_slavecmd);
-
-
-//------------------------------------------------------------------------
-static void _check_addr_len(machine_hw_spi_obj_t *self, int addr, int len)
-{
-    if ((len < 1) || (len > self->buffer_size)) {
+    if (len > self->buffer_size) {
         mp_raise_ValueError("Length out of range");
     }
     if (addr >= self->buffer_size) {
@@ -1115,26 +1202,32 @@ STATIC mp_obj_t mp_machine_spi_slave_setdata(mp_obj_t self_in, mp_obj_t buf_in, 
 
     mp_buffer_info_t bufinfo;
     mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_READ);
-    int addr = mp_obj_get_int(addr_in);
+    uint32_t addr = mp_obj_get_int(addr_in);
     _check_addr_len(self, addr, bufinfo.len);
 
-    memcpy(self->slave_buffer + addr, bufinfo.buf, bufinfo.len);
-    return mp_const_none;
+    bool ret = spi_slave_set_buffer(self->handle, (uint8_t *)bufinfo.buf, addr, bufinfo.len);
+
+    return (ret) ? mp_const_true : mp_const_false;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_3(mp_machine_spi_slave_setdata_obj, mp_machine_spi_slave_setdata);
 
-//--------------------------------------------------------------------------------
-STATIC mp_obj_t mp_machine_spi_slave_setbuffer(mp_obj_t self_in, mp_obj_t byte_in)
+//------------------------------------------------------------------------------------
+STATIC mp_obj_t mp_machine_spi_slave_set_readbuffer(mp_obj_t self_in, mp_obj_t buf_in)
 {
     machine_hw_spi_obj_t *self = self_in;
     checkSPIslave(self);
 
-    uint8_t fill_byte = (uint8_t)mp_obj_get_int(byte_in);
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_READ);
+    if (bufinfo.len != 16) {
+        mp_raise_ValueError("Read buffer size must be 16 bytes");
+    }
 
-    memset(self->slave_buffer, fill_byte, self->buffer_size);
-    return mp_const_none;
+    bool ret = spi_slave_set_read_buffer(self->handle, (uint8_t *)bufinfo.buf);
+
+    return (ret) ? mp_const_true : mp_const_false;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_2(mp_machine_spi_slave_setbuffer_obj, mp_machine_spi_slave_setbuffer);
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(mp_machine_spi_slave_set_readbuffer_obj, mp_machine_spi_slave_set_readbuffer);
 
 //-----------------------------------------------------------------------------------------------
 STATIC mp_obj_t mp_machine_spi_slave_getdata(mp_obj_t self_in, mp_obj_t addr_in, mp_obj_t len_in)
@@ -1142,8 +1235,8 @@ STATIC mp_obj_t mp_machine_spi_slave_getdata(mp_obj_t self_in, mp_obj_t addr_in,
     machine_hw_spi_obj_t *self = self_in;
     checkSPIslave(self);
 
-    int addr = mp_obj_get_int(addr_in);
-    int len = mp_obj_get_int(len_in);
+    uint32_t addr = mp_obj_get_int(addr_in);
+    uint32_t len = mp_obj_get_int(len_in);
     _check_addr_len(self, addr, len);
 
     uint8_t *databuf = pvPortMalloc(len);
@@ -1151,15 +1244,36 @@ STATIC mp_obj_t mp_machine_spi_slave_getdata(mp_obj_t self_in, mp_obj_t addr_in,
         nlr_raise(mp_obj_new_exception_msg(&mp_type_OSError, "Error allocating data buffer"));
     }
 
-    mp_obj_t data;
-    memcpy(databuf, self->slave_buffer + addr, len);
-    data = mp_obj_new_bytes(databuf, len);
+    mp_obj_t data = mp_const_none;
+
+    bool ret = spi_slave_get_buffer(self->handle, databuf, addr, len);
+
+    if (ret) data = mp_obj_new_bytes(databuf, len);
 
     vPortFree(databuf);
-    // Return buffer data as byte array
+
     return data;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_3(mp_machine_spi_slave_getdata_obj, mp_machine_spi_slave_getdata);
+
+//---------------------------------------------------------------------------------
+STATIC mp_obj_t mp_machine_spi_slave_setbuffer(size_t n_args, const mp_obj_t *args)
+{
+    machine_hw_spi_obj_t *self = args[0];
+    checkSPIslave(self);
+
+    uint8_t fill_byte = (uint8_t)mp_obj_get_int(args[1]);
+    uint32_t addr = 0;
+    if (n_args > 2) addr = (uint32_t)mp_obj_get_int(args[2]);
+    uint32_t len = self->buffer_size;
+    if (n_args > 3) len = (uint32_t)mp_obj_get_int(args[3]);
+    _check_addr_len(self, addr, len);
+
+    bool ret = spi_slave_fill_buffer(self->handle, fill_byte, addr, len);
+
+    return (ret) ? mp_const_true : mp_const_false;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_spi_slave_setbuffer_obj, 2, 4, mp_machine_spi_slave_setbuffer);
 
 //----------------------------------------------------------------------------
 STATIC mp_obj_t mp_machine_spi_slave_callback(mp_obj_t self_in, mp_obj_t func)
@@ -1176,6 +1290,22 @@ STATIC mp_obj_t mp_machine_spi_slave_callback(mp_obj_t self_in, mp_obj_t func)
     return mp_const_none;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_2(mp_machine_spi_slave_callback_obj, mp_machine_spi_slave_callback);
+
+//--------------------------------------------------------------------------------
+STATIC mp_obj_t mp_machine_spi_slave_handshake(size_t n_args, const mp_obj_t *args)
+{
+    machine_hw_spi_obj_t *self = args[0];
+    checkSPIslave(self);
+
+    uint8_t type = 10;
+    if (n_args > 1) type = (uint8_t)mp_obj_get_int(args[1]);
+
+    bool ret = spi_slave_set_handshake(self->handle, type);
+
+    return (ret) ? mp_const_true : mp_const_false;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_spi_slave_handshake_obj, 1, 2, mp_machine_spi_slave_handshake);
+
 
 // ==== WS2812 functions =================================================================================
 
@@ -1663,9 +1793,12 @@ STATIC const mp_rom_map_elem_t machine_spi_locals_dict_table[] = {
 
     // Slave methods
     { MP_ROM_QSTR(MP_QSTR_setdata),             (mp_obj_t)&mp_machine_spi_slave_setdata_obj },
+    { MP_ROM_QSTR(MP_QSTR_setReadBuf),          (mp_obj_t)&mp_machine_spi_slave_set_readbuffer_obj },
     { MP_ROM_QSTR(MP_QSTR_fillbuffer),          (mp_obj_t)&mp_machine_spi_slave_setbuffer_obj },
     { MP_ROM_QSTR(MP_QSTR_getdata),             (mp_obj_t)&mp_machine_spi_slave_getdata_obj },
     { MP_ROM_QSTR(MP_QSTR_callback),            (mp_obj_t)&mp_machine_spi_slave_callback_obj },
+    { MP_ROM_QSTR(MP_QSTR_handshake),           (mp_obj_t)&mp_machine_spi_slave_handshake_obj },
+    { MP_ROM_QSTR(MP_QSTR_hs),                  (mp_obj_t)&mp_machine_spi_slave_handshake_obj },
 
     // WS2812 methods
     { MP_ROM_QSTR(MP_QSTR_ws_clear),            (mp_obj_t)&machine_neopixel_clear_obj },
@@ -1686,13 +1819,9 @@ STATIC const mp_rom_map_elem_t machine_spi_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_WS2812_1),            MP_ROM_INT(SPI_MASTER_WS2812_1) },
     { MP_ROM_QSTR(MP_QSTR_SPI_SLAVE),           MP_ROM_INT(SPI_SLAVE) },
 
-    { MP_ROM_QSTR(MP_QSTR_SLAVE_CMD_TEST),      MP_ROM_INT(SPI_CMD_TEST_COMMAND) },
-    { MP_ROM_QSTR(MP_QSTR_SLAVE_CMD_INFO),      MP_ROM_INT(SPI_CMD_READ_INFO) },
-    { MP_ROM_QSTR(MP_QSTR_SLAVE_CMD_STATUS),    MP_ROM_INT(SPI_CMD_LAST_STATUS) },
-    { MP_ROM_QSTR(MP_QSTR_SLAVE_CMD_WRITE),     MP_ROM_INT(SPI_CMD_WRITE_DATA_BLOCK) },
-    { MP_ROM_QSTR(MP_QSTR_SLAVE_CMD_WRITE_CSUM),MP_ROM_INT(SPI_CMD_WRITE_DATA_BLOCK_CSUM) },
     { MP_ROM_QSTR(MP_QSTR_SLAVE_CMD_READ),      MP_ROM_INT(SPI_CMD_READ_DATA_BLOCK) },
-    { MP_ROM_QSTR(MP_QSTR_SLAVE_CMD_READ_CSUM), MP_ROM_INT(SPI_CMD_READ_DATA_BLOCK_CSUM) },
+    { MP_ROM_QSTR(MP_QSTR_SLAVE_CMD_WRITE),     MP_ROM_INT(SPI_CMD_WRITE_DATA_BLOCK) },
+    { MP_ROM_QSTR(MP_QSTR_SLAVE_CMD_INFO),      MP_ROM_INT(SPI_CMD_READ_INFO) },
 
     { MP_ROM_QSTR(MP_QSTR_BLACK),               MP_ROM_INT(0x00000000) },
     { MP_ROM_QSTR(MP_QSTR_WHITE),               MP_ROM_INT(0x00FFFFFF) },

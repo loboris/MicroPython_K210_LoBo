@@ -99,8 +99,6 @@ STATIC mp_obj_t test_flash(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw
         sysctl_pll_set_freq(SYSCTL_PLL0, pll0);
         mp_hal_set_cpu_frequency(cpufreq);
         uint64_t count_us = mp_hal_ticks_us();
-        sys_us_counter_cpu = read_csr64(mcycle);
-        sys_us_counter = count_us;
         uarths_init(uarths_baudrate);
     }
 
@@ -279,8 +277,6 @@ exit:
         sysctl_pll_set_freq(SYSCTL_PLL0, old_pll0);
         mp_hal_set_cpu_frequency(old_cpufreq);
         uint64_t count_us = mp_hal_ticks_us();
-        sys_us_counter_cpu = read_csr64(mcycle);
-        sys_us_counter = count_us;
         uarths_init(uarths_baudrate);
         vTaskDelay(10);
     }

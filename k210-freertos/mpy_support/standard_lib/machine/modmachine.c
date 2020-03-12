@@ -98,7 +98,7 @@ const char *gpiohs_funcs_in_use[17] = {
         "pin used by DVP",
 };
 
-const char *gpiohs_usedas[29] = {
+const char *gpiohs_usedas[30] = {
         "--",
         "Tx",
         "Rx",
@@ -128,6 +128,7 @@ const char *gpiohs_usedas[29] = {
         "dvp_pclk",
         "dvp_sclk",
         "dvp_sda",
+        "handshake",
 };
 
 const char *reset_reason[8] = {
@@ -171,7 +172,7 @@ const char *term_color(enum term_colors_t color)
 //---------------------------
 bool mpy_config_crc(bool set)
 {
-    uint32_t ccrc = mp_hal_crc32((const uint8_t *)&mpy_config.config, sizeof(mpy_flash_config_t));
+    uint32_t ccrc = hal_crc32((const void *)&mpy_config.config, sizeof(mpy_flash_config_t), 0);
     if (set) {
         mpy_config.crc = ccrc;
         int res = w25qxx_write_data(MICRO_PY_FLASH_CONFIG_START, (uint8_t *)&mpy_config, sizeof(mpy_config_t));
@@ -189,7 +190,7 @@ bool mpy_read_config()
     // read config from flash
     int res = w25qxx_read_data(MICRO_PY_FLASH_CONFIG_START, (uint8_t *)&config, sizeof(mpy_config_t));
     if (res == W25QXX_OK) {
-        uint32_t ccrc = mp_hal_crc32((const uint8_t *)&config.config, sizeof(mpy_flash_config_t));
+        uint32_t ccrc = hal_crc32((const void *)&config.config, sizeof(mpy_flash_config_t), 0);
         if (config.crc == ccrc) {
             if (config.config.ver == MICROPY_PY_LOBO_VERSION_NUM) {
                 // read config's crc ok, copy to current config
@@ -437,27 +438,47 @@ STATIC mp_obj_t mod_machine_log_level(mp_obj_t level_in)
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_log_level_obj, mod_machine_log_level);
 
-//------------------------------------------------
-STATIC mp_obj_t mod_machine_crc16(mp_obj_t buf_in)
+//-------------------------------------------------------------------
+STATIC mp_obj_t mod_machine_crc8(size_t n_args, const mp_obj_t *args)
 {
     mp_buffer_info_t bufinfo;
-    mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_READ);
+    uint8_t previousCrc8 = 0;
+    mp_get_buffer_raise(args[0], &bufinfo, MP_BUFFER_READ);
+    if (n_args > 1) previousCrc8 = (uint8_t)mp_obj_get_int(args[1]);
 
-    uint16_t crc = mp_hal_crc16((uint8_t *)bufinfo.buf, bufinfo.len);
+    uint8_t crc = hal_crc8((uint8_t *)bufinfo.buf, bufinfo.len, previousCrc8);
+
     return mp_obj_new_int(crc);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_crc16_obj, mod_machine_crc16);
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_machine_crc8_obj, 1, 2, mod_machine_crc8);
 
-//------------------------------------------------
-STATIC mp_obj_t mod_machine_crc32(mp_obj_t buf_in)
+//--------------------------------------------------------------------
+STATIC mp_obj_t mod_machine_crc16(size_t n_args, const mp_obj_t *args)
 {
     mp_buffer_info_t bufinfo;
-    mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_READ);
+    uint16_t previousCrc16 = 0;
+    mp_get_buffer_raise(args[0], &bufinfo, MP_BUFFER_READ);
+    if (n_args > 1) previousCrc16 = (uint16_t)mp_obj_get_int(args[1]);
 
-    uint32_t crc = mp_hal_crc32((uint8_t *)bufinfo.buf, bufinfo.len);
+    uint16_t crc = hal_crc16((uint8_t *)bufinfo.buf, bufinfo.len, previousCrc16);
+
     return mp_obj_new_int(crc);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_crc32_obj, mod_machine_crc32);
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_machine_crc16_obj, 1, 2, mod_machine_crc16);
+
+//--------------------------------------------------------------------
+STATIC mp_obj_t mod_machine_crc32(size_t n_args, const mp_obj_t *args)
+{
+    mp_buffer_info_t bufinfo;
+    uint32_t previousCrc32 = 0;
+    mp_get_buffer_raise(args[0], &bufinfo, MP_BUFFER_READ);
+    if (n_args > 1) previousCrc32 = (uint32_t)mp_obj_get_int(args[1]);
+
+    uint32_t crc = hal_crc32((const void *)bufinfo.buf, bufinfo.len, previousCrc32);
+
+    return mp_obj_new_int(crc);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_machine_crc32_obj, 1, 2, mod_machine_crc32);
 
 //-------------------------------------------------
 STATIC mp_obj_t mod_machine_base64(mp_obj_t buf_in)
@@ -978,6 +999,23 @@ STATIC mp_obj_t machine_flashSpeed(size_t n_args, const mp_obj_t *args)
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_flashSpeed_obj, 0, 1, machine_flashSpeed);
 
 
+extern uint32_t SPI_TRANSMISSION_THRESHOLD;
+//--------------------------------------------------------------------
+STATIC mp_obj_t machine_spiTreshold(size_t n_args, const mp_obj_t *args)
+{
+    if (n_args > 0) {
+        int spitresh = (uint32_t)mp_obj_get_int(args[0]);
+        if ((spitresh < 0) || (spitresh > 10000000)) {
+            mp_raise_ValueError("Allowed values: 0 ~ 10000000");
+        }
+        SPI_TRANSMISSION_THRESHOLD = spitresh;
+    }
+
+    return mp_obj_new_int(SPI_TRANSMISSION_THRESHOLD);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_spiTreshold_obj, 0, 1, machine_spiTreshold);
+
+
 //===========================================================
 STATIC const mp_map_elem_t machine_module_globals_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR___name__),    MP_OBJ_NEW_QSTR(MP_QSTR_machine) },
@@ -997,6 +1035,7 @@ STATIC const mp_map_elem_t machine_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_reset_reason),    MP_ROM_PTR(&mod_machine_reset_reason_obj) },
     { MP_ROM_QSTR(MP_QSTR_pinstat),         MP_ROM_PTR(&machine_pinstat_obj) },
     { MP_ROM_QSTR(MP_QSTR_loglevel),        MP_ROM_PTR(&mod_machine_log_level_obj) },
+    { MP_ROM_QSTR(MP_QSTR_crc8),            MP_ROM_PTR(&mod_machine_crc8_obj) },
     { MP_ROM_QSTR(MP_QSTR_crc16),           MP_ROM_PTR(&mod_machine_crc16_obj) },
     { MP_ROM_QSTR(MP_QSTR_crc32),           MP_ROM_PTR(&mod_machine_crc32_obj) },
     { MP_ROM_QSTR(MP_QSTR_base64enc),       MP_ROM_PTR(&mod_machine_base64_obj) },
@@ -1014,6 +1053,7 @@ STATIC const mp_map_elem_t machine_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_k210_id),         MP_ROM_PTR(&mod_machine_K210serial_obj) },
     { MP_ROM_QSTR(MP_QSTR_flash_serial),    MP_ROM_PTR(&mod_machine_FlashSerial_obj) },
     { MP_ROM_QSTR(MP_QSTR_flash_speed),     MP_ROM_PTR(&machine_flashSpeed_obj) },
+    { MP_ROM_QSTR(MP_QSTR_spiTreshold),     MP_ROM_PTR(&machine_spiTreshold_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_Pin),             MP_ROM_PTR(&machine_pin_type) },
     { MP_ROM_QSTR(MP_QSTR_UART),            MP_ROM_PTR(&machine_uart_type) },

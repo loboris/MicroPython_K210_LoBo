@@ -120,6 +120,9 @@ STATIC mp_obj_t machine_onewire_make_new(const mp_obj_type_t *type, size_t n_arg
 	mp_arg_val_t args[MP_ARRAY_SIZE(machine_neopixel_init_allowed_args)];
 	mp_arg_parse_all_kw_array(n_args, n_kw, all_args, MP_ARRAY_SIZE(machine_neopixel_init_allowed_args), machine_neopixel_init_allowed_args, args);
 
+    if (!machine_init_gpiohs()) {
+        mp_raise_ValueError("Cannot initialize gpiohs");
+    }
 
     int wanted_pin = mp_obj_get_int(args[0].u_obj);
 

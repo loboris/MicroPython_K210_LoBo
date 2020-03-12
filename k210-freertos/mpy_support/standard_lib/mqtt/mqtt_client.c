@@ -269,39 +269,36 @@ esp_mqtt_client_handle_t esp_mqtt_client_init(const esp_mqtt_client_config_t *co
     }
     else if (config->transport == MQTT_TRANSPORT_OVER_WS) goto _mqtt_init_failed;
 
-    if ((net_active_interfaces & ACTIVE_INTERFACE_WIFI)) {
-        transport_handle_t ssl = transport_ssl_init();
-        if (ssl) {
-            transport_set_default_port(ssl, MQTT_SSL_DEFAULT_PORT);
-            if (config->cert_pem) {
-                transport_ssl_set_cert_data(ssl, config->cert_pem, strlen(config->cert_pem));
-            }
-            if (config->client_cert_pem) {
-                transport_ssl_set_client_cert_data(ssl, config->client_cert_pem, strlen(config->client_cert_pem));
-            }
-            if (config->client_key_pem) {
-                transport_ssl_set_client_key_data(ssl, config->client_key_pem, strlen(config->client_key_pem));
-            }
-            transport_list_add(client->transport_list, ssl, "mqtts");
-            if (config->transport == MQTT_TRANSPORT_OVER_SSL) {
-                client->config->scheme = create_string("mqtts", 5);
-                K210_MEM_CHECK(MQTT_TAG, client->config->scheme, goto _mqtt_init_failed);
-            }
+    transport_handle_t ssl = transport_ssl_init();
+    if (ssl) {
+        transport_set_default_port(ssl, MQTT_SSL_DEFAULT_PORT);
+        if (config->cert_pem) {
+            transport_ssl_set_cert_data(ssl, config->cert_pem, strlen(config->cert_pem));
         }
-        else if (config->transport == MQTT_TRANSPORT_OVER_SSL) goto _mqtt_init_failed;
-
-        transport_handle_t wss = transport_ws_init(ssl);
-        if (wss) {
-            transport_set_default_port(wss, MQTT_WSS_DEFAULT_PORT);
-            transport_list_add(client->transport_list, wss, "wss");
-            if (config->transport == MQTT_TRANSPORT_OVER_WSS) {
-                client->config->scheme = create_string("wss", 3);
-                K210_MEM_CHECK(MQTT_TAG, client->config->scheme, goto _mqtt_init_failed);
-            }
+        if (config->client_cert_pem) {
+            transport_ssl_set_client_cert_data(ssl, config->client_cert_pem, strlen(config->client_cert_pem));
         }
-        else if (config->transport == MQTT_TRANSPORT_OVER_WSS) goto _mqtt_init_failed;
+        if (config->client_key_pem) {
+            transport_ssl_set_client_key_data(ssl, config->client_key_pem, strlen(config->client_key_pem));
+        }
+        transport_list_add(client->transport_list, ssl, "mqtts");
+        if (config->transport == MQTT_TRANSPORT_OVER_SSL) {
+            client->config->scheme = create_string("mqtts", 5);
+            K210_MEM_CHECK(MQTT_TAG, client->config->scheme, goto _mqtt_init_failed);
+        }
     }
-    else if ((config->transport == MQTT_TRANSPORT_OVER_WSS) || (config->transport == MQTT_TRANSPORT_OVER_WSS)) goto _mqtt_init_failed;
+    else if (config->transport == MQTT_TRANSPORT_OVER_SSL) goto _mqtt_init_failed;
+
+    transport_handle_t wss = transport_ws_init(ssl);
+    if (wss) {
+        transport_set_default_port(wss, MQTT_WSS_DEFAULT_PORT);
+        transport_list_add(client->transport_list, wss, "wss");
+        if (config->transport == MQTT_TRANSPORT_OVER_WSS) {
+            client->config->scheme = create_string("wss", 3);
+            K210_MEM_CHECK(MQTT_TAG, client->config->scheme, goto _mqtt_init_failed);
+        }
+    }
+    else if (config->transport == MQTT_TRANSPORT_OVER_WSS) goto _mqtt_init_failed;
 
     if (client->config->uri) {
         if (esp_mqtt_client_set_uri(client, client->config->uri) != 0) {

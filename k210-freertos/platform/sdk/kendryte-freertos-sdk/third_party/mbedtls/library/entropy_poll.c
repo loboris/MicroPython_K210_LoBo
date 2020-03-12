@@ -157,6 +157,27 @@ int mbedtls_platform_entropy_poll( void *data,
     return( 0 );
 }
 #endif /* _WIN32 && !EFIX64 && !EFI32 */
+#else
+#include <stdlib.h>
+int mbedtls_random_entropy_poll( void *data,
+                           unsigned char *output, size_t len, size_t *olen )
+{
+    ((void) data);
+    *olen = 0;
+    size_t tlen = 0;
+    int rnd_val;
+    int remain = len;
+    int n;
+    while (remain > 0) {
+        rnd_val = rand();
+        n = ((len - tlen) > 4) ? 4 : (len - tlen);
+        memcpy(output, (unsigned char *)&rnd_val, n);
+        remain -= n;
+    }
+    *olen = len;
+
+    return( 0 );
+}
 #endif /* !MBEDTLS_NO_PLATFORM_ENTROPY */
 
 #if defined(MBEDTLS_TEST_NULL_ENTROPY)

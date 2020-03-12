@@ -141,6 +141,12 @@ set(lwipppp_SRCS
     ${LWIP_DIR}/src/netif/ppp/polarssl/sha256.c
 )
 
+# FTP
+# LoBo: added lwftp
+set(lwftp_SRCS
+    ${LWIP_DIR}/src/lwftp/lwftp.c
+)
+
 # SNMPv3 agent
 set(lwipsnmp_SRCS
     ${LWIP_DIR}/src/apps/snmp/snmp_asn1.c
@@ -230,6 +236,7 @@ set(lwipnoapps_SRCS
     ${lwipnetif_SRCS}
     ${lwipsixlowpan_SRCS}
     ${lwipppp_SRCS}
+    ${lwftp_SRCS}
 )
 
 # LWIPAPPFILES: All LWIP APPs
@@ -255,4 +262,4 @@ set(LWIP_INCLUDE_DIRS ${LWIP_DIR}/src/include)
 add_library(lwipcore EXCLUDE_FROM_ALL ${lwipnoapps_SRCS} ${lwipallapps_SRCS})
 target_compile_options(lwipcore PRIVATE ${LWIP_COMPILER_FLAGS})
 target_compile_definitions(lwipcore PRIVATE ${LWIP_DEFINITIONS}  ${LWIP_MBEDTLS_DEFINITIONS})
-target_include_directories(lwipcore PUBLIC ${LWIP_INCLUDE_DIRS} ${LWIP_MBEDTLS_INCLUDE_DIRS})
+target_include_directories(lwipcore PUBLIC ${LWIP_INCLUDE_DIRS} ${LWIP_MBEDTLS_INCLUDE_DIRS} ${LWIP_DIR}/../../lib/utils/include ${LWIP_DIR}/../../lib/hal/include)

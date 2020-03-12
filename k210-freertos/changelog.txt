@@ -1,4 +1,41 @@
 ===================
+Date:   Mar 12 2020
+===================
+
+'ota' module updated
+  - update can be performed via 'requests.get'
+  - some bug fixes and improveents
+
+'ulab' module updated to latest GitHub master
+
+MicroPython core updated
+  - backported some code needed to run latest 'ulab
+  - objexcept.c, sequence.c, obkstrunicode.c,
+    objslice.c, runtime.h, runtime.c, obj.h
+
+'machine' module updated
+
+'spi' module updated
+  - many changes to SPI slave
+
+updated littlefs 'trim' function
+
+'network' module updated
+  - TLS/SSL is now available for GSM connections
+  - secure connection in sockets, requests and mqtt now works over GSM connection
+
+'requests' module updated
+  - support for OTA update added
+  - resume download is now implemented
+
+fixed bug in 'uart' module
+
+bug fixes in mbedtls (FreeRTOS)
+
+other bugfixes and improvements
+
+
+===================
 Date:   Feb 06 2020
 ===================
 

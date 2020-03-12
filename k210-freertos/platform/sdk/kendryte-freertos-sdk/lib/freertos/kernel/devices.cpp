@@ -485,17 +485,47 @@ void i2s_stop(handle_t file)
 
 /* SPI */
 // LoBo: changed function
-void spi_slave_config(handle_t file, size_t data_bit_length, uint8_t *data, uint32_t len, uint32_t ro_len, spi_slave_receive_callback_t callback, spi_slave_csum_callback_t csum_callback, int priority, int mosi, int miso)
+bool spi_slave_config(handle_t file, void *data, uint32_t len, uint32_t ro_len, QueueHandle_t queue, int priority, int mosi, int miso, int handshake)
 {
     COMMON_ENTRY(spi);
-    spi->slave_config(data_bit_length, data, len, ro_len, callback, csum_callback, priority, mosi, miso);
+    return spi->slave_config(data, len, ro_len, queue, priority, mosi, miso, handshake);
 }
 
-// LoBo: added function
+// LoBo: added functions
 void spi_slave_deinit(handle_t file)
 {
     COMMON_ENTRY(spi);
     spi->slave_deinit();
+}
+
+bool spi_slave_set_handshake(handle_t file, uint16_t value)
+{
+    COMMON_ENTRY(spi);
+    return spi->slave_set_handshake(value);
+}
+
+bool spi_slave_set_buffer(handle_t file, uint8_t *buffer, uint32_t addr, uint32_t size)
+{
+    COMMON_ENTRY(spi);
+    return spi->slave_set_buffer(buffer, addr, size);
+}
+
+bool spi_slave_set_read_buffer(handle_t file, uint8_t *buffer)
+{
+    COMMON_ENTRY(spi);
+    return spi->slave_set_read_buffer(buffer);
+}
+
+bool spi_slave_fill_buffer(handle_t file, uint8_t fill_byte, uint32_t addr, uint32_t size)
+{
+    COMMON_ENTRY(spi);
+    return spi->slave_fill_buffer(fill_byte, addr, size);
+}
+
+bool spi_slave_get_buffer(handle_t file, uint8_t *buffer, uint32_t addr, uint32_t size)
+{
+    COMMON_ENTRY(spi);
+    return spi->slave_get_buffer(buffer, addr, size);
 }
 
 handle_t spi_get_device(handle_t file, spi_mode_t mode, spi_frame_format_t frame_format, uint32_t chip_select_mask, uint32_t data_bit_length)

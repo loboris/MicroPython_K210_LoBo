@@ -1,3 +1,4 @@
+
 /*
  * This file is part of the micropython-ulab project, 
  *
@@ -5,15 +6,14 @@
  *
  * The MIT License (MIT)
  *
- * Copyright (c) 2019 Zoltán Vörös
+ * Copyright (c) 2019-2020 Zoltán Vörös
 */
-    
+
 #ifndef _LINALG_
 #define _LINALG_
 
+#include "ulab.h"
 #include "ndarray.h"
-
-#define SWAP(t, a, b) { t tmp = a; a = b; b = tmp; }
 
 #if MICROPY_FLOAT_IMPL == MICROPY_FLOAT_IMPL_FLOAT
 #define epsilon        1.2e-7
@@ -23,17 +23,19 @@
 
 #define JACOBI_MAX     20
 
-mp_obj_t linalg_transpose(mp_obj_t );
-mp_obj_t linalg_reshape(mp_obj_t , mp_obj_t );
-mp_obj_t linalg_size(size_t , const mp_obj_t *, mp_map_t *);
+#if ULAB_LINALG_MODULE || ULAB_POLY_MODULE
 bool linalg_invert_matrix(mp_float_t *, size_t );
-mp_obj_t linalg_inv(mp_obj_t );
-mp_obj_t linalg_dot(mp_obj_t , mp_obj_t );
-mp_obj_t linalg_zeros(size_t , const mp_obj_t *, mp_map_t *);
-mp_obj_t linalg_ones(size_t , const mp_obj_t *, mp_map_t *);
-mp_obj_t linalg_eye(size_t , const mp_obj_t *, mp_map_t *);
+#endif
 
-mp_obj_t linalg_det(mp_obj_t );
-mp_obj_t linalg_eig(mp_obj_t );
+#if ULAB_LINALG_MODULE
 
+extern mp_obj_module_t ulab_linalg_module;
+
+MP_DECLARE_CONST_FUN_OBJ_KW(linalg_size_obj);
+MP_DECLARE_CONST_FUN_OBJ_1(linalg_inv_obj);
+MP_DECLARE_CONST_FUN_OBJ_2(linalg_dot_obj);
+MP_DECLARE_CONST_FUN_OBJ_1(linalg_det_obj);
+MP_DECLARE_CONST_FUN_OBJ_1(linalg_eig_obj);
+
+#endif
 #endif

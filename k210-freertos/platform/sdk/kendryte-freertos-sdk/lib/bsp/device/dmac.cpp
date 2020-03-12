@@ -241,8 +241,8 @@ public:
 
             if (!mem_type_src)
             {
-                if (src >= (void *)0x80600000) {
-                    LOGW("[DMAC]", "SRC at %p used", alloc_mem);
+                if (alloc_mem >= (void *)0x80600000) {
+                    LOGW("[DMAC]", "DEST at %p used", alloc_mem);
                 }
                 dma.sar = (uint64_t)src;
                 dma.dar = (uint64_t)alloc_mem;
@@ -403,13 +403,13 @@ public:
 #if FIX_CACHE
         //iomem_free(session_.alloc_mem);
 #else
-        free(session_.alloc_mem);
+        //free(session_.alloc_mem);
 #endif
 
         //session_.alloc_mem = NULL;
         if (count == 0)
         {
-            xSemaphoreGive(completion_event);
+            if (completion_event) xSemaphoreGive(completion_event);
             return;
         }
 
@@ -417,7 +417,7 @@ public:
         dest_inc = !dest_inc;
         configASSERT(count > 0 && count <= 0x3fffff);
         configASSERT((dmac.chen & (1 << channel_)) == 0);
-        configASSERT(element_size >= 4);
+        configASSERT(element_size <= 16);
         configASSERT(src_num > 0 && src_num <= MAX_PING_PONG_SRCS);
         configASSERT(dest_num > 0 && dest_num <= MAX_PING_PONG_SRCS);
 
@@ -556,13 +556,13 @@ private:
         // LoBo: do not assert, but provide the interrupt status in global variable
         //       to be used by caller function
         dmac_intstatus = dma.intstatus;
-        if ((dmac_intstatus & 0x2) == 0) {
-            LOGW("[DMAC]", "ISR, wrong int status (%08lx)", dmac_intstatus);
-        }
         dma.intclear = 0xFFFFFFFF;
 
         if (driver.session_.is_loop)
         {
+            if ((dmac_intstatus & 0x02) == 0) {
+                atomic_set(driver.session_.stop_signal, 1);
+            }
             if (atomic_read(driver.session_.stop_signal))
             {
                 if (driver.session_.stage_completion_handler)
@@ -585,12 +585,13 @@ private:
 
                 if (driver.session_.stage_completion_handler)
                     driver.session_.stage_completion_handler(driver.session_.stage_completion_handler_data);
+                // enable DMA again
                 dmac.chen |= 0x101 << driver.channel_;
             }
         }
         else
         {
-            if (driver.session_.flow_control != DMAC_MEM2MEM_DMA && driver.session_.element_size < 4)
+            if ((driver.session_.flow_control != DMAC_MEM2MEM_DMA) && (driver.session_.element_size < 4))
             {
                 if (driver.session_.flow_control == DMAC_PRF2MEM_DMA)
                 {
@@ -651,6 +652,11 @@ private:
 
     static int is_memory(uintptr_t address)
     {
+        /* K210 memory regions for DMA:
+         * 0x80000000 - 0x805FFFFF  cached SRAM
+         * 0x40000000 - 0x407FFFFF  non-cached SRAM
+         * 0x50450040               AES plan text/cipher text input data
+         */
         enum
         {
             mem_len = 6 * 1024 * 1024,

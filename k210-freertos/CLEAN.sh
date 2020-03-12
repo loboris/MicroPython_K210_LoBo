@@ -3,6 +3,7 @@
 cd k210-freertos > /dev/null 2>&1
 
 rm -Rf build/* > /dev/null 2>&1
+rm -Rf ../menuconfig/build/* > /dev/null 2>&1
 rm -Rf mpy_support/build/* > /dev/null 2>&1
 
 make -C ../micropython/mpy-cross clean -s V=1

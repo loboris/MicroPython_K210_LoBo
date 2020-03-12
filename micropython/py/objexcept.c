@@ -385,6 +385,14 @@ STATIC void exc_add_strn(void *data, const char *str, size_t len) {
 }
 
 mp_obj_t mp_obj_new_exception_msg_varg(const mp_obj_type_t *exc_type, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    mp_obj_t exc = mp_obj_new_exception_msg_vlist(exc_type, fmt, args);
+    va_end(args);
+    return exc;
+}
+
+mp_obj_t mp_obj_new_exception_msg_vlist(const mp_obj_type_t *exc_type, const char *fmt, va_list args) {
     assert(fmt != NULL);
 
     // Check that the given type is an exception type
@@ -403,10 +411,10 @@ mp_obj_t mp_obj_new_exception_msg_varg(const mp_obj_type_t *exc_type, const char
     if ((o_str == NULL || o_str_buf == NULL)
         && mp_emergency_exception_buf_size >= EMG_BUF_STR_OFFSET + sizeof(mp_obj_str_t) + 16) {
         used_emg_buf = true;
-        o_str = (mp_obj_str_t*)((uint8_t*)MP_STATE_VM(mp_emergency_exception_buf)
+        o_str = (mp_obj_str_t *)((uint8_t *)MP_STATE_VM(mp_emergency_exception_buf)
             + EMG_BUF_STR_OFFSET);
-        o_str_buf = (byte*)&o_str[1];
-        o_str_alloc = (uint8_t*)MP_STATE_VM(mp_emergency_exception_buf)
+        o_str_buf = (byte *)&o_str[1];
+        o_str_alloc = (uint8_t *)MP_STATE_VM(mp_emergency_exception_buf)
             + mp_emergency_exception_buf_size - o_str_buf;
     }
     #endif
@@ -420,15 +428,12 @@ mp_obj_t mp_obj_new_exception_msg_varg(const mp_obj_type_t *exc_type, const char
         // No memory for the string buffer: assume that the fmt string is in ROM
         // and use that data as the data of the string
         o_str->len = o_str_alloc - 1; // will be equal to strlen(fmt)
-        o_str->data = (const byte*)fmt;
+        o_str->data = (const byte *)fmt;
     } else {
         // We have some memory to format the string
         struct _exc_printer_t exc_pr = {!used_emg_buf, o_str_alloc, 0, o_str_buf};
         mp_print_t print = {&exc_pr, exc_add_strn};
-        va_list ap;
-        va_start(ap, fmt);
-        mp_vprintf(&print, fmt, ap);
-        va_end(ap);
+        mp_vprintf(&print, fmt, args);
         exc_pr.buf[exc_pr.len] = '\0';
         o_str->len = exc_pr.len;
         o_str->data = exc_pr.buf;

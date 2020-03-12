@@ -830,9 +830,11 @@ STATIC mp_obj_t mqtt_op_start(mp_obj_t self_in)
     mqtt_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
 	if ((self->client) && (self->client->state < MQTT_STATE_INIT)) {
+	    /*
 	    if (self->client->connect_info.clean_session) {
             nlr_raise(mp_obj_new_exception_msg(&mp_type_TypeError, "Client not in persistent session, free and create again"));
 	    }
+	    */
 	    int res = esp_mqtt_client_start(self->client);
 	    if (res != 0) {
 	        nlr_raise(mp_obj_new_exception_msg(&mp_type_TypeError, "Error starting client"));

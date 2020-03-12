@@ -222,7 +222,7 @@ static GSM_Cmd *GSM_Init[] =
 
 #define GSM_InitCmdsSize  (sizeof(GSM_Init)/sizeof(GSM_Cmd *))
 
-extern handle_t mp_rtc_rtc0;
+//extern handle_t mp_rtc_rtc0;
 
 static void *ntp_time_cb = NULL;
 
@@ -236,9 +236,6 @@ void set_rtc_time_from_seconds(time_t seconds)
     //rtc_set_datetime(mp_rtc_rtc0, tm_info); // set RTC time
     _set_sys_time(tm_info, 0);
     ntp_got_time = seconds;
-    if (sntp_enabled()) {
-        sntp_stop();
-    }
 }
 //==============================================
 
@@ -552,6 +549,9 @@ static void _handle_pppos_data(char *data)
         if (gsm_debug) LOGM(GSM_PPP_TAG, "NTP time synchronized (%lu)", ntp_got_time);
         if (ntp_time_cb) mp_sched_schedule((mp_obj_t)ntp_time_cb, mp_obj_new_int(ntp_got_time));
         ntp_got_time = 0;
+        if (sntp_enabled()) {
+            sntp_stop();
+        }
     }
 
     if (do_check) {

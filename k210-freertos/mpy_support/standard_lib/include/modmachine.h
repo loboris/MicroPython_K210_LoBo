@@ -45,6 +45,7 @@
 #define CPU_MAX_FREQ                (PLL0_MAX_OUTPUT_FREQ / 2)
 #define KPU_MAX_FREQ                (PLL1_MAX_OUTPUT_FREQ / 2)
 #define I2S_MAX_FREQ                0
+#define CYCLES_PER_US               (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000)
 
 #define SYS_RESET_REASON_NONE       0
 #define SYS_RESET_REASON_NLR        1
@@ -53,6 +54,14 @@
 #define SYS_RESET_REASON_PWRON      4
 
 #define TIMER_MAX_TIMERS            12
+
+#define SPI_MASTER_0            0
+#define SPI_MASTER_1            1
+#define SPI_MASTER_WS2812_0     2
+#define SPI_MASTER_WS2812_1     3
+#define SPI_SLAVE               4
+#define SPI_INTERFACE_MAX       5
+
 
 typedef enum _gpio_func_t
 {
@@ -105,7 +114,8 @@ typedef enum _gpio_func_as_t
     GPIO_USEDAS_DVP_HREF,
     GPIO_USEDAS_DVP_PCLK,
     GPIO_USEDAS_DVP_SCLK,
-    GPIO_USEDAS_DVP_SDA
+    GPIO_USEDAS_DVP_SDA,
+    GPIO_USEDAS_HANDSHAKE
 } gpio_pin_func_as_t;
 
 
@@ -184,6 +194,65 @@ typedef struct _machine_pwm_obj_t {
 } __attribute__((aligned(8))) machine_pwm_obj_t;
 
 
+typedef union _ws2812b_rgb {
+    struct
+    {
+        uint32_t blue  : 8;
+        uint32_t red   : 8;
+        uint32_t green : 8;
+        uint32_t white : 8;
+    };
+    uint32_t rgb;
+} ws2812b_rgb;
+
+typedef struct _ws2812b_buffer_t
+{
+    size_t      num_pix;
+    ws2812b_rgb *rgb_buffer;
+} ws2812b_buffer_t;
+
+typedef struct _machine_hw_spi_obj_t {
+    mp_obj_base_t       base;
+    int8_t              spi_num;            // SPI device used (0-1 spi master, 2-3 ws2812, 4 spi slave)
+    int8_t              sck;
+    int8_t              mosi;
+    int8_t              miso;
+    int8_t              cs;
+    int8_t              handshake;
+    int8_t              handshake_gpio;
+    int8_t              mode;
+    int8_t              firstbit;
+    int8_t              nbits;
+    bool                duplex;
+    bool                reused_spi;
+    uint32_t            baudrate;
+    uint32_t            freq;
+    handle_t            handle;             // handle to SPI driver
+    handle_t            spi_device;
+    uint8_t             *slave_buffer;
+    uint32_t            buffer_size;
+    uint32_t            slave_ro_size;
+    bool                slave_buffer_allocated;
+    mp_obj_t            slave_cb;           // slave callback function
+    TaskHandle_t        slave_task;
+    QueueHandle_t       slave_queue;
+    ws2812b_buffer_t    ws2812_buffer;
+    uint16_t            ws2812_lo;
+    uint16_t            ws2812_hi;
+    uint32_t            ws2812_rst;
+    uint16_t            ws_lo;
+    uint16_t            ws_hi;
+    uint32_t            ws_rst;
+    uint32_t            ws_needed_buf_size;
+    bool                ws2812_white;
+    enum {
+        MACHINE_HW_SPI_STATE_NONE,
+        MACHINE_HW_SPI_STATE_INIT,
+        MACHINE_HW_SPI_STATE_DEINIT
+    } state;
+} machine_hw_spi_obj_t;
+
+
 typedef struct _mpy_flash_config_t {
     uint32_t    ver;
     bool        use_two_main_tasks;
@@ -227,6 +296,7 @@ extern const char *reset_reason[8];
 extern const char *term_colors[8];
 extern mpy_config_t mpy_config;
 extern void *mpy_timers_used[TIMER_MAX_TIMERS];
+extern QueueHandle_t spi_slave_task_queue;
 
 const char *term_color(enum term_colors_t color);
 bool mpy_config_crc(bool set);
@@ -246,6 +316,8 @@ int gpiohs_get_free();
 uint64_t random_at_most(uint32_t max);
 time_t _get_time(bool systm);
 void _set_sys_time(struct tm *tm_inf, int zone);
+
+int spi_master_hard_init(uint8_t mosi, int8_t miso, uint8_t sck, int8_t cs, gpio_pin_func_t func);
 
 extern const mp_obj_type_t machine_pin_type;
 extern const mp_obj_type_t machine_uart_type;

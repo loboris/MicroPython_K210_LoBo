@@ -109,7 +109,6 @@
 #include <string.h>
 #include <stdio.h>
 #include "w25qxx.h"
-#include "sha256_hard.h"
 #include "spi.h"
 #include "syslog.h"
 #include "mphalport.h"
@@ -117,38 +116,10 @@
 #include "py/runtime.h"
 #include "extmod/vfs.h"
 #include "py/stream.h"
+#include "modota.h"
 
-
-#define BOOT_CONFIG_ADDR        0x00004000  // main boot config sector in flash at 52K
-#define BOOT_CONFIG_ITEMS       8           // number of handled config entries
-#define BOOT_CONFIG_ITEM_SIZE   32          // size of config entry
-#define BOOT_CONFIG_SECTOR_SIZE 4096
-#define BOOT_MAIN_SECTOR        1
-#define BOOT_BACKUP_SECTOR      2
-
-#define MAGIC_ID                0x5AA5D0C0
-#define MAGIC_ID_FLAG           0xA55A60C0
-#define MAGIC_ID_MASK           0xFFFFFFF0
-#define CFG_APP_FLAG_ACTIVE     0x00000001
-#define CFG_APP_FLAG_CRC32      0x00000002
-#define CFG_APP_FLAG_SHA256     0x00000004
-#define CFG_APP_FLAG_SIZE       0x00000008
-
-#define DEFAULT_APP_ADDRESS     0x00010000
-#define BOOT_ENTRY_NAME_LEN     16
-
-
-typedef struct _ota_entry_t {
-    uint32_t id_flags;
-    uint32_t address;
-    uint32_t size;
-    uint32_t crc32;
-    char     name[BOOT_ENTRY_NAME_LEN];
-} __attribute__((packed, aligned(4))) ota_entry_t;
-
-
-static uint8_t config_sector[BOOT_CONFIG_SECTOR_SIZE];
-static uint8_t config_loaded = 0;
+uint8_t config_sector[BOOT_CONFIG_SECTOR_SIZE];
+uint8_t config_loaded = 0;
 static const char* TAG = "[OTA]";
 
 /*
@@ -169,17 +140,18 @@ static void _swap_endianess(uint8_t *buff, int len)
 
 /*
  * Get uint32_t value from Flash
- * 8-bit Flash pointer is used, so the byte order must be swapped
  * This is used when reading from not 4-byte aligned locations
- * XIP must be already enabled!
+ * !! XiP mode MUST be enabled
  */
-//-----------------------------------------
-static uint32_t flash2uint32(uint32_t addr)
+//----------------------------------
+uint32_t flash2uint32(uint32_t addr)
 {
+    //w25qxx_enable_xip_mode();
     uint32_t val = w25qxx_flash_ptr[addr];
     val += w25qxx_flash_ptr[addr+1] << 8;
     val += w25qxx_flash_ptr[addr+2] << 16;
     val += w25qxx_flash_ptr[addr+3] << 24;
+    //w25qxx_disable_xip_mode();
     return val;
 }
 
@@ -209,8 +181,8 @@ static void config_swap_endianess()
 }
 
 // Read config sector into buffer
-//------------------------------------------------
-static bool read_config(uint8_t n_conf, bool swap)
+//-----------------------------------------
+bool read_config(uint8_t n_conf, bool swap)
 {
     if (config_loaded == n_conf) return true;
 
@@ -230,8 +202,8 @@ static bool read_config(uint8_t n_conf, bool swap)
 }
 
 // Backup main config sector to backup config sector
-//------------------------------
-static bool backup_boot_sector()
+//-----------------------
+bool backup_boot_sector()
 {
     bool curr_spi_check = w25qxx_spi_check;
     w25qxx_spi_check = true;
@@ -256,8 +228,8 @@ static bool backup_boot_sector()
 }
 
 // Restore main config sector from backup
-//-------------------------------
-static bool restore_boot_sector()
+//------------------------
+bool restore_boot_sector()
 {
     bool curr_spi_check = w25qxx_spi_check;
     w25qxx_spi_check = true;
@@ -284,8 +256,8 @@ static bool restore_boot_sector()
 }
 
 // Write modified boot sector from buffer to Flash
-//-----------------------------
-static bool write_boot_sector()
+//----------------------
+bool write_boot_sector()
 {
     // Save modified boot sector
     config_swap_endianess();
@@ -310,19 +282,19 @@ static bool write_boot_sector()
 }
 
 /*
- * Calculate the firmware's SHA256 hash and get the stored SHA256
+ * Calculate the firmware's SHA256 hash and get the stored SHA256 (is requested)
  * Complete firmware, including 5-byte prefix and 32-byte SHA hash, is expected at flash address
  * The hash is 32 bytes long and written after the firmware's code
  * The hash is calculated over 5-byte prefix and firmware's code !
  * by Ktool or other application
  */
-//-----------------------------------------------------------------------------
-static void calc_app_sha256(uint32_t address, uint8_t *hash, uint8_t *app_hash)
+//----------------------------------------------------------------------
+void calc_app_sha256(uint32_t address, uint8_t *hash, uint8_t *app_hash)
 {
     w25qxx_enable_xip_mode();
 
-    memset(hash, 0, SHA256_HASH_LEN);
-    memset(app_hash, 0, SHA256_HASH_LEN);
+    memset(hash, 0, SHA256_HASH_LEN);                   // calculated hash
+    if (app_hash) memset(app_hash, 0, SHA256_HASH_LEN); // stored hash
 
     sha256_hard_context_t context;
     uint8_t buffer[1024] = {0};
@@ -345,12 +317,65 @@ static void calc_app_sha256(uint32_t address, uint8_t *hash, uint8_t *app_hash)
 
     sha256_hard_final(&context, hash);
 
-    // get the application's SHA256 hash
-    for (int n=0; n<SHA256_HASH_LEN; n++) {
-        app_hash[n] = w25qxx_flash_ptr[hash_offset + n];
+    if (app_hash) {
+        // get the application's SHA256 hash
+        for (int n=0; n<SHA256_HASH_LEN; n++) {
+            app_hash[n] = w25qxx_flash_ptr[hash_offset + n];
+        }
     }
 
     w25qxx_disable_xip_mode();
+}
+
+/*
+ * Set uint32_t value to Flash
+ */
+//-------------------------------------------------
+bool uint32toflash(uint32_t addr, uint32_t val)
+{
+    uint8_t *pval = (uint8_t *)&val;
+    bool curr_spi_check = w25qxx_spi_check;
+    w25qxx_spi_check = true;
+    enum w25qxx_status_t res = w25qxx_write_data(addr, pval, 4);
+    w25qxx_spi_check = curr_spi_check;
+    return (res == W25QXX_OK);
+}
+
+// Calculate the firmware's SHA256 hash and write it after the application code
+//----------------------------------------
+bool calc_set_app_sha256(uint32_t address)
+{
+    uint8_t hash[SHA256_HASH_LEN] = {0};
+
+    w25qxx_enable_xip_mode();
+    sha256_hard_context_t context;
+    uint8_t buffer[1024] = {0};
+    int size = flash2uint32(address+1) + 5;
+    int sz;
+    uint32_t idx = 0;
+    uint32_t hash_offset = address + size;
+
+    sha256_hard_init(&context, size);
+
+    while (size > 0) {
+        sz = (size >= 1024) ? 1024 : size;
+        for (int n=0; n<sz; n++) {
+            buffer[n] = w25qxx_flash_ptr[address + idx + n];
+        }
+        sha256_hard_update(&context, buffer, sz);
+        idx += sz;
+        size -= sz;
+    }
+    w25qxx_disable_xip_mode();
+
+    sha256_hard_final(&context, hash);
+
+    // set the application's SHA256 hash
+    bool curr_spi_check = w25qxx_spi_check;
+    w25qxx_spi_check = true;
+    enum w25qxx_status_t res = w25qxx_write_data(hash_offset, hash, SHA256_HASH_LEN);
+    w25qxx_spi_check = curr_spi_check;
+    return (res == W25QXX_OK);
 }
 
 /*
@@ -360,8 +385,8 @@ static void calc_app_sha256(uint32_t address, uint8_t *hash, uint8_t *app_hash)
  * The hash is calculated over 5-byte prefix and firmware's code !
  * by Ktool or other application
  */
-//--------------------------------------------
-static bool check_app_sha256(uint32_t address)
+//-------------------------------------
+bool check_app_sha256(uint32_t address)
 {
     uint8_t hash[SHA256_HASH_LEN];
     uint8_t app_hash[SHA256_HASH_LEN];
@@ -389,22 +414,26 @@ static bool check_app_sha256(uint32_t address)
 }
 
 // Calculate firmwares's CRC32 value
-//-------------------------------------------------------------
-static uint32_t calc_app_crc32(uint32_t address, uint32_t size)
+//------------------------------------------------------
+uint32_t calc_app_crc32(uint32_t address, uint32_t size)
 {
     uint32_t crc = 0xFFFFFFFF;
-    uint32_t byte, mask;
+    uint8_t byte;
+    //uint32_t mask;
 
     w25qxx_enable_xip_mode();
 
     // Read from flash and update CRC32 value
     for (uint32_t n = 5; n < (size+5); n++) {
         byte = w25qxx_flash_ptr[address + n];
+        crc = (crc >> 8) ^ Crc32LookupTable[(crc & 0xFF) ^ byte];
+        /*
         crc = crc ^ byte;
         for (uint32_t j = 0; j < 8; j++) {
             mask = -(crc & 1);
             crc = (crc >> 1) ^ (0xEDB88320 & mask);
         }
+        */
     }
 
     w25qxx_disable_xip_mode();
@@ -422,13 +451,26 @@ static bool app_crc32(ota_entry_t *entry, uint32_t *crc32)
 }
 
 // Get the size of the firmware at Flash address
-//--------------------------------------------------
-static uint32_t get_fw_flash_size(uint32_t address)
+//------------------------------------------
+uint32_t get_fw_flash_size(uint32_t address)
 {
     w25qxx_enable_xip_mode();
     uint32_t app_size = flash2uint32(address+1);
     w25qxx_disable_xip_mode();
     return app_size;
+}
+
+//-----------------------------------
+bool check_deadbeef(uint32_t address)
+{
+    w25qxx_enable_xip_mode();
+    uint32_t id = flash2uint32(address+9);
+    w25qxx_disable_xip_mode();
+    if (id != K210_APP_ID) {
+        LOGD(TAG, "App ID wrong (%08X)", id);
+        return false;
+    }
+    return true;
 }
 
 // Check the config sector entry
@@ -443,7 +485,7 @@ static uint8_t check_entry(ota_entry_t *entry, char *status)
     uint8_t flags = entry->id_flags & 0x0f;
 
     if (app_size != entry->size) {
-        if (status) strcat(status, "Size mismatch! ");
+        if (status) strcat(status, "[Size mismatch] ");
         stat |= 1;
     }
     if (flags & CFG_APP_FLAG_SIZE) {
@@ -456,19 +498,23 @@ static uint8_t check_entry(ota_entry_t *entry, char *status)
     if (flags & CFG_APP_FLAG_CRC32) {
         uint32_t crc32;
         if (!app_crc32(entry, &crc32)) {
-            if (status) strcat(status, "CRC32 Error ");
+            if (status) strcat(status, "[CRC32 Error] ");
             stat |= 4;
             return stat;
         }
     }
     if (flags & CFG_APP_FLAG_SHA256) {
         if (!check_app_sha256(entry->address)) {
-            if (status) strcat(status, "SHA256 Error ");
+            if (status) strcat(status, "[SHA256 Error] ");
             stat |= 8;
             return stat;
         }
     }
-    if (status) strcat(status, "Check OK ");
+    if (status) strcat(status, "[Check OK] ");
+    if (!check_deadbeef(entry->address)) {
+        stat |= 16;
+        if (status) strcat(status, "[Not K210 app] ");
+    }
 
     return stat;
 }
@@ -614,8 +660,8 @@ static bool firmware_write(mp_obj_t ffd, uint32_t dest, uint32_t size, bool prog
 }
 
 // Get the 1st active firmware from the main config sector
-//----------------------------
-static int config_get_active()
+//---------------------
+int config_get_active()
 {
     if (!read_config(BOOT_MAIN_SECTOR, true)) return -1;
 
@@ -645,7 +691,7 @@ static bool config_set_active(uint8_t n_entry)
     ota_entry_t *entry;
     uint8_t stat, flags;
     bool f = false;
-    char status[32];
+    char status[64];
 
     for (int i=0; i < BOOT_CONFIG_ITEMS; i++) {
         entry = (ota_entry_t *)(config_sector + (i*BOOT_CONFIG_ITEM_SIZE));
@@ -727,7 +773,7 @@ STATIC mp_obj_t mod_ota_list(size_t n_args, const mp_obj_t *pos_args, mp_map_t *
     uint8_t flags;
     ota_entry_t *entry;
     char sflags[32];
-    char status[32];
+    char status[64];
     uint8_t stat;
     int n_entries = 0;
     mp_obj_t entry_tuple[6];
@@ -804,7 +850,7 @@ STATIC mp_obj_t mod_ota_clone(size_t n_args, const mp_obj_t *pos_args, mp_map_t 
 
     int dest = args[ARG_dest].u_int;
     if ((dest < 0) || (dest > (BOOT_CONFIG_ITEMS-1))) {
-        mp_raise_ValueError("Wrong dest index");
+        mp_raise_ValueError("Wrong OTA destination index");
     }
     uint32_t dest_address = (uint32_t)args[ARG_address].u_int & 0xFFFFF000;
     uint32_t src_address, src_end_address, src_size, dest_end_address;
@@ -885,7 +931,7 @@ STATIC mp_obj_t mod_ota_fw_fromfile(size_t n_args, const mp_obj_t *pos_args, mp_
     uint32_t dest_address = (uint32_t)args[ARG_address].u_int & 0xFFFFF000;
     int dest = args[ARG_dest].u_int;
     if ((dest < 0) || (dest > (BOOT_CONFIG_ITEMS-1))) {
-        mp_raise_ValueError("Wrong dest index");
+        mp_raise_ValueError("Wrong OTA destination index");
     }
 
     char entry_name[BOOT_ENTRY_NAME_LEN] = {'\0'};

@@ -1,3 +1,4 @@
+
 /*
  * This file is part of the micropython-ulab project, 
  *
@@ -5,9 +6,9 @@
  *
  * The MIT License (MIT)
  *
- * Copyright (c) 2019 Zoltán Vörös
+ * Copyright (c) 2019-2020 Zoltán Vörös
 */
-    
+
 #include "py/obj.h"
 #include "py/runtime.h"
 #include "py/objarray.h"
@@ -15,19 +16,19 @@
 #include "linalg.h"
 #include "poly.h"
 
-
+#if ULAB_POLY_MODULE
 bool object_is_nditerable(mp_obj_t o_in) {
-    if(mp_obj_is_type(o_in, &ulab_ndarray_type) || 
-      mp_obj_is_type(o_in, &mp_type_tuple) || 
-      mp_obj_is_type(o_in, &mp_type_list) || 
-      mp_obj_is_type(o_in, &mp_type_range)) {
+    if(MP_OBJ_IS_TYPE(o_in, &ulab_ndarray_type) || 
+      MP_OBJ_IS_TYPE(o_in, &mp_type_tuple) || 
+      MP_OBJ_IS_TYPE(o_in, &mp_type_list) || 
+      MP_OBJ_IS_TYPE(o_in, &mp_type_range)) {
         return true;
     }
     return false;
 }
 
 size_t get_nditerable_len(mp_obj_t o_in) {
-    if(mp_obj_is_type(o_in, &ulab_ndarray_type)) {
+    if(MP_OBJ_IS_TYPE(o_in, &ulab_ndarray_type)) {
         ndarray_obj_t *in = MP_OBJ_TO_PTR(o_in);
         return in->array->len;
     } else {
@@ -82,12 +83,14 @@ mp_obj_t poly_polyval(mp_obj_t o_p, mp_obj_t o_x) {
     return MP_OBJ_FROM_PTR(out);
 }
 
+MP_DEFINE_CONST_FUN_OBJ_2(poly_polyval_obj, poly_polyval);
+
 mp_obj_t poly_polyfit(size_t  n_args, const mp_obj_t *args) {
     if((n_args != 2) && (n_args != 3)) {
-        mp_raise_ValueError("number of arguments must be 2, or 3");
+        mp_raise_ValueError(translate("number of arguments must be 2, or 3"));
     }
     if(!object_is_nditerable(args[0])) {
-        mp_raise_ValueError("input data must be an iterable");
+        mp_raise_ValueError(translate("input data must be an iterable"));
     }
     uint16_t lenx = 0, leny = 0;
     uint8_t deg = 0;
@@ -99,7 +102,7 @@ mp_obj_t poly_polyfit(size_t  n_args, const mp_obj_t *args) {
         leny = (uint16_t)mp_obj_get_int(mp_obj_len_maybe(args[0]));
         deg = (uint8_t)mp_obj_get_int(args[1]);
         if(leny < deg) {
-            mp_raise_ValueError("more degrees of freedom than data points");
+            mp_raise_ValueError(translate("more degrees of freedom than data points"));
         }
         lenx = leny;
         x = m_new(mp_float_t, lenx); // assume uniformly spaced data points
@@ -112,11 +115,11 @@ mp_obj_t poly_polyfit(size_t  n_args, const mp_obj_t *args) {
         lenx = (uint16_t)mp_obj_get_int(mp_obj_len_maybe(args[0]));
         leny = (uint16_t)mp_obj_get_int(mp_obj_len_maybe(args[0]));
         if(lenx != leny) {
-            mp_raise_ValueError("input vectors must be of equal length");
+            mp_raise_ValueError(translate("input vectors must be of equal length"));
         }
         deg = (uint8_t)mp_obj_get_int(args[2]);
         if(leny < deg) {
-            mp_raise_ValueError("more degrees of freedom than data points");
+            mp_raise_ValueError(translate("more degrees of freedom than data points"));
         }
         x = m_new(mp_float_t, lenx);
         fill_array_iterable(x, args[0]);
@@ -156,7 +159,7 @@ mp_obj_t poly_polyfit(size_t  n_args, const mp_obj_t *args) {
         m_del(mp_float_t, x, lenx);
         m_del(mp_float_t, y, lenx);
         m_del(mp_float_t, prod, (deg+1)*(deg+1));
-        mp_raise_ValueError("could not invert Vandermonde matrix");
+        mp_raise_ValueError(translate("could not invert Vandermonde matrix"));
     } 
     // at this point, we have the inverse of X^T * X
     // y is a column vector; x is free now, we can use it for storing intermediate values
@@ -191,3 +194,20 @@ mp_obj_t poly_polyfit(size_t  n_args, const mp_obj_t *args) {
     }
     return MP_OBJ_FROM_PTR(beta);
 }
+
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(poly_polyfit_obj, 2, 3, poly_polyfit);
+
+STATIC const mp_rom_map_elem_t ulab_poly_globals_table[] = {
+    { MP_OBJ_NEW_QSTR(MP_QSTR___name__), MP_OBJ_NEW_QSTR(MP_QSTR_poly) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_polyval), (mp_obj_t)&poly_polyval_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_polyfit), (mp_obj_t)&poly_polyfit_obj },
+};
+
+STATIC MP_DEFINE_CONST_DICT(mp_module_ulab_poly_globals, ulab_poly_globals_table);
+
+mp_obj_module_t ulab_poly_module = {
+    .base = { &mp_type_module },
+    .globals = (mp_obj_dict_t*)&mp_module_ulab_poly_globals,
+};
+
+#endif

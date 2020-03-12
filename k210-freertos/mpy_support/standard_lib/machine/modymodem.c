@@ -171,7 +171,7 @@ static int32_t Receive_Packet (uint8_t *data, int *length, uint32_t timeout)
       *length = -2;
       return 0;
   }
-  if (mp_hal_crc16(&data[PACKET_HEADER], packet_size + PACKET_TRAILER) != 0) {
+  if (hal_crc16(&data[PACKET_HEADER], packet_size + PACKET_TRAILER, 0) != 0) {
       *length = -2;
       return 0;
   }
@@ -371,7 +371,7 @@ static void Ymodem_PrepareIntialPacket(uint8_t *data, char *fileName, uint32_t l
 	   1 + strlen((char *)(data + PACKET_HEADER + strlen((char *)(data+PACKET_HEADER)) + 1))] = ' ';
   
   // add crc
-  tempCRC = mp_hal_crc16(&data[PACKET_HEADER], PACKET_SIZE);
+  tempCRC = hal_crc16(&data[PACKET_HEADER], PACKET_SIZE, 0);
   data[PACKET_SIZE + PACKET_HEADER] = tempCRC >> 8;
   data[PACKET_SIZE + PACKET_HEADER + 1] = tempCRC & 0xFF;
 }
@@ -385,7 +385,7 @@ static void Ymodem_PrepareLastPacket(uint8_t *data)
   data[0] = SOH;
   data[1] = 0x00;
   data[2] = 0xff;
-  tempCRC = mp_hal_crc16(&data[PACKET_HEADER], PACKET_SIZE);
+  tempCRC = hal_crc16(&data[PACKET_HEADER], PACKET_SIZE, 0);
   //tempCRC = crc16_le(0, &data[PACKET_HEADER], PACKET_SIZE);
   data[PACKET_SIZE + PACKET_HEADER] = tempCRC >> 8;
   data[PACKET_SIZE + PACKET_HEADER + 1] = tempCRC & 0xFF;
@@ -413,8 +413,8 @@ static void Ymodem_PreparePacket(uint8_t *data, uint8_t pktNo, uint32_t sizeBlk,
       data[i] = 0x00; // EOF (0x1A) or 0x00
     }
   }
-  tempCRC = mp_hal_crc16(&data[PACKET_HEADER], PACKET_1K_SIZE);
-  //tempCRC = crc16_le(0, &data[PACKET_HEADER], PACKET_1K_SIZE);
+  tempCRC = hal_crc16(&data[PACKET_HEADER], PACKET_1K_SIZE, 0);
+  //tempCRC = crc16_le(0, &data[PACKET_HEADER], PACKET_1K_SIZE, 0);
   data[PACKET_1K_SIZE + PACKET_HEADER] = tempCRC >> 8;
   data[PACKET_1K_SIZE + PACKET_HEADER + 1] = tempCRC & 0xFF;
 }

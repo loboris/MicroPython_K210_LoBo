@@ -391,10 +391,6 @@ static void mp_task_proc1(void *pvParameter)
 //========
 int main()
 {
-    uint32_t *ld_mbootid = (uint32_t *)(MICROPY_SYS_RAMBUF_ADDR);
-    uint32_t *ld_address = (uint32_t *)(MICROPY_SYS_RAMBUF_ADDR+4);
-    uint32_t *ld_size = (uint32_t *)(MICROPY_SYS_RAMBUF_ADDR+8);
-
     // ==== Basic initialization ====
     // Setup clocks (default clocks set in 'entry_user.c')
     /*
@@ -408,7 +404,6 @@ int main()
     sysctl_clock_set_threshold(SYSCTL_THRESHOLD_SPI3, 0);
     sysctl_clock_set_clock_select(SYSCTL_CLOCK_SELECT_SPI3, 1);
 
-    sys_us_counter_cpu = read_csr64(mcycle);
     uarths_baudrate = uarths_init(MICRO_PY_DEFAULT_BAUDRATE);
 
     // ==== Get reset status ====
@@ -462,11 +457,16 @@ int main()
 
     user_log_level = mpy_config.config.log_level;
     user_log_color = mpy_config.config.log_color;
-    vTaskDelay(2);
+    vTaskDelay(5);
+    printf("\n");
     if (cfg_loaded) LOGM(TAG, "Configuration loaded from flash");
     else LOGM(TAG, "Default flash configuration set");
 
     #if MICROPY_PY_USE_OTA
+    uint32_t *ld_mbootid = (uint32_t *)(MICROPY_SYS_RAMBUF_ADDR);
+    uint32_t *ld_address = (uint32_t *)(MICROPY_SYS_RAMBUF_ADDR+4);
+    uint32_t *ld_size = (uint32_t *)(MICROPY_SYS_RAMBUF_ADDR+8);
+
     if (*ld_mbootid == MICROPY_MBOOT_MAGIC_ID) {
         if (*ld_address & 0x80000000) {
             *ld_address &= 0x7fffffff;

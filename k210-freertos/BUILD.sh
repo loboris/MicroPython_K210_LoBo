@@ -161,41 +161,58 @@ fi
 
 # === build mconf ==============================================
 if [ ! -f "mconf" ] || [ ! -f "conf" ]; then
-	echo "=====[ BUILD: compiling 'menuconfig' files"
-	mkdir -p ../menuconfig/build
-	cd ../menuconfig/build
-	cmake .. #> /dev/null 2>&1
+    echo "=====[ BUILD: compiling 'menuconfig' files"
+    mkdir -p ../menuconfig/build
+    cd ../menuconfig/build
+    cmake .. #> /dev/null 2>&1
     if [ $? -eq 0 ]; then
-		make  > /dev/null 2>&1
-	    if [ $? -eq 0 ]; then
-	    cp mconf ../../k210-freertos > /dev/null 2>&1
-	    cp conf ../../k210-freertos > /dev/null 2>&1
-	    fi
+        make  > /dev/null 2>&1
+        if [ $? -eq 0 ]; then
+        cp mconf ../../k210-freertos > /dev/null 2>&1
+        cp conf ../../k210-freertos > /dev/null 2>&1
+        fi
     fi
     cd ../../k210-freertos
 
-	if [ ! -f "mconf" ] || [ ! -f "conf" ]; then
-    echo "=====[ BUILD: ERROR, 'menuconfig' files not compiled!"
-    exit 1
-	fi
-	echo "=====[ BUILD: OK"
+    if [ ! -f "mconf" ] || [ ! -f "conf" ]; then
+        echo "=====[ BUILD: ERROR, 'menuconfig' files not compiled!"
+        exit 1
+    fi
+    echo "=====[ BUILD: OK"
     sleep 1
 fi
 # ==============================================================
 
 # ==== Select config file if requested ============================================
 if [ "${USE_CONFIG_FILE}" != "" ]; then
-	echo "=====[ BUILD: use '${USE_CONFIG_FILE}' as config file"
+    echo "=====[ BUILD: use '${USE_CONFIG_FILE}' as config file"
     if [ -f "${USE_CONFIG_FILE}" ]; then
-		rm -f mpy_support/k210_config.h > /dev/null 2>&1
-		cp -f .config .config.old > /dev/null 2>&1
-		cp -f ${USE_CONFIG_FILE} .config > /dev/null 2>&1
-		./conf --silentoldconfig mpy_support/k210_config.h Kconfig > /dev/null 2>&1
-	    if [ $? -ne 0 ]; then
-		echo "=====[ BUILD: error creating 'k210.config.h'"
-	    exit 1
-		fi
-		echo "=====[ BUILD: Configuration files created."
+        rm -f mpy_support/k210_config.h > /dev/null 2>&1
+        cp -f .config .config.old > /dev/null 2>&1
+        cp -f ${USE_CONFIG_FILE} .config > /dev/null 2>&1
+        ./conf --silentoldconfig mpy_support/k210_config.h Kconfig > /dev/null 2>&1
+        if [ $? -ne 0 ]; then
+            echo "=====[ BUILD: error creating 'k210.config.h'"
+            if [ -t 1 ] ; then
+                # stdout is a terminal
+                ./mconf Kconfig
+            else
+                # stdout isn't a terminal
+                ./mconf Kconfig > $(tty)
+            fi
+            if [ $? -ne 0 ]; then
+                echo "=====[ BUILD: error running 'mconf'"
+                exit 1
+            fi
+            cp -f .config .config.old > /dev/null 2>&1
+            cp -f .config ${USE_CONFIG_FILE} > /dev/null 2>&1
+            ./conf --silentoldconfig mpy_support/k210_config.h Kconfig > /dev/null 2>&1
+            if [ $? -ne 0 ]; then
+                echo "=====[ BUILD: error creating 'k210.config.h'"
+                exit 1
+            fi
+        fi
+        echo "=====[ BUILD: Configuration files created."
     else
         echo "=====[ BUILD: ERROR, '${USE_CONFIG_FILE}' not found!"
     fi
@@ -204,38 +221,49 @@ fi
 
 
 if [ "${RUN_MENUCONFIG}" == "yes" ]; then
-	# ==== Run menuconfig if requested or needed ==============================
-	echo "=====[ BUILD: Running 'menuconfig'"
-	rm -f mpy_support/k210_config.h > /dev/null 2>&1
-	./mconf Kconfig
+    # ==== Run menuconfig if requested or needed ==============================
+    echo "=====[ BUILD: Running 'menuconfig'"
+    rm -f mpy_support/k210_config.h > /dev/null 2>&1
+    ./mconf Kconfig
     if [ $? -ne 0 ]; then
-    echo "=====[ BUILD: error running 'mconf'"
-    exit 1
-	fi
-	cp -f .config .config.old > /dev/null 2>&1
-	./conf --silentoldconfig mpy_support/k210_config.h Kconfig > /dev/null 2>&1
+        echo "=====[ BUILD: error running 'mconf'"
+        exit 1
+    fi
+    cp -f .config .config.old > /dev/null 2>&1
+    ./conf --silentoldconfig mpy_support/k210_config.h Kconfig > /dev/null 2>&1
     if [ $? -ne 0 ]; then
-	echo "=====[ BUILD: error creating 'k210.config.h'"
-    exit 1
-	fi
-	echo "=====[ BUILD: Configuration files created."
-	echo ""
-	echo "=====[ BUILD: Run 'BUILD.sh' again to build the MicroPython firmware"
-	exit 0
-	# =========================================================================
+        echo "=====[ BUILD: error creating 'k210.config.h'"
+        exit 1
+    fi
+    echo "=====[ BUILD: Configuration files created."
+    echo ""
+    echo "=====[ BUILD: Run 'BUILD.sh' again to build the MicroPython firmware"
+    exit 0
+    # =========================================================================
 else
-	# ==== Create 'k210.config.h' if not created ==================================
-	if [ ! -f "mpy_support/k210_config.h" ]; then
-		echo "=====[ BUILD: Creating 'k210.config.h'"
-		rm -f .config.old > /dev/null 2>&1
-		./conf --silentoldconfig mpy_support/k210_config.h Kconfig > /dev/null 2>&1
-	    if [ $? -ne 0 ]; then
-		echo "=====[ BUILD: error creating 'k210.config.h'"
-	    exit 1
-		fi
-		echo "=====[ BUILD: Configuration files created."
-	fi
-	# =============================================================================
+    # ==== Create 'k210.config.h' if not created ==================================
+    if [ ! -f "mpy_support/k210_config.h" ]; then
+        echo "=====[ BUILD: Creating 'k210.config.h'"
+        rm -f .config.old > /dev/null 2>&1
+        ./conf --silentoldconfig mpy_support/k210_config.h Kconfig > /dev/null 2>&1
+        if [ $? -ne 0 ]; then
+            echo "=====[ BUILD: error creating 'k210.config.h'"
+            ./mconf Kconfig
+            if [ $? -ne 0 ]; then
+                echo "=====[ BUILD: error running 'mconf'"
+                exit 1
+            fi
+            cp -f .config .config.old > /dev/null 2>&1
+            cp -f .config ${USE_CONFIG_FILE} > /dev/null 2>&1
+            ./conf --silentoldconfig mpy_support/k210_config.h Kconfig > /dev/null 2>&1
+            if [ $? -ne 0 ]; then
+                echo "=====[ BUILD: error creating 'k210.config.h'"
+                exit 1
+            fi
+        fi
+        echo "=====[ BUILD: Configuration files created."
+    fi
+    # =============================================================================
 fi
 
 # === build mklfs & create image =========
@@ -243,28 +271,28 @@ if [ ! -f "../mklittlefs/mklfs" ]; then
     echo "=====[ BUILD: compiling 'mklfs'"
     make -C ../mklittlefs > /dev/null 2>&1
     if [ $? -eq 0 ]; then
-    echo "=====[ BUILD: ok."
+        echo "=====[ BUILD: ok."
     else
-    echo "=====[ BUILD: ERROR!"
-    exit 1
+        echo "=====[ BUILD: ERROR!"
+        exit 1
     fi
     sleep 1
 fi
 
 rm -f ../mklittlefs/MicroPython_lfs.img > /dev/null 2>&1
 if [ "${CREATE_FS_IMAGE}" == "yes" ]; then
-cd ../mklittlefs
-if [ "${VERBOSE_BUILD}" == "" ]; then
-./mklfs internalfs_image MicroPython_lfs.img > /dev/null 2>&1
-else
-./mklfs internalfs_image MicroPython_lfs.img
-fi
-if [ $? -eq 0 ]; then
-echo "=====[ BUILD: File system image created"
-else
-echo "=====[ BUILD: File system image NOT created"
-fi
-cd ../k210-freertos
+    cd ../mklittlefs
+    if [ "${VERBOSE_BUILD}" == "" ]; then
+        ./mklfs internalfs_image MicroPython_lfs.img > /dev/null 2>&1
+    else
+        ./mklfs internalfs_image MicroPython_lfs.img
+    fi
+    if [ $? -eq 0 ]; then
+        echo "=====[ BUILD: File system image created"
+    else
+        echo "=====[ BUILD: File system image NOT created"
+    fi
+    cd ../k210-freertos
 fi
 # =======================================
 
@@ -273,10 +301,10 @@ if [ ! -f "../micropython/mpy-cross/mpy-cross" ]; then
     echo "=====[ BUILD: compiling 'mpy-cross'"
     make -C ../micropython/mpy-cross ${J_OPTION} > /dev/null 2>&1
     if [ $? -eq 0 ]; then
-    echo "=====[ BUILD: ok."
+        echo "=====[ BUILD: ok."
     else
-    echo "=====[ BUILD: ERROR!"
-    exit 1
+        echo "=====[ BUILD: ERROR!"
+        exit 1
     fi
     sleep 1
 fi
@@ -306,24 +334,24 @@ fi
 if [ "${MICROPY_OTA}" != "" ]; then
     echo "=====[ BUILD: compiling 'kboot'"
 
-	echo "/*" > ../Kboot/src/bootloader_hi/include/config.h
-	echo " * Defined from MicroPython build" >> ../Kboot/src/bootloader_hi/include/config.h
-	echo " */" >> ../Kboot/src/bootloader_hi/include/config.h
-	echo "#define FIRMWARE_SIZE     ${MICROPY_FW_SIZE}" >> ../Kboot/src/bootloader_hi/include/config.h
-	echo "#define BOOT_PIN          ${MICROPY_MBOOT_PIN}" >> ../Kboot/src/bootloader_hi/include/config.h
-	echo "" >> ../Kboot/src/bootloader_hi/include/config.h
-	cd ../Kboot/build
-	./BUILD.sh
+    echo "/*" > ../Kboot/src/bootloader_hi/include/config.h
+    echo " * Defined from MicroPython build" >> ../Kboot/src/bootloader_hi/include/config.h
+    echo " */" >> ../Kboot/src/bootloader_hi/include/config.h
+    echo "#define FIRMWARE_SIZE     ${MICROPY_FW_SIZE}" >> ../Kboot/src/bootloader_hi/include/config.h
+    echo "#define BOOT_PIN          ${MICROPY_MBOOT_PIN}" >> ../Kboot/src/bootloader_hi/include/config.h
+    echo "" >> ../Kboot/src/bootloader_hi/include/config.h
+    cd ../Kboot/build
+    ./BUILD.sh
     if [ $? -eq 0 ]; then
-	    echo "=====[ BUILD: ok."
+        echo "=====[ BUILD: ok."
     else
-		cd ../../k210-freertos
-	    echo "=====[ BUILD: ERROR!"
-	    exit 1
+        cd ../../k210-freertos
+        echo "=====[ BUILD: ERROR!"
+        exit 1
     fi
-	cd ../../k210-freertos
-	cp -f ../Kboot/build/bootloader_??.bin .
-	cp -f ../Kboot/build/config.bin .
+    cd ../../k210-freertos
+    cp -f ../Kboot/build/bootloader_??.bin .
+    cp -f ../Kboot/build/config.bin .
 fi
 
 MICROPY_VER=$( cat mpy_support/mpconfigport.h | grep "MICROPY_PY_LOBO_VERSION" | cut -d'"' -s -f 2 )
@@ -334,14 +362,14 @@ FLASH_START_ADDRES=$(( ${MICROPY_FLASH_START} * 1024 * 1024 ))
 
 FS_USED=$( cat mpy_support/k210_config.h | grep "CONFIG_MICROPY_FILESYSTEM_TYPE" | cut -d' ' -s -f 3 )
 if [ "${FS_USED}" == "0" ]; then
-	# === Do not compile spiffs if not used ===
-	if [ -f third_party/spiffs/Makefile ]; then
-		mv third_party/spiffs/Makefile third_party/spiffs/Makefile.notused > /dev/null 2>&1
-	fi
+    # === Do not compile spiffs if not used ===
+    if [ -f third_party/spiffs/Makefile ]; then
+        mv third_party/spiffs/Makefile third_party/spiffs/Makefile.notused > /dev/null 2>&1
+    fi
 else
-	if [ -f third_party/spiffs/Makefile.notused ]; then
-		mv third_party/spiffs/Makefile.notused third_party/spiffs/Makefile
-	fi
+    if [ -f third_party/spiffs/Makefile.notused ]; then
+        mv third_party/spiffs/Makefile.notused third_party/spiffs/Makefile
+    fi
 fi
 
 # --------------------------------------------------------
@@ -369,18 +397,18 @@ echo ""
 echo "=====[ BUILD: UPDATE mk files"
 make update_mk > /dev/null
 if [ $? -ne 0 ]; then
-echo "=====[ BUILD: ERROR!"
-exit 1
+    echo "=====[ BUILD: ERROR!"
+    exit 1
 fi
 
 if [ "${VERBOSE_BUILD}" == "yes" ] || [ "${VERBOSE_BUILD}" == "yesyes" ]; then
-make update_mk
+    make update_mk
 else
-make update_mk > /dev/null
+    make update_mk > /dev/null
 fi
 if [ $? -ne 0 ]; then
-echo "=====[ BUILD: ERROR!"
-exit 1
+    echo "=====[ BUILD: ERROR!"
+    exit 1
 fi
 echo ""
 
@@ -393,14 +421,14 @@ export PLATFORM=k210
 export MAKE_OPT="${J_OPTION}"
 
 if [ "${VERBOSE_BUILD}" == "yes" ]; then
-export BUILD_VERBOSE=0
-make all
+    export BUILD_VERBOSE=0
+    make all
 elif [ "${VERBOSE_BUILD}" == "yesyes" ]; then
-export BUILD_VERBOSE=1
-make all
+    export BUILD_VERBOSE=1
+    make all
 else
-export BUILD_VERBOSE=0
-make all > /dev/null
+    export BUILD_VERBOSE=0
+    make all > /dev/null
 fi
 
 # ===============================================================================
@@ -411,9 +439,9 @@ fi
 
 if [ $? -eq 0 ]; then
 if [ "${machine}" == "MacOS" ]; then
-FILESIZE=$(stat -s MicroPython.bin | cut -d' ' -s -f 1 | cut -d'=' -s -f 2)
+    FILESIZE=$(stat -s MicroPython.bin | cut -d' ' -s -f 1 | cut -d'=' -s -f 2)
 else
-FILESIZE=$(stat -c%s MicroPython.bin)
+    FILESIZE=$(stat -c%s MicroPython.bin)
 fi
 ALIGNED_SIZE=$(( (((${FILESIZE} / 4096) * 4096)) + 8192 ))
 # Code in SRAM starts at 0x80000000, correct the address
@@ -426,14 +454,14 @@ mv MicroPython.bin MicroPython.bin.bkp
 
 # Get real file size
 if [ "${machine}" == "MacOS" ]; then
-FILESIZE=$(stat -s MicroPython.bin | cut -d' ' -s -f 1 | cut -d'=' -s -f 2)
+    FILESIZE=$(stat -s MicroPython.bin | cut -d' ' -s -f 1 | cut -d'=' -s -f 2)
 else
-FILESIZE=$(stat -c%s MicroPython.bin)
+    FILESIZE=$(stat -c%s MicroPython.bin)
 fi
 
 if [ "${CREATE_DUMP}" == "yes" ]; then
-echo "=====[ BUILD: Exporting objdump"
-../kendryte-toolchain/bin/riscv64-unknown-elf-objdump -S  --disassemble MicroPython > MicroPython.dump
+    echo "=====[ BUILD: Exporting objdump"
+    ../kendryte-toolchain/bin/riscv64-unknown-elf-objdump -S  --disassemble MicroPython > MicroPython.dump
 fi
 
 # =========================================
@@ -441,106 +469,106 @@ fi
 # =========================================
 
 if [ "${MICROPY_OTA}" != "" ]; then
-echo ""
-echo "=====[ BUILD: Creating 'MicroPython.kfpkg' (OTA)"
-rm -f *.img > /dev/null 2>&1
-echo "{" > flash-list.json
-echo "    \"version\": \"0.1.0\"," >> flash-list.json
-echo "    \"files\": [">> flash-list.json
-echo "        {">> flash-list.json
-echo "            \"address\": 0,">> flash-list.json
-echo "            \"bin\": \"bootloader_lo.bin\",">> flash-list.json
-echo "            \"sha256Prefix\": true">> flash-list.json
-echo "        },">> flash-list.json
-echo "        {">> flash-list.json
-echo "            \"address\": 4096,">> flash-list.json
-echo "            \"bin\": \"bootloader_hi.bin\",">> flash-list.json
-echo "            \"sha256Prefix\": true">> flash-list.json
-echo "        },">> flash-list.json
-echo "        {">> flash-list.json
-echo "            \"address\": 16384,">> flash-list.json
-echo "            \"bin\": \"config.bin\",">> flash-list.json
-echo "            \"sha256Prefix\": false">> flash-list.json
-echo "        },">> flash-list.json
-echo "        {">> flash-list.json
-echo "            \"address\": 20480,">> flash-list.json
-echo "            \"bin\": \"config.bin\",">> flash-list.json
-echo "            \"sha256Prefix\": false">> flash-list.json
-echo "        },">> flash-list.json
-echo "        {">> flash-list.json
-echo "            \"address\": 65536,">> flash-list.json
-echo "            \"bin\": \"MicroPython.bin\",">> flash-list.json
-echo "            \"sha256Prefix\": true,">> flash-list.json
-echo "            \"swap\": false">> flash-list.json
-if [ -f "${PWD}/../mklittlefs/MicroPython_lfs.img" ]; then
-cp ${PWD}/../mklittlefs/MicroPython_lfs.img .
-echo "        },">> flash-list.json
-echo "        {">> flash-list.json
-echo "            \"address\": ${FLASH_START_ADDRES},">> flash-list.json
-echo "            \"bin\": \"MicroPython_lfs.img\",">> flash-list.json
-echo "            \"sha256Prefix\": false,">> flash-list.json
-echo "            \"swap\": false">> flash-list.json
-echo "        }">> flash-list.json
+    echo ""
+    echo "=====[ BUILD: Creating 'MicroPython.kfpkg' (OTA)"
+    rm -f *.img > /dev/null 2>&1
+    echo "{" > flash-list.json
+    echo "    \"version\": \"0.1.0\"," >> flash-list.json
+    echo "    \"files\": [">> flash-list.json
+    echo "        {">> flash-list.json
+    echo "            \"address\": 0,">> flash-list.json
+    echo "            \"bin\": \"bootloader_lo.bin\",">> flash-list.json
+    echo "            \"sha256Prefix\": true">> flash-list.json
+    echo "        },">> flash-list.json
+    echo "        {">> flash-list.json
+    echo "            \"address\": 4096,">> flash-list.json
+    echo "            \"bin\": \"bootloader_hi.bin\",">> flash-list.json
+    echo "            \"sha256Prefix\": true">> flash-list.json
+    echo "        },">> flash-list.json
+    echo "        {">> flash-list.json
+    echo "            \"address\": 16384,">> flash-list.json
+    echo "            \"bin\": \"config.bin\",">> flash-list.json
+    echo "            \"sha256Prefix\": false">> flash-list.json
+    echo "        },">> flash-list.json
+    echo "        {">> flash-list.json
+    echo "            \"address\": 20480,">> flash-list.json
+    echo "            \"bin\": \"config.bin\",">> flash-list.json
+    echo "            \"sha256Prefix\": false">> flash-list.json
+    echo "        },">> flash-list.json
+    echo "        {">> flash-list.json
+    echo "            \"address\": 65536,">> flash-list.json
+    echo "            \"bin\": \"MicroPython.bin\",">> flash-list.json
+    echo "            \"sha256Prefix\": true,">> flash-list.json
+    echo "            \"swap\": false">> flash-list.json
+    if [ -f "${PWD}/../mklittlefs/MicroPython_lfs.img" ]; then
+        cp ${PWD}/../mklittlefs/MicroPython_lfs.img .
+        echo "        },">> flash-list.json
+        echo "        {">> flash-list.json
+        echo "            \"address\": ${FLASH_START_ADDRES},">> flash-list.json
+        echo "            \"bin\": \"MicroPython_lfs.img\",">> flash-list.json
+        echo "            \"sha256Prefix\": false,">> flash-list.json
+        echo "            \"swap\": false">> flash-list.json
+        echo "        }">> flash-list.json
+    else
+        echo "        }">> flash-list.json
+    fi
+    echo "    ]">> flash-list.json
+    echo "}">> flash-list.json
 else
-echo "        }">> flash-list.json
-fi
-echo "    ]">> flash-list.json
-echo "}">> flash-list.json
-else
-echo ""
-echo "=====[ BUILD: Creating 'MicroPython.kfpkg'"
-rm -f *.img > /dev/null 2>&1
-echo "{" > flash-list.json
-echo "    \"version\": \"0.1.0\"," >> flash-list.json
-echo "    \"files\": [">> flash-list.json
-echo "        {">> flash-list.json
-echo "            \"address\": 0,">> flash-list.json
-echo "            \"bin\": \"MicroPython.bin\",">> flash-list.json
-echo "            \"sha256Prefix\": true,">> flash-list.json
-echo "            \"swap\": false">> flash-list.json
-if [ -f "${PWD}/../mklittlefs/MicroPython_lfs.img" ]; then
-cp ${PWD}/../mklittlefs/MicroPython_lfs.img .
-echo "        },">> flash-list.json
-echo "        {">> flash-list.json
-echo "            \"address\": ${FLASH_START_ADDRES},">> flash-list.json
-echo "            \"bin\": \"MicroPython_lfs.img\",">> flash-list.json
-echo "            \"sha256Prefix\": false,">> flash-list.json
-echo "            \"swap\": false">> flash-list.json
-echo "        }">> flash-list.json
-else
-echo "        }">> flash-list.json
-fi
-echo "    ]">> flash-list.json
-echo "}">> flash-list.json
+    echo ""
+    echo "=====[ BUILD: Creating 'MicroPython.kfpkg'"
+    rm -f *.img > /dev/null 2>&1
+    echo "{" > flash-list.json
+    echo "    \"version\": \"0.1.0\"," >> flash-list.json
+    echo "    \"files\": [">> flash-list.json
+    echo "        {">> flash-list.json
+    echo "            \"address\": 0,">> flash-list.json
+    echo "            \"bin\": \"MicroPython.bin\",">> flash-list.json
+    echo "            \"sha256Prefix\": true,">> flash-list.json
+    echo "            \"swap\": false">> flash-list.json
+    if [ -f "${PWD}/../mklittlefs/MicroPython_lfs.img" ]; then
+        cp ${PWD}/../mklittlefs/MicroPython_lfs.img .
+        echo "        },">> flash-list.json
+        echo "        {">> flash-list.json
+        echo "            \"address\": ${FLASH_START_ADDRES},">> flash-list.json
+        echo "            \"bin\": \"MicroPython_lfs.img\",">> flash-list.json
+        echo "            \"sha256Prefix\": false,">> flash-list.json
+        echo "            \"swap\": false">> flash-list.json
+        echo "        }">> flash-list.json
+    else
+        echo "        }">> flash-list.json
+    fi
+    echo "    ]">> flash-list.json
+    echo "}">> flash-list.json
 fi
 
 if [ "${MICROPY_OTA}" != "" ]; then
-	rm -f *.kfpkg > /dev/null 2>&1
-	if [ -f MicroPython_lfs.img ]; then
-    zip MicroPython.kfpkg -9 flash-list.json bootloader_lo.bin bootloader_hi.bin config.bin MicroPython.bin MicroPython_lfs.img > /dev/null
-	else
-	zip MicroPython.kfpkg -9 flash-list.json bootloader_lo.bin bootloader_hi.bin config.bin MicroPython.bin > /dev/null
-	fi
-	rm -f bootloader_??.bin
-	rm -f config.bin
+    rm -f *.kfpkg > /dev/null 2>&1
+    if [ -f MicroPython_lfs.img ]; then
+        zip MicroPython.kfpkg -9 flash-list.json bootloader_lo.bin bootloader_hi.bin config.bin MicroPython.bin MicroPython_lfs.img > /dev/null
+    else
+        zip MicroPython.kfpkg -9 flash-list.json bootloader_lo.bin bootloader_hi.bin config.bin MicroPython.bin > /dev/null
+    fi
+    rm -f bootloader_??.bin
+    rm -f config.bin
 else
-	rm -f *.kfpkg > /dev/null 2>&1
-	if [ -f MicroPython_lfs.img ]; then
-	zip MicroPython.kfpkg -9 flash-list.json MicroPython.bin MicroPython_lfs.img > /dev/null
-	else
-	zip MicroPython.kfpkg -9 flash-list.json MicroPython.bin > /dev/null
-	fi
+    rm -f *.kfpkg > /dev/null 2>&1
+    if [ -f MicroPython_lfs.img ]; then
+        zip MicroPython.kfpkg -9 flash-list.json MicroPython.bin MicroPython_lfs.img > /dev/null
+    else
+        zip MicroPython.kfpkg -9 flash-list.json MicroPython.bin > /dev/null
+    fi
 fi
 
 if [ $? -eq 0 ]; then
 if [ -f "${PWD}/../mklittlefs/MicroPython_lfs.img" ]; then
-echo "=====[ BUILD: kfpkg created"
+        echo "=====[ BUILD: kfpkg created"
+    else
+        echo "=====[ BUILD: kfpkg created without FS image)"
+    fi
 else
-echo "=====[ BUILD: kfpkg created without FS image)"
-fi
-else
-echo "=====[ BUILD: ERROR creating kfpkg"
-exit 1
+    echo "=====[ BUILD: ERROR creating kfpkg"
+    exit 1
 fi
 rm -f *.img > /dev/null 2>&1
 rm -f *.json > /dev/null 2>&1
@@ -548,10 +576,10 @@ rm -f *.json > /dev/null 2>&1
 
 echo
 if [ "${VERBOSE_BUILD}" == "" ]; then
-echo "---------------------------------------------------"
-../kendryte-toolchain/bin/riscv64-unknown-elf-size MicroPython
-echo "---------------------------------------------------"
-echo
+    echo "---------------------------------------------------"
+    ../kendryte-toolchain/bin/riscv64-unknown-elf-size MicroPython
+    echo "---------------------------------------------------"
+    echo
 fi
 
 
@@ -561,15 +589,14 @@ echo "            version: ${MICROPY_VER}"
 echo " Firmware file size: ${FILESIZE}"
 MICROPY_FILE_CRC32=$(crc32 MicroPython.bin 2> /dev/null)
 if [ $? -eq 0 ]; then
-echo "     Firmware CRC32: ${MICROPY_FILE_CRC32}"
-fi
-echo " Flash FS starts at: ${FLASH_START_ADDRES}"
-echo "============================="
+    echo "     Firmware CRC32: ${MICROPY_FILE_CRC32}"
+    fi
+    echo " Flash FS starts at: ${FLASH_START_ADDRES}"
+    echo "============================="
 else
-	
-echo "===================="
-echo "==== Build ERROR ==="
-echo "===================="
+    echo "===================="
+    echo "==== Build ERROR ==="
+    echo "===================="
 fi
 
 

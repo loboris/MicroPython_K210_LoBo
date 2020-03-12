@@ -5312,6 +5312,15 @@ int fpioa_get_io_driving(int number)
     return fpioa->io[number].ds;
 }
 
+uint32_t fpioa_get_pad_di(int number)
+{
+    /* Check parameters */
+    //if (number < 0 || number >= FPIOA_NUM_IO)
+    //    return -1;
+
+    return fpioa->io[number].pad_di;
+}
+
 int fpioa_set_function_raw(int number, fpioa_function_t function)
 {
     /* Check parameters */

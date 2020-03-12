@@ -291,17 +291,15 @@ void i2s_stop(handle_t file);
  * @brief       Set spi slave configuration
  *
  * @param[in]   file                The SPI controller handle
- * @param[in]   data_bit_length     Spi data bit length,suport 8/16/32 bit.
  * @param[in]   data                SPI slave device data buffer pointer.
  * @param[in]   len                 The length of SPI slave device data buffer.
  * @param[in]   ro_len              The length of read only area at the end of the data buffer.
- * @param[in]   callback            Callback of spi slave, called after processing command.
- * @param[in]   csum_callback       Callback function fo processing the data csum
+ * @param[in]   queue               Queue for passing transaction result/status to the main task.
  * @param[in]   priority            Internal FreeRTOS task priority.
  *
- * @return      Void
+ * @return      true on success, false if failed
  */
-void spi_slave_config(handle_t file, size_t data_bit_length, uint8_t *data, uint32_t len, uint32_t ro_len, spi_slave_receive_callback_t callback, spi_slave_csum_callback_t csum_callback, int priority, int mosi, int miso);
+bool spi_slave_config(handle_t file, void *data, uint32_t len, uint32_t ro_len, QueueHandle_t queue, int priority, int mosi, int miso, int handshake);
 
 /**
  * LoBo
@@ -312,6 +310,74 @@ void spi_slave_config(handle_t file, size_t data_bit_length, uint8_t *data, uint
  * @return      Void
  */
 void spi_slave_deinit(handle_t file);
+
+/**
+ * LoBo
+ * @brief       Set SPI Slave handshake pin level (if used)
+ *
+ * @param[in]   file                The SPI controller handle
+ * @param[in]   value               Handshake pin level or pulse interval
+ *
+ * @return      true if executed, false if not
+ */
+bool spi_slave_set_handshake(handle_t file, uint16_t value);
+
+/**
+ * LoBo
+ * @brief       Set content of the slave buffer
+ *              'address' and 'size' must be checked to fit inside the buffer
+ *              before calling this function!
+ *
+ * @param[in]   file                The SPI controller handle
+ * @param[in]   buffer              pointer to the buffer from which to copy to spi slave buffer
+ * @param[in]   addr                start address inside spi slave buffer
+ * @param[in]   size                number of bytes to copy
+ *
+ * @return      true if executed, false if not
+ */
+bool spi_slave_set_buffer(handle_t file, uint8_t *buffer, uint32_t addr, uint32_t size);
+
+/**
+ * LoBo
+ * @brief       Set content of the slave read buffer
+ *
+ * @param[in]   file                The SPI controller handle
+ * @param[in]   buffer              pointer to the buffer from which to copy to spi slave read buffer
+ *                                  buffer size must be exactly 16 bytes
+ *
+ * @return      true if executed, false if not
+ */
+bool spi_slave_set_read_buffer(handle_t file, uint8_t *buffer);
+
+/**
+ * LoBo
+ * @brief       Set content of the slave buffer to 'fill_byte' value
+ *              'address' and 'size' must be checked to fit inside the buffer
+ *              before calling this function!
+ *
+ * @param[in]   file                The SPI controller handle
+ * @param[in]   fill_byte           byte value to fill the spi buffer with
+ * @param[in]   addr                start address inside spi slave buffer
+ * @param[in]   size                number of bytes to set
+ *
+ * @return      true if executed, false if not
+ */
+bool spi_slave_fill_buffer(handle_t file, uint8_t fill_byte, uint32_t addr, uint32_t size);
+
+/**
+ * LoBo
+ * @brief       Get content of the slave buffer
+ *              'address' and 'size' must be checked to fit inside the buffer
+ *              before calling this function!
+ *
+ * @param[in]   file                The SPI controller handle
+ * @param[in]   buffer              pointer to the buffer to which to copy from spi slave buffer
+ * @param[in]   addr                start address inside spi slave buffer
+ * @param[in]   size                number of bytes to copy
+ *
+ * @return      true if executed, false if not
+ */
+bool spi_slave_get_buffer(handle_t file, uint8_t *buffer, uint32_t addr, uint32_t size);
 
 /**
  * LoBo

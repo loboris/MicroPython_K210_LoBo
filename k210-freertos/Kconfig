@@ -328,6 +328,14 @@ mainmenu "MicroPython for Kendryte K210"
                 Some K210 boards (like MAIX-M1, DanDock) already have ESP8266 attached to K210 UART.
                 For other boards, any ESP8266/ESP8285 board or module can be simply attached, only Tx, Rx and GND are needed.
 
+        config MICROPY_PY_USE_ESP32
+            bool "ESP32 module (experimental!)"
+            default n
+            help
+                Enables using ESP32 over SPI interface.
+                Mostly used for accessing the network resources, but can also be used for accessing other ESP32 peripherals.
+                Not yet fully functional!
+
         config MICROPY_PY_USE_MQTT
             bool "Mqtt module"
             default y

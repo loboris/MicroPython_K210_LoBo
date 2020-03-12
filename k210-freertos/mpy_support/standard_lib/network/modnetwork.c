@@ -52,6 +52,10 @@ extern const mp_obj_type_t wifi_type;
 extern const mp_obj_type_t gsm_type;
 #endif
 
+#if MICROPY_PY_USE_ESP32
+extern const mp_obj_type_t esp32_type;
+#endif
+
 #if MICROPY_PY_USE_MQTT
 extern const mp_obj_type_t mqtt_type;
 #endif
@@ -111,6 +115,10 @@ STATIC const mp_map_elem_t mp_module_network_globals_table[] = {
 
     #if MICROPY_PY_USE_GSM
     { MP_ROM_QSTR(MP_QSTR_gsm),             MP_ROM_PTR(&gsm_type) },
+    #endif
+
+    #if MICROPY_PY_USE_ESP32
+    { MP_ROM_QSTR(MP_QSTR_esp32),           MP_ROM_PTR(&esp32_type) },
     #endif
 
     #if MICROPY_PY_USE_MQTT

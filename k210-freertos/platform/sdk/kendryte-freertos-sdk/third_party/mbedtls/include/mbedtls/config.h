@@ -60,7 +60,7 @@
  */
 #define MBEDTLS_HAVE_ASM
 
- /**
+/**
  * \def MBEDTLS_NO_UDBL_DIVISION
  *
  * The platform lacks support for double-width integer division (64-bit
@@ -132,7 +132,7 @@
  *
  * Comment if your system does not support time functions
  */
-//#define MBEDTLS_HAVE_TIME
+#define MBEDTLS_HAVE_TIME
 
 /**
  * \def MBEDTLS_HAVE_TIME_DATE
@@ -153,7 +153,7 @@
  * mbedtls_platform_gmtime_r() at compile-time by using the macro
  * MBEDTLS_PLATFORM_GMTIME_R_ALT.
  */
-//#define MBEDTLS_HAVE_TIME_DATE
+#define MBEDTLS_HAVE_TIME_DATE
 
 /**
  * \def MBEDTLS_PLATFORM_MEMORY
@@ -346,30 +346,30 @@
  *            digests and ciphers instead.
  *
  */
- //#define MBEDTLS_AES_ALT
- //#define MBEDTLS_ARC4_ALT
- //#define MBEDTLS_ARIA_ALT
- //#define MBEDTLS_BLOWFISH_ALT
- //#define MBEDTLS_CAMELLIA_ALT
- //#define MBEDTLS_CCM_ALT
- //#define MBEDTLS_CHACHA20_ALT
- //#define MBEDTLS_CHACHAPOLY_ALT
- //#define MBEDTLS_CMAC_ALT
- //#define MBEDTLS_DES_ALT
- //#define MBEDTLS_DHM_ALT
- //#define MBEDTLS_ECJPAKE_ALT
- //#define MBEDTLS_GCM_ALT
- //#define MBEDTLS_NIST_KW_ALT
- //#define MBEDTLS_MD2_ALT
- //#define MBEDTLS_MD4_ALT
- //#define MBEDTLS_MD5_ALT
- //#define MBEDTLS_POLY1305_ALT
- //#define MBEDTLS_RIPEMD160_ALT
- //#define MBEDTLS_RSA_ALT
- //#define MBEDTLS_SHA1_ALT
- //#define MBEDTLS_SHA256_ALT
- //#define MBEDTLS_SHA512_ALT
- //#define MBEDTLS_XTEA_ALT
+//#define MBEDTLS_AES_ALT
+//#define MBEDTLS_ARC4_ALT
+//#define MBEDTLS_ARIA_ALT
+//#define MBEDTLS_BLOWFISH_ALT
+//#define MBEDTLS_CAMELLIA_ALT
+//#define MBEDTLS_CCM_ALT
+//#define MBEDTLS_CHACHA20_ALT
+//#define MBEDTLS_CHACHAPOLY_ALT
+//#define MBEDTLS_CMAC_ALT
+//#define MBEDTLS_DES_ALT
+//#define MBEDTLS_DHM_ALT
+//#define MBEDTLS_ECJPAKE_ALT
+//#define MBEDTLS_GCM_ALT
+//#define MBEDTLS_NIST_KW_ALT
+//#define MBEDTLS_MD2_ALT
+//#define MBEDTLS_MD4_ALT
+//#define MBEDTLS_MD5_ALT
+//#define MBEDTLS_POLY1305_ALT
+//#define MBEDTLS_RIPEMD160_ALT
+//#define MBEDTLS_RSA_ALT
+//#define MBEDTLS_SHA1_ALT
+//#define MBEDTLS_SHA256_ALT
+//#define MBEDTLS_SHA512_ALT
+//#define MBEDTLS_XTEA_ALT
 
 /*
  * When replacing the elliptic curve module, pleace consider, that it is
@@ -540,7 +540,7 @@
  */
  #define MBEDTLS_AES_ROM_TABLES
 
- /**
+/**
  * \def MBEDTLS_AES_FEWER_TABLES
  *
  * Use less ROM/RAM for AES tables.
@@ -560,7 +560,7 @@
  * This option is independent of \c MBEDTLS_AES_ROM_TABLES.
  *
  */
- //#define MBEDTLS_AES_FEWER_TABLES
+//#define MBEDTLS_AES_FEWER_TABLES
 
 /**
  * \def MBEDTLS_CAMELLIA_SMALL_MEMORY
@@ -1115,7 +1115,7 @@
  * This option is only useful if both MBEDTLS_SHA256_C and
  * MBEDTLS_SHA512_C are defined. Otherwise the available hash module is used.
  */
-#define MBEDTLS_ENTROPY_FORCE_SHA256
+//#define MBEDTLS_ENTROPY_FORCE_SHA256
 
 /**
  * \def MBEDTLS_ENTROPY_NV_SEED
@@ -1611,7 +1611,7 @@
  *
  * Uncomment this to allow your own alternate threading implementation.
  */
-#define MBEDTLS_THREADING_ALT
+//#define MBEDTLS_THREADING_ALT
 
 /**
  * \def MBEDTLS_THREADING_PTHREAD
@@ -2814,7 +2814,7 @@
  *
  * Enable this layer to allow use of mutexes within mbed TLS
  */
-#define MBEDTLS_THREADING_C
+//#define MBEDTLS_THREADING_C
 
 /**
  * \def MBEDTLS_TIMING_C

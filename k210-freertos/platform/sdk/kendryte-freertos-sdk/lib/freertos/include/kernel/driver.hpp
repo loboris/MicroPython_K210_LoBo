@@ -260,8 +260,13 @@ class spi_driver : public driver
 public:
     virtual object_ptr<spi_device_driver> get_device(spi_mode_t mode, spi_frame_format_t frame_format, uint32_t chip_select_mask, uint32_t data_bit_length) = 0;
     // LoBo:
-    virtual void slave_config(size_t data_bit_length, uint8_t *data, uint32_t len, uint32_t ro_len, spi_slave_receive_callback_t callback, spi_slave_csum_callback_t csum_callback, int priority, int mosi, int miso) = 0;
+    virtual bool slave_config(void *data, uint32_t len, uint32_t ro_len, QueueHandle_t queue, int priority, int mosi, int miso, int handshake) = 0;
     virtual void slave_deinit() = 0;
+    virtual bool slave_set_handshake(uint16_t value) = 0;
+    virtual bool slave_set_buffer(uint8_t *buffer, uint32_t addr, uint32_t size) = 0;
+    virtual bool slave_set_read_buffer(uint8_t *buffer) = 0;
+    virtual bool slave_fill_buffer(uint8_t fill_byte, uint32_t addr, uint32_t size) = 0;
+    virtual bool slave_get_buffer(uint8_t *buffer, uint32_t addr, uint32_t size) = 0;
 };
 
 class dvp_driver : public driver

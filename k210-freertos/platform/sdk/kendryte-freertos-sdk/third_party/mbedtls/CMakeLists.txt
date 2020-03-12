@@ -8,6 +8,8 @@ include_directories(
             ${SDK_ROOT}/lib/freertos/include
             ${SDK_ROOT}/lib/freertos/conf
             ${SDK_ROOT}/lib/freertos/portable
+            ${SDK_ROOT}/lib/hal/include
+            ${SDK_ROOT}/third_party/lwip/src/include
             )
 
 # Add wolfSSL library source files, to be compiled as SHARED library

@@ -56,8 +56,6 @@ typedef struct _task_params_t {
     void *thread_handle;
 } task_params_t;
 
-static task_params_t task_params;
-
 static const char *_parity_name[] = {"None", "Odd", "Even"};
 static const char *_stopbits_name[] = {"1", "1.5", "2"};
 
@@ -606,6 +604,7 @@ static void _sched_callback(mp_obj_t function, int uart, int type, int iarglen, 
 //---------------------------------------------
 static void uart_event_task(void *pvParameters)
 {
+    LOGD(TAG, "UART task started");
     task_params_t *task_params = (task_params_t *)pvParameters;
     // if the task uses some MicroPython functions, we have to save
     // MicroPython state in local storage pointers
@@ -660,6 +659,7 @@ static void uart_event_task(void *pvParameters)
     }
 
     // Terminate task
+    LOGD(TAG, "UART task terminated");
     xSemaphoreTake(mpy_uarts[self->uart_num].uart_mutex, UART_MUTEX_TIMEOUT);
     mpy_uarts[self->uart_num].task_id = NULL;
     xSemaphoreGive(mpy_uarts[self->uart_num].uart_mutex);
@@ -1013,6 +1013,7 @@ STATIC mp_obj_t machine_uart_make_new(const mp_obj_type_t *type, size_t n_args, 
     machine_uart_init_helper(self, n_args - 1, args + 1, &kw_args);
 
     //Create a task to handle UART receiving from uart ISR
+    task_params_t task_params;
     task_params.uart_obj = (void *)self;
     task_params.thread_handle = xTaskGetCurrentTaskHandle();
     if (mpy_uarts[self->uart_num].task_id == 0) {
@@ -1020,7 +1021,7 @@ STATIC mp_obj_t machine_uart_make_new(const mp_obj_type_t *type, size_t n_args, 
             uart_event_task,                        // function entry
             "uart_event_task",                      // task name
             configMINIMAL_STACK_SIZE,               // stack_deepth
-            (void *)self,                           // function argument
+            (void *)&task_params,                   // function argument
             MICROPY_TASK_PRIORITY,                  // task priority
             &mpy_uarts[self->uart_num].task_id);    // task handle
         if (res != pdPASS) {

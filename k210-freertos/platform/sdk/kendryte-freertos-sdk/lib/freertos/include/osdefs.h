@@ -132,13 +132,14 @@ typedef enum _spi_inst_addr_trans_mode
 // LoBo: changed
 typedef enum {
     SPI_CMD_NO_COMMAND,
-    SPI_CMD_TEST_COMMAND,
-    SPI_CMD_READ_INFO,
-    SPI_CMD_LAST_STATUS,
-    SPI_CMD_WRITE_DATA_BLOCK,
-    SPI_CMD_WRITE_DATA_BLOCK_CSUM,
     SPI_CMD_READ_DATA_BLOCK,
-    SPI_CMD_READ_DATA_BLOCK_CSUM,
+    SPI_CMD_WRITE_DATA_BLOCK,
+    SPI_CMD_READ_INFO,
+    SPI_CMD_WRSTAT,
+    SPI_CMD_WRSTAT_CONFIRM,
+    SPI_CMD_RDSTAT,
+    SPI_CMD_READ_TRANS,
+    SPI_CMD_STATUS_TRANS,
     SPI_CMD_MAX,
 } spi_slave_command_e;
 
@@ -152,22 +153,28 @@ typedef enum {
     SPI_CMD_ERR_LENGTH,
     SPI_CMD_ERR_TIMEOUT,
     SPI_CMD_ERR_ERROR,
-    SPI_CMD_ERR_FATAL,
+    SPI_CMD_ERR_EXIT,
+    SPI_CMD_ERR_NOTALIGNED,
+    SPI_CMD_ERR_MEMORY,
     SPI_CMD_ERR_MAX,
 } spi_slave_command_errors_t;
 
 // Lobo: changed
 typedef struct
 {
-    uint8_t                     cmd;
-    spi_slave_command_errors_t  err;
-    uint32_t                    addr;
-    uint32_t                    len;
-    uint64_t                    time;
-} spi_slave_command_t;
-
-typedef int (*spi_slave_receive_callback_t)(void *ctx);
-typedef uint16_t (*spi_slave_csum_callback_t)(const uint8_t *buf, uint32_t count);
+    uint8_t  cmd;
+    uint8_t  opt;
+    uint8_t  dummy_bytes;
+    uint8_t  err;
+    uint8_t  user_data[12];
+    uint16_t crc16;
+    uint32_t addr;
+    uint32_t len;
+    uint64_t start_time;
+    uint64_t command_time;
+    uint64_t transfer_time;
+    uint64_t end_time;
+} spi_slave_command_t; // size=40
 
 typedef enum _video_format
 {

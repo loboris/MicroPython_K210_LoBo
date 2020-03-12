@@ -108,7 +108,7 @@ void mbedtls_debug_print_msg( const mbedtls_ssl_context *ssl, int level,
 
     if( ret >= 0 && ret < DEBUG_BUF_SIZE - 1 )
     {
-        str[ret]     = '\n';
+        str[ret]     = '\0';
         str[ret + 1] = '\0';
     }
 

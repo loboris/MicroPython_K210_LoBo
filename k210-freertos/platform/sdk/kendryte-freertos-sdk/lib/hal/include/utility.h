@@ -12,6 +12,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+// LoBo: added CRC functions
+
 #ifndef _DRIVER_UTILITY_H
 #define _DRIVER_UTILITY_H
 
@@ -48,15 +51,23 @@ extern "C"
         (*(volatile uint64_t *)(addr)) = (v); \
     }
 
+    extern const uint32_t Crc32LookupTable[256];
+    extern const uint16_t Crc16LookupTable[256];
+    extern const uint8_t Crc8LookupTable[256];
+
     uint32_t get_bit_mask(volatile uint32_t *bits, uint32_t mask);
     void set_bit_mask(volatile uint32_t *bits, uint32_t mask, uint32_t value);
     uint32_t get_bit_idx(volatile uint32_t *bits, uint32_t idx);
     void set_bit_idx(volatile uint32_t *bits, uint32_t idx, uint32_t value);
     void busy_wait(uint64_t millionseconds);
+    uint8_t hal_crc8(const void* data, size_t length, uint8_t previousCrc8);
+    uint16_t hal_crc16(const void* data, size_t length, uint16_t previousCrc16);
+    uint32_t hal_crc32(const void* data, size_t length, uint32_t previousCrc32);
 
 #ifdef __cplusplus
 }
 #endif
+
 
 #ifdef __cplusplus
 

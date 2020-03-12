@@ -53,7 +53,7 @@ extern uint32_t _ram_end;
 #define MICROPY_HW_MCU_NAME         CONFIG_MICROPY_HW_MCU_NAME
 
 #define MICROPY_PY_SYS_PLATFORM     "K210/FreeRTOS"
-#define MICROPY_PY_LOBO_VERSION     "1.12.01"
+#define MICROPY_PY_LOBO_VERSION     "1.12.02"
 #define MICROPY_PY_LOBO_VERSION_NUM (0x011201)
 
 #ifdef CONFIG_MICROPY_PY_USE_LOG_COLORS
@@ -129,6 +129,13 @@ extern uint32_t _ram_end;
  *   - thread's (task's) stacks and all buffers are allocated from FreeRTOS heap
  *   - If two MicroPython instances are configured, the available heap space is divided between them,
  *     default values are: 5/8 for 1st MicroPython instance and 3/8 for the 2nd
+ * ----------------------------------------------------------------------
+ * !!! IMPORTANT !!!
+ * ----------------------------------------------------------------------
+ * When KPU memory is used to expand the FreeRTOS heap
+ * some variables (on task stack or on FreeRTOS heap) may be placed
+ * at SRAM address above 0x80600000 !
+ * Those variables CAN'T be used in DMA transfers involving peripherals !
  * =============================================================================================================
 */
 
@@ -147,12 +154,16 @@ extern uint32_t _ram_end;
  * 1 - 2.5 MB of SRAM is used for the firmware
  * 2 - 3   MB of SRAM is used for the firmware
  * 3 - 3.5 MB of SRAM is used for the firmware
+ * --------------------------------------------------------
+ * This area contains the firmware code, defined constants,
+ * and all declared variables. Remaining space is used as
+ * system heap (for 'malloc' function).
  * ========================================================
  */
 
 /*
  * SRAM size reserved for the firmware
- * if sqlite is compiled, 3MB must be used
+ * if sqlite is compiled, at least 3MB must be used
  *
  */
 #if (CONFIG_FIRMWARE_SIZE_TYPE == 0)
@@ -165,31 +176,21 @@ extern uint32_t _ram_end;
 #define FIRMWARE_SRAM_SIZE                      (0x380000UL)
 #endif
 
-// === Size of the SRAM area used for RAMBUFFER
-//     variables placed in this area will be preserved after reset
-#define MYCROPY_SYS_RAMBUF_SIZE                 4096
-
-#define MICRO_PY_FREE_RTOS_RESERVED             (CONFIG_MICRO_PY_FREE_RTOS_RESERVED * 1024)
-
-#if MICROPY_K210_KPU_USED
 /*
- * !!! IMPORTANT !!!
- * ======================================================================
- * When KPU memory is used to expand the FreeRTOS heap
- * some variables (on task stack or on FreeRTOS heap) may be placed
- * at SRAM address above 0x80600000 !
- * Those wariabled CAN'T be used in DMA transfers involving peripherals !
- * ======================================================================
+ * Size of the SRAM area used for RAMBUFFER
+ * variables placed in this area will be preserved after reset
+ * This area i placed after end of firmware area (at 'FIRMWARE_SRAM_SIZE')
  */
+#define MYCROPY_SYS_RAMBUF_SIZE                 4096
 #define MICROPY_SYS_RAMBUF_ADDR                 (K210_SRAM_START_ADDRESS+FIRMWARE_SRAM_SIZE)
-#define FREE_RTOS_TOTAL_HEAP_SIZE               (K210_SRAM_SIZE - FIRMWARE_SRAM_SIZE - MYCROPY_SYS_RAMBUF_SIZE)
-#define FREE_RTOS_HEAP_START_ADDR               (MICROPY_SYS_RAMBUF_ADDR + MYCROPY_SYS_RAMBUF_SIZE)
 
-#else
-// KPU memory is NOT used
-#define MICROPY_SYS_RAMBUF_ADDR                 (K210_SRAM_START_ADDRESS+FIRMWARE_SRAM_SIZE)
-#define FREE_RTOS_TOTAL_HEAP_SIZE               (K210_SRAM_SIZE - FIRMWARE_SRAM_SIZE - MYCROPY_SYS_RAMBUF_SIZE + K210_AISRAM_SIZE)
+// === SRAM area used for FreeRTOS
+#define MICRO_PY_FREE_RTOS_RESERVED             (CONFIG_MICRO_PY_FREE_RTOS_RESERVED * 1024)
 #define FREE_RTOS_HEAP_START_ADDR               (MICROPY_SYS_RAMBUF_ADDR + MYCROPY_SYS_RAMBUF_SIZE)
+#if MICROPY_K210_KPU_USED
+#define FREE_RTOS_TOTAL_HEAP_SIZE               (K210_SRAM_SIZE - FIRMWARE_SRAM_SIZE - MYCROPY_SYS_RAMBUF_SIZE)
+#else
+#define FREE_RTOS_TOTAL_HEAP_SIZE               (K210_SRAM_SIZE - FIRMWARE_SRAM_SIZE - MYCROPY_SYS_RAMBUF_SIZE + K210_AISRAM_SIZE)
 
 #endif
 
@@ -468,6 +469,7 @@ extern const struct _mp_print_t mp_debug_print;
 #define MICROPY_PY_BUILTINS_STR_SPLITLINES      (1)
 #define MICROPY_PY_BUILTINS_SLICE               (1)
 #define MICROPY_PY_BUILTINS_SLICE_ATTRS         (1)
+#define MICROPY_PY_BUILTINS_SLICE_INDICES       (1)
 #define MICROPY_PY_BUILTINS_RANGE_ATTRS         (1)
 #define MICROPY_PY_BUILTINS_ROUND_INT           (1)
 #define MICROPY_PY_BUILTINS_TIMEOUTERROR        (1)
@@ -548,6 +550,11 @@ extern const struct _mp_print_t mp_debug_print;
 #define MICROPY_PY_USE_WIFI                     (1)
 #else
 #define MICROPY_PY_USE_WIFI                     (0)
+#endif
+#ifdef CONFIG_MICROPY_PY_USE_ESP32
+#define MICROPY_PY_USE_ESP32                    (1)
+#else
+#define MICROPY_PY_USE_ESP32                    (0)
 #endif
 
 #if (MICROPY_PY_USE_WIFI == 1) || (MICROPY_PY_USE_GSM == 1)

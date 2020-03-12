@@ -46,6 +46,7 @@
 #endif
 
 #include "arch/cc.h"
+#include "syslog.h"
 
 /**
  * @defgroup compiler_abstraction Compiler/platform abstraction
@@ -89,8 +90,12 @@
  * systems, this should be defined to something less resource-consuming.
  */
 #ifndef LWIP_PLATFORM_ASSERT
+/*
 #define LWIP_PLATFORM_ASSERT(x) do {printf("Assertion \"%s\" failed at line %d in %s\n", \
                                      x, __LINE__, __FILE__); fflush(NULL); abort();} while(0)
+*/
+// LoBo: do not abort on errors, only print error log
+#define LWIP_PLATFORM_ASSERT(x) do { LOGE("[lwip]", "Error '%s' at line %d", x, __LINE__); } while(0)
 #include <stdio.h>
 #include <stdlib.h>
 #endif

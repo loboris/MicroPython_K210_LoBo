@@ -376,6 +376,8 @@ void mbedtls_ctr_drbg_update( mbedtls_ctr_drbg_context *ctx,
  * and with output
  *   ctx contains new_working_state
  */
+int mbedtls_random_entropy_poll( void *data,
+                           unsigned char *output, size_t len, size_t *olen );
 int mbedtls_ctr_drbg_reseed( mbedtls_ctr_drbg_context *ctx,
                      const unsigned char *additional, size_t len )
 {

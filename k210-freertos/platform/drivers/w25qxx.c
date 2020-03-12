@@ -48,6 +48,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#define CYCLES_PER_US   (uint64_t)(sysctl_clock_get_freq(SYSCTL_CLOCK_CPU)/1000000)
+
 bool w25qxx_spi_check = false;
 bool w25qxx_debug = false;
 uintptr_t spi_adapter = 0;
@@ -57,10 +59,6 @@ uint8_t work_trans_mode = 0;
 uint32_t w25qxx_max_speed = WQ25QXX_MAX_SPEED;
 uint32_t w25qxx_flash_speed = 0;
 uint32_t w25qxx_actual_speed = 0;
-static uint32_t rd_count;
-static uint32_t wr_count;
-static uint32_t er_count;
-static uint64_t op_time;
 // used only by 'w25qxx_write_data'
 uint8_t __attribute__((aligned(8))) swap_buf[w25qxx_FLASH_SECTOR_SIZE];
 bool w25qxx_swap_dat = true;
@@ -69,6 +67,11 @@ bool w25qxx_swap_dat = true;
 uint8_t *w25qxx_flash_ptr = (uint8_t *)SPI3_BASE_ADDR;
 uint16_t *w25qxx_flash_ptr16 = (uint16_t *)SPI3_BASE_ADDR;
 uint32_t *w25qxx_flash_ptr32 = (uint32_t *)SPI3_BASE_ADDR;
+
+static uint32_t rd_count;
+static uint32_t wr_count;
+static uint32_t er_count;
+static uint64_t op_time;
 
 //--------------------------------------------------------------------------------------------------------------------
 static enum w25qxx_status_t w25qxx_receive_data(uint8_t* cmd_buff, uint8_t cmd_len, uint8_t* rx_buff, uint32_t rx_len)
@@ -131,7 +134,7 @@ static enum w25qxx_status_t w25qxx_is_busy(void)
 //--------------------------------------------
 static enum w25qxx_status_t w25qxx_wait_busy()
 {
-    uint64_t start_time = sys_ticks_us();
+    uint64_t start_time = read_csr64(mcycle);
     uint64_t busy_time = 0;
     uint8_t status;
 
@@ -139,10 +142,10 @@ static enum w25qxx_status_t w25qxx_wait_busy()
         w25qxx_read_status_reg1(&status);
         if ((status & REG1_BUSY_MASK) == 0) {
             // not busy
-            busy_time = sys_ticks_us() - start_time;
-            op_time += busy_time;
-            if (busy_time > 600000) {
-                LOGW("w25qxx_wait_busy", "BUSY for %lu us", op_time);
+            busy_time = read_csr64(mcycle) - start_time;
+            op_time += (busy_time / CYCLES_PER_US);
+            if (busy_time > (500000*CYCLES_PER_US)) {
+                LOGW("w25qxx_wait_busy", "BUSY for %lu us", busy_time / CYCLES_PER_US);
             }
             return W25QXX_OK;
         }
@@ -260,8 +263,7 @@ static enum w25qxx_status_t w25qxx_read_data_less_64kb(uint32_t addr, uint8_t* d
 static enum w25qxx_status_t _w25qxx_read_data(uint32_t addr, uint8_t* data_buf, uint32_t length)
 {
     uint32_t len;
-    uint64_t ticks_start = sys_ticks_us();
-    uint64_t ticks;
+    uint64_t ticks_start = read_csr64(mcycle);
     while (length) {
         len = length >= 0x010000 ? 0x010000 : length;
         w25qxx_read_data_less_64kb(addr, data_buf, len);
@@ -269,9 +271,8 @@ static enum w25qxx_status_t _w25qxx_read_data(uint32_t addr, uint8_t* data_buf, 
         data_buf += len;
         length -= len;
     }
-    ticks = sys_ticks_us();
     rd_count++;
-    op_time += (ticks - ticks_start);
+    op_time += ((read_csr64(mcycle) - ticks_start) / CYCLES_PER_US);
 
     return W25QXX_OK;
 }
@@ -460,6 +461,7 @@ uint32_t w25qxx_init(uintptr_t spi_in, uint8_t mode, double clock_rate)
 {
     configASSERT(mode < 3);
     work_trans_mode = mode;
+
     uint8_t manuf_id, device_id;
     w25qxx_actual_speed = clock_rate;
     w25qxx_flash_speed = clock_rate;
@@ -504,6 +506,7 @@ uint32_t w25qxx_init(uintptr_t spi_in, uint8_t mode, double clock_rate)
             spi_adapter = spi_stand;
             break;
     }
+    spi_dev_set_xip_mode(spi_adapter, false);
     return w25qxx_actual_speed;
 }
 

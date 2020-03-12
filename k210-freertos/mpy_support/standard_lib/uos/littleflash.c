@@ -897,7 +897,9 @@ static int _cb_traverse(void *data, lfs_block_t block)
 STATIC mp_obj_t vfs_littlefs_trim(size_t n_args, const mp_obj_t *args)
 {
     bool do_erase = false;
+    bool do_print = true;
     if (n_args > 0) do_erase = mp_obj_is_true(args[0]);
+    if (n_args > 1) do_print = mp_obj_is_true(args[1]);
 
     uint8_t lfs_blocks[LITTLEFS_CFG_PHYS_SZ / LITTLEFS_CFG_SECTOR_SIZE / 8];
     memset(lfs_blocks, 0, LITTLEFS_CFG_PHYS_SZ / LITTLEFS_CFG_SECTOR_SIZE / 8);
@@ -907,6 +909,8 @@ STATIC mp_obj_t vfs_littlefs_trim(size_t n_args, const mp_obj_t *args)
     uint32_t bused=0, bfree=0;
     uint32_t sect_erase=0, blocks_erase=0, sect_erased=0, blocks_erased=0;
     int sector[LITTLEFS_CFG_PHYS_ERASE_SZ / LITTLEFS_CFG_SECTOR_SIZE];
+    uint64_t tstart = mp_hal_ticks_ms();
+    uint64_t tend = tstart;
 
     int res = lfs_fs_traverse(&littleFlash.lfs, _cb_traverse, (void *)lfs_blocks);
 
@@ -998,21 +1002,34 @@ STATIC mp_obj_t vfs_littlefs_trim(size_t n_args, const mp_obj_t *args)
                 }
             }
         }
+        tend = mp_hal_ticks_ms();
     }
     else {
-        mp_printf(&mp_plat_print, "%sTrim ERROR (traverse)%s\r\n", term_color(RED), term_color(DEFAULT));
+        if (do_print) mp_printf(&mp_plat_print, "%sTrim ERROR (traverse)%s\r\n", term_color(RED), term_color(DEFAULT));
         return mp_const_none;
     }
-    mp_printf(&mp_plat_print, "%s     LittleFS blocks: used=%u, free=%u (%d bytes/block)%s\r\n", term_color(CYAN), bused, bfree, LITTLEFS_CFG_SECTOR_SIZE, term_color(DEFAULT));
-    mp_printf(&mp_plat_print, "%s  Free flash sectors: %u; needs erase: %u%s\r\n", term_color(BROWN), sect_erase, sect_erased, term_color(DEFAULT));
-    mp_printf(&mp_plat_print, "%s      Free FS blocks: %u; needs erase: %u%s\r\n", term_color(BROWN), blocks_erase, blocks_erased, term_color(DEFAULT));
-    if ((!do_erase) && ((sect_erased+blocks_erased) > 0)) {
-        mp_printf(&mp_plat_print, "%s Expected erase time: %.2f s%s\r\n", term_color(PURPLE), (double)(sect_erased + blocks_erased) * 0.075, term_color(DEFAULT));
+    if (do_print) {
+        mp_printf(&mp_plat_print, "%s     LittleFS blocks: used=%u, free=%u (%d bytes/block)%s\r\n", term_color(CYAN), bused, bfree, LITTLEFS_CFG_SECTOR_SIZE, term_color(DEFAULT));
+        mp_printf(&mp_plat_print, "%s  Free flash sectors: %u; needs erase: %u%s\r\n", term_color(BROWN), sect_erase, sect_erased, term_color(DEFAULT));
+        mp_printf(&mp_plat_print, "%s      Free FS blocks: %u; needs erase: %u%s\r\n", term_color(BROWN), blocks_erase, blocks_erased, term_color(DEFAULT));
+        if ((!do_erase) && ((sect_erased+blocks_erased) > 0)) {
+            mp_printf(&mp_plat_print, "%s Expected erase time: %.2f s%s\r\n", term_color(PURPLE), (double)(sect_erased + blocks_erased) * 0.075, term_color(DEFAULT));
+        }
+        else if ((sect_erased+blocks_erased) > 0) {
+            mp_printf(&mp_plat_print, "%s          Erase time: %.2f s%s\r\n", term_color(PURPLE), (double)(tend - tstart) / 1000.0, term_color(DEFAULT));
+        }
     }
+    mp_obj_t tuple[5];
+    tuple[0] = mp_obj_new_int(sect_erase);
+    tuple[1] = mp_obj_new_int(sect_erased);
+    tuple[2] = mp_obj_new_int(blocks_erase);
+    tuple[3] = mp_obj_new_int(blocks_erased);
+    if ((!do_erase) && ((sect_erased+blocks_erased) > 0)) tuple[4] = mp_obj_new_int(0);
+    else tuple[4] = mp_obj_new_int(tend - tstart);
 
-    return mp_const_none;
+    return mp_obj_new_tuple(5, tuple);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(littlefs_vfs_trim_obj, 0, 1, vfs_littlefs_trim);
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(littlefs_vfs_trim_obj, 0, 2, vfs_littlefs_trim);
 
 
 //===============================================================

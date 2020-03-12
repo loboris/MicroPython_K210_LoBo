@@ -127,7 +127,7 @@ static const char *DEFAULT_HTTP_USER_AGENT = "MicroPython HTTP Client/1.0";
 static const char *DEFAULT_HTTP_PROTOCOL = "HTTP/1.1";
 static const char *DEFAULT_HTTP_PATH = "/";
 static int DEFAULT_MAX_REDIRECT = 10;
-static int DEFAULT_TIMEOUT_MS = 2500;
+static int DEFAULT_TIMEOUT_MS = 5000;
 
 static const char *HTTP_METHOD_MAPPING[] = {
     "GET",
@@ -460,23 +460,21 @@ esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *co
         return NULL;
     }
 
-    if ((net_active_interfaces & ACTIVE_INTERFACE_WIFI)) {
-        transport_handle_t ssl;
-        _success = (
-                       (ssl = transport_ssl_init()) &&
-                       (transport_set_default_port(ssl, DEFAULT_HTTPS_PORT) == 0) &&
-                       (transport_list_add(client->transport_list, ssl, "https") == 0)
-                   );
+    transport_handle_t ssl;
+    _success = (
+                   (ssl = transport_ssl_init()) &&
+                   (transport_set_default_port(ssl, DEFAULT_HTTPS_PORT) == 0) &&
+                   (transport_list_add(client->transport_list, ssl, "https") == 0)
+               );
 
-        if (!_success) {
-            if (transport_debug) LOGE(TAG, "Error initialize SSL Transport");
-            esp_http_client_cleanup(client);
-            return NULL;
-        }
+    if (!_success) {
+        if (transport_debug) LOGE(TAG, "Error initialize SSL Transport");
+        esp_http_client_cleanup(client);
+        return NULL;
+    }
 
-        if (config->cert_pem) {
-            transport_ssl_set_cert_data(ssl, config->cert_pem, strlen(config->cert_pem));
-        }
+    if (config->cert_pem) {
+        transport_ssl_set_cert_data(ssl, config->cert_pem, strlen(config->cert_pem));
     }
 
 

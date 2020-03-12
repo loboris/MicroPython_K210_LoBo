@@ -460,6 +460,9 @@ int fpioa_get_io_driving(int number);
  */
 int fpioa_get_io_by_function(fpioa_function_t function);
 
+
+uint32_t fpioa_get_pad_di(int number);
+
 #ifdef __cplusplus
 }
 #endif

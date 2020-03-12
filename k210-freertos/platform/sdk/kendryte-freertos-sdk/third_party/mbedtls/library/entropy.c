@@ -94,6 +94,10 @@ void mbedtls_entropy_init( mbedtls_entropy_context *ctx )
     mbedtls_entropy_add_source( ctx, mbedtls_platform_entropy_poll, NULL,
                                 MBEDTLS_ENTROPY_MIN_PLATFORM,
                                 MBEDTLS_ENTROPY_SOURCE_STRONG );
+#else
+    mbedtls_entropy_add_source( ctx, mbedtls_random_entropy_poll, NULL,
+                                MBEDTLS_ENTROPY_MIN_PLATFORM,
+                                MBEDTLS_ENTROPY_SOURCE_STRONG );
 #endif
 #if defined(MBEDTLS_TIMING_C)
     mbedtls_entropy_add_source( ctx, mbedtls_hardclock_poll, NULL,

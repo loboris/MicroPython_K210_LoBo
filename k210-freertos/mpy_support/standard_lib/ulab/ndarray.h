@@ -1,3 +1,4 @@
+
 /*
  * This file is part of the micropython-ulab project, 
  *
@@ -5,9 +6,9 @@
  *
  * The MIT License (MIT)
  *
- * Copyright (c) 2019 Zoltán Vörös
+ * Copyright (c) 2019-2020 Zoltán Vörös
 */
-    
+
 #ifndef _NDARRAY_
 #define _NDARRAY_
 
@@ -23,6 +24,12 @@
 #elif MICROPY_FLOAT_IMPL == MICROPY_FLOAT_IMPL_DOUBLE
 #define FLOAT_TYPECODE 'd'
 #endif
+
+#if !CIRCUITPY
+#define translate(x) x
+#endif
+
+#define SWAP(t, a, b) { t tmp = a; a = b; b = tmp; }
 
 extern const mp_obj_type_t ulab_ndarray_type;
 
@@ -53,16 +60,30 @@ void ndarray_assign_elements(mp_obj_array_t *, mp_obj_t , uint8_t , size_t *);
 ndarray_obj_t *create_new_ndarray(size_t , size_t , uint8_t );
 
 mp_obj_t ndarray_copy(mp_obj_t );
+#ifdef CIRCUITPY
+mp_obj_t ndarray_make_new(const mp_obj_type_t *type, size_t n_args, const mp_obj_t *args, mp_map_t *kw_args);
+#else
 mp_obj_t ndarray_make_new(const mp_obj_type_t *, size_t , size_t , const mp_obj_t *);
+#endif
 mp_obj_t ndarray_subscr(mp_obj_t , mp_obj_t , mp_obj_t );
 mp_obj_t ndarray_getiter(mp_obj_t , mp_obj_iter_buf_t *);
 mp_obj_t ndarray_binary_op(mp_binary_op_t , mp_obj_t , mp_obj_t );
 mp_obj_t ndarray_unary_op(mp_unary_op_t , mp_obj_t );
 
 mp_obj_t ndarray_shape(mp_obj_t );
-mp_obj_t ndarray_rawsize(mp_obj_t );
+mp_obj_t ndarray_size(mp_obj_t );
+mp_obj_t ndarray_itemsize(mp_obj_t );
 mp_obj_t ndarray_flatten(size_t , const mp_obj_t *, mp_map_t *);
-mp_obj_t ndarray_asbytearray(mp_obj_t );
+
+mp_obj_t ndarray_reshape(mp_obj_t , mp_obj_t );
+MP_DECLARE_CONST_FUN_OBJ_2(ndarray_reshape_obj);
+
+mp_obj_t ndarray_transpose(mp_obj_t );
+MP_DECLARE_CONST_FUN_OBJ_1(ndarray_transpose_obj);
+
+mp_int_t ndarray_get_buffer(mp_obj_t obj, mp_buffer_info_t *bufinfo, mp_uint_t flags);
+//void ndarray_attributes(mp_obj_t , qstr , mp_obj_t *);
+
 
 #define CREATE_SINGLE_ITEM(outarray, type, typecode, value) do {\
     ndarray_obj_t *tmp = create_new_ndarray(1, 1, (typecode));\

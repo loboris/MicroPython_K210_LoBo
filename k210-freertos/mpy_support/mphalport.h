@@ -30,6 +30,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
+#include "utility.h"
+
 #include "py/ringbuf.h"
 #include "py/obj.h"
 #include "lib/utils/interrupt_char.h"
@@ -63,13 +65,10 @@ typedef struct _task_ipc_t {
     bool        irq;
 } __attribute__((aligned(8))) task_ipc_t;
 
-
 extern task_ipc_t task_ipc;
 extern SemaphoreHandle_t inter_proc_mutex;
 extern mp_obj_t mpy2_task_callback;
 extern mp_obj_t main_task_callback;
-extern uint64_t sys_us_counter_cpu;
-extern uint64_t sys_us_counter;
 extern bool use_vm_hook;
 extern bool wdt_reset_in_vm_hook;
 extern uint32_t system_status;
@@ -90,9 +89,6 @@ void mp_hal_wdt_reset();
 void mp_hal_wtd1_enable(bool en, size_t tmo_ms);
 void mp_hal_wdt1_reset();
 
-uint16_t mp_hal_crc16(const uint8_t *buf, uint32_t count);
-uint32_t mp_hal_crc32(const uint8_t *buf, uint32_t count);
-
 int32_t mp_hal_receive_byte (unsigned char *c, uint32_t timeout);
 void mp_hal_send_bytes(char *buf, int len);
 void mp_hal_send_byte(char c);
@@ -105,7 +101,6 @@ mp_uint_t mp_hal_ticks_ms(void);
 
 void mp_hal_usdelay(uint16_t us);
 mp_uint_t _mp_hal_delay_us(mp_uint_t us);
-mp_uint_t _mp_hal_delay_ms(mp_uint_t ms);
 void mp_hal_delay_us(mp_uint_t us);
 void mp_hal_delay_ms(mp_uint_t ms);
 void mp_hal_init(void);
