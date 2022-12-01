@@ -1,1 +1,1 @@
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/LoBo2_Razno/K210_razvoj/MicroPython_K210_LoBo/k210-freertos/../kendryte-toolchain/bin/
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/src/k210-freertos/../kendryte-toolchain/bin/
