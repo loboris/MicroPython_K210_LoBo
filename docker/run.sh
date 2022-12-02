@@ -1,3 +1,3 @@
-#! /opt/local/bin/bash
+#! /bin/bash
 
-docker run -it --rm -v $(PWD)/..:/src k210mpy bash
+docker run -it --rm -v $(pwd)/..:/src k210mpy bash
