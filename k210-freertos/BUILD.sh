@@ -439,7 +439,7 @@ fi
 
 if [ $? -eq 0 ]; then
 if [ "${machine}" == "MacOS" ]; then
-    FILESIZE=$(stat -s MicroPython.bin | cut -d' ' -s -f 1 | cut -d'=' -s -f 2)
+    FILESIZE=$(stat -s MicroPython.bin | tr ' ' '\n' | grep st_size| cut -d= -f2)
 else
     FILESIZE=$(stat -c%s MicroPython.bin)
 fi
